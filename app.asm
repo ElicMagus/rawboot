@@ -1,0 +1,119 @@
+0x00000000 mrsmi        r0, (UNDEF: 0)
+0x00000004 andmi        r0, r0, ip
+0x00000008 b    0x00000008
+0x0000000c movw r1, #476        ; 0x1dc
+0x00000010 movw r0, #476        ; 0x1dc
+0x00000014 movt r1, #16384      ; 0x4000
+0x00000018 movt r0, #16384      ; 0x4000
+0x0000001c sub  r1, r1, r0
+0x00000020 bl   0x00000050
+0x00000024 movw r1, #476        ; 0x1dc
+0x00000028 movw r0, #476        ; 0x1dc
+0x0000002c movt r1, #16384      ; 0x4000
+0x00000030 movt r0, #16384      ; 0x4000
+0x00000034 sub  r2, r1, r0
+0x00000038 movw r1, #480        ; 0x1e0
+0x0000003c movt r1, #16384      ; 0x4000
+0x00000040 bl   0x0000004c
+0x00000044 bl   0x00000008
+0x00000048 udf  #65006  ; 0xfdee
+0x0000004c b    0x00000054
+0x00000050 b    0x00000068
+0x00000054 b    0x00000070
+0x00000058 mov  r3, r1
+0x0000005c mov  r1, r2
+0x00000060 mov  r2, r3
+0x00000064 b    0x00000158
+0x00000068 mov  r2, #0
+0x0000006c b    0x00000058
+0x00000070 push {r4, r5, r6, r7, r8, r9, sl, lr}
+0x00000074 cmp  r2, #15
+0x00000078 bls  0x00000104
+0x0000007c rsb  r3, r0, #0
+0x00000080 ands r3, r3, #3
+0x00000084 add  ip, r0, r3
+0x00000088 beq  0x000000a4
+0x0000008c mov  r7, r0
+0x00000090 mov  r6, r1
+0x00000094 ldrb r5, [r6], #1
+0x00000098 strb r5, [r7], #1
+0x0000009c cmp  r7, ip
+0x000000a0 bcc  0x00000094
+0x000000a4 sub  lr, r2, r3
+0x000000a8 add  sl, r1, r3
+0x000000ac bic  r9, lr, #3
+0x000000b0 tst  sl, #3
+0x000000b4 add  r3, ip, r9
+0x000000b8 beq  0x00000114
+0x000000bc cmp  r9, #1
+0x000000c0 blt  0x00000130
+0x000000c4 bic  r6, sl, #3
+0x000000c8 mov  r4, #24
+0x000000cc lsl  r8, sl, #3
+0x000000d0 add  r5, r6, #4
+0x000000d4 ldr  r7, [r6]
+0x000000d8 rsb  r6, r8, #0
+0x000000dc and  r4, r4, sl, lsl #3
+0x000000e0 and  r6, r6, #24
+0x000000e4 ldr  r2, [r5], #4
+0x000000e8 lsl  r1, r2, r6
+0x000000ec orr  r1, r1, r7, lsr r4
+0x000000f0 str  r1, [ip], #4
+0x000000f4 cmp  ip, r3
+0x000000f8 mov  r7, r2
+0x000000fc bcc  0x000000e4
+0x00000100 b    0x00000130
+0x00000104 mov  r3, r0
+0x00000108 cmp  r2, #0
+0x0000010c bne  0x00000140
+0x00000110 b    0x00000154
+0x00000114 cmp  r9, #1
+0x00000118 blt  0x00000130
+0x0000011c mov  r4, sl
+0x00000120 ldr  r1, [r4], #4
+0x00000124 str  r1, [ip], #4
+0x00000128 cmp  ip, r3
+0x0000012c bcc  0x00000120
+0x00000130 add  r1, sl, r9
+0x00000134 and  r2, lr, #3
+0x00000138 cmp  r2, #0
+0x0000013c beq  0x00000154
+0x00000140 add  r2, r3, r2
+0x00000144 ldrb r7, [r1], #1
+0x00000148 strb r7, [r3], #1
+0x0000014c cmp  r3, r2
+0x00000150 bcc  0x00000144
+0x00000154 pop  {r4, r5, r6, r7, r8, r9, sl, pc}
+0x00000158 push {r4, lr}
+0x0000015c cmp  r2, #15
+0x00000160 bls  0x000001bc
+0x00000164 rsb  r3, r0, #0
+0x00000168 ands lr, r3, #3
+0x0000016c add  ip, r0, lr
+0x00000170 beq  0x00000184
+0x00000174 mov  r3, r0
+0x00000178 strb r1, [r3], #1
+0x0000017c cmp  r3, ip
+0x00000180 bcc  0x00000178
+0x00000184 sub  lr, r2, lr
+0x00000188 bic  r2, lr, #3
+0x0000018c add  r3, ip, r2
+0x00000190 cmp  r2, #1
+0x00000194 blt  0x000001b4
+0x00000198 movw r4, #257        ; 0x101
+0x0000019c uxtb r2, r1
+0x000001a0 movt r4, #257        ; 0x101
+0x000001a4 mul  r2, r2, r4
+0x000001a8 str  r2, [ip], #4
+0x000001ac cmp  ip, r3
+0x000001b0 bcc  0x000001a8
+0x000001b4 and  r2, lr, #3
+0x000001b8 b    0x000001c0
+0x000001bc mov  r3, r0
+0x000001c0 cmp  r2, #0
+0x000001c4 popeq        {r4, pc}
+0x000001c8 add  r2, r3, r2
+0x000001cc strb r1, [r3], #1
+0x000001d0 cmp  r3, r2
+0x000001d4 bcc  0x000001cc
+0x000001d8 pop  {r4, pc}
