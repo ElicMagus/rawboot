@@ -1,6 +1,6 @@
-
 use crate::ccu;
 use crate::gpio;
+use crate::io::{read32, write32};
 use core::fmt;
 
 pub const UART_BASE: u32 = 0x0250_0000;
@@ -56,13 +56,11 @@ impl fmt::Write for UartRegT {
     #[inline(always)]
     fn write_str(&mut self, s: &str) -> fmt::Result {
         for c in s.chars() {
-            let addr = (UART_0_BASE + 0x7c) as *mut u32;
-            unsafe {
-                while (core::ptr::read_volatile(addr) & (0x1 << 1)) == 0 {}
-                core::ptr::write_volatile((UART_0_BASE) as *mut u32, c as u32);
-                let addr = (UART_0_BASE + 0x7c) as *mut u32;
-                while core::ptr::read_volatile(addr) & (0x1 << 0) == 1 {}
-            }
+            let addr = UART_0_BASE + 0x7c;
+            while (read32(addr) & (0x1 << 1)) == 0 {}
+            write32(UART_0_BASE, c as u32);
+            let addr = UART_0_BASE + 0x7c;
+            while read32(addr) & (0x1 << 0) == 1 {}
         }
 
         Ok(())
@@ -79,53 +77,36 @@ pub fn init() {
     gpio::init(gpio_e, 3, gpio::PE3_Select::Uart0Rx as u8);
 
     /* Open the clock gate for usart */
-    let addr = (ccu::BASE + ccu::USART_BGR_REG) as *mut u32;
-    unsafe {
-        let mut val = core::ptr::read_volatile(addr);
-        val |= 1 << 0;
-        core::ptr::write_volatile(addr, val);
-        /* Deassert USART reset */
-        let mut val = core::ptr::read_volatile(addr);
-        val |= 1 << (16 + 0);
-        core::ptr::write_volatile(addr, val);
-    }
+    let addr = ccu::BASE + ccu::USART_BGR_REG;
+    let mut val = read32(addr);
+    val |= 1 << 0;
+    write32(addr, val);
+    /* Deassert USART reset */
+    let mut val = read32(addr);
+    val |= 1 << (16 + 0);
+    write32(addr, val);
 
     /* Config USART to 115200-8-1-0 */
-    let addr = (UART_0_BASE + 0x04) as *mut u32;
-    unsafe {
-        core::ptr::write_volatile(addr, 0x0);
-    }
-    let addr = (UART_0_BASE + 0x08) as *mut u32;
-    unsafe {
-        core::ptr::write_volatile(addr, 0xf7);
-    }
-    let addr = (UART_0_BASE + 0x10) as *mut u32;
-    unsafe {
-        core::ptr::write_volatile(addr, 0x0);
-    }
-    let addr = (UART_0_BASE + 0x0c) as *mut u32;
-    unsafe {
-        let mut val = core::ptr::read_volatile(addr);
-        val |= 1 << 7;
-        core::ptr::write_volatile(addr, val);
-    }
-    let addr = (UART_0_BASE + 0x00) as *mut u32;
-    unsafe {
-        core::ptr::write_volatile(addr, 0xd & 0xff);
-    }
-    let addr = (UART_0_BASE + 0x04) as *mut u32;
-    unsafe {
-        core::ptr::write_volatile(addr, (0xd >> 8) & 0xff);
-    }
-
-    let addr = (UART_0_BASE + 0x0c) as *mut u32;
-    unsafe {
-        let mut val = core::ptr::read_volatile(addr);
-        val &= !(1 << 7);
-        core::ptr::write_volatile(addr, val);
-        val = core::ptr::read_volatile(addr);
-        val &= !(0x1f);
-        val |= (0x3 << 0) | (0 << 2) | (0x0 << 3);
-        core::ptr::write_volatile(addr, val);
-    }
+    let addr = UART_0_BASE + 0x04;
+    write32(addr, 0x0);
+    let addr = UART_0_BASE + 0x08;
+    write32(addr, 0xf7);
+    let addr = UART_0_BASE + 0x10;
+    write32(addr, 0x0);
+    let addr = UART_0_BASE + 0x0c;
+    let mut val = read32(addr);
+    val |= 1 << 7;
+    write32(addr, val);
+    let addr = UART_0_BASE + 0x00;
+    write32(addr, 0xd & 0xff);
+    let addr = UART_0_BASE + 0x04;
+    write32(addr, (0xd >> 8) & 0xff);
+    let addr = UART_0_BASE + 0x0c;
+    let mut val = read32(addr);
+    val &= !(1 << 7);
+    write32(addr, val);
+    val = read32(addr);
+    val &= !(0x1f);
+    val |= (0x3 << 0) | (0 << 2) | (0x0 << 3);
+    write32(addr, val);
 }
