@@ -25,6 +25,9 @@ fn main() -> ! {
     //инициализация порта D ноги 22
     gpio::init(gpio_d, 22, gpio::PD22_Select::Output as u8);
     print!("PD22 inited\n");
+    clk::init();
+    let clk=clk::sunxi_clk_get_peri1x_rate();    
+    print!("{:?}\r\n",clk);
     //мигаем
     loop {
         unsafe {
