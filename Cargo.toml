@@ -16,5 +16,5 @@ opt-level = 0
 
 [profile.release]
 panic = "abort"
-opt-level = "z"
+opt-level = "s"
 lto = true

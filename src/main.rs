@@ -8,6 +8,9 @@ use rt::entry;
 entry!(main);
 
 use rt::cpu;
+
+use crate::io::read32;
+use crate::io::write32;
 pub mod ccu;
 pub mod clk;
 pub mod gpio;
@@ -15,6 +18,7 @@ pub mod io;
 pub mod print;
 pub mod sdhci;
 pub mod uart;
+pub mod dram;
 
 fn main() -> ! {
     uart::init();
@@ -24,10 +28,27 @@ fn main() -> ! {
     let pin22: u32 = 1 << 22;
     //инициализация порта D ноги 22
     gpio::init(gpio_d, 22, gpio::PD22_Select::Output as u8);
-    print!("PD22 inited\n");
+    // print!("PD22 inited\n");
+    // let clk=clk::sunxi_clk_get_peri1x_rate();
+    // print!("PLL={:?} Hz\r\n",clk);
     clk::init();
-    let clk=clk::sunxi_clk_get_peri1x_rate();    
-    print!("{:?}\r\n",clk);
+    let pr = clk::sunxi_clk_dump();
+    print!("CLK={:?} MHz\r\n", pr);
+    /* ?? */
+    let mut reg32 = read32(0x070901f4);
+    if (reg32 & 0x1f) != 0 {
+        reg32 = (reg32 & 0xffffff8f) | 0x40;
+        reg32 = (reg32 & 0xffffff8f) | 0xc0;
+        reg32 = (reg32 & 0xffffff8e) | 0xc0;
+        write32(0x070901f4, reg32);
+        print!("fix vccio detect value:0x{:X?}\r\n", reg32);
+    }
+
+    let addr = 0x0200180Cu32;
+	let val  = (1 << 16) | (1 << 0);
+	write32(addr, val);
+	delay();
+
     //мигаем
     loop {
         unsafe {

@@ -1,8 +1,10 @@
-use core::fmt;
 use crate::uart;
+use core::fmt;
 
+#[no_mangle]
+#[inline(always)]
 pub fn _print(args: fmt::Arguments) {
-    pub use core::fmt::Write;    
+    pub use core::fmt::Write;
     uart::console().write_fmt(args).unwrap();
 }
 
@@ -21,6 +23,6 @@ macro_rules! print {
 macro_rules! println {
     () => ($crate::print!("\n"));
     ($($arg:tt)*) => ({
-        $crate::print::_print(format_args_nl!($($arg)*));
+        $crate::print::_print(format_args!($($arg)*));
     })
 }
