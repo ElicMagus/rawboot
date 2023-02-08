@@ -91,17 +91,17 @@ impl DramPara_t
         }
 
         // Init core, final run
-        // if self.mctl_core_init() == 0 {
+        if self.mctl_core_init() == 0 {
             print!("DRAM initialisation error : 1 !\r\n");
             return 0;
-        // }
+        }
 
         // Get sdram size
         rc = self.dram_para2;
         if rc < 0 {
             rc = (rc & 0x7fff0000u32) >> 16;
         } else {
-            // rc = self.get_size();
+            rc = self.get_size();
             print!("DRAM SIZE = {:?}M\r\n", rc);
             self.dram_para2 = (self.dram_para2 & 0xffffu32) | rc << 16;
         }
@@ -154,12 +154,12 @@ impl DramPara_t
             write32(0x310307c, rc);
         }
 
-        // self.enable_all_master();
+        self.enable_all_master();
         if (self.dram_tpr13 & (1 << 28)) != 0 {
             rc = read32(0x70005d4);
-            // if ((rc & (1 << 16))!=0 || dramc_simple_wr_test(mem_size, 4096))!=0 {
-            //     return 0;
-            // }
+            if ((rc & (1 << 16))!=0 || self.simple_wr_test(mem_size, 4096)!=0) {
+                return 0;
+            }
         }
         mem_size
     }
@@ -1544,7 +1544,7 @@ impl DramPara_t
         sdelay(10);
     }
 
-    fn dramc_simple_wr_test(mem_size: u32, test: u32) -> u32 {
+    fn simple_wr_test(mut self,mem_size: u32, test: u32) -> u32 {
         0u32
     }
  

@@ -1,4 +1,4 @@
-// #[inline(always)]
+#[inline(always)]
 pub fn write32(addr:u32, value:u32)
 {
     unsafe {        
@@ -6,7 +6,7 @@ pub fn write32(addr:u32, value:u32)
     }
 }
 
-// #[inline(always)]
+#[inline(always)]
 pub fn read32(addr:u32)->u32
 {
     let value:u32;

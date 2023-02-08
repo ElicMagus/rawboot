@@ -49,7 +49,7 @@ fn main() -> ! {
 	let val  = (1 << 16) | (1 << 0);
 	write32(addr, val);
 	delay();
-    let mut dram=dram::DramPara_t::default();
+    let dram=dram::DramPara_t::default();
     dram.init();
     //мигаем
     loop {
