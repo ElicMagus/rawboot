@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+
 use core::panic::PanicInfo;
 extern crate rt;
 
@@ -48,7 +49,8 @@ fn main() -> ! {
 	let val  = (1 << 16) | (1 << 0);
 	write32(addr, val);
 	delay();
-
+    let mut dram=dram::DramPara_t::default();
+    dram.init();
     //мигаем
     loop {
         unsafe {
