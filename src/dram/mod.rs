@@ -5,8 +5,31 @@ use crate::{
 
 const RAM_BASE: u32 = 0x40000000;
 
+static cfg1: [u8; 22] = [
+    1u8, 9u8, 3u8, 7u8, 8u8, 18u8, 4u8, 13u8, 5u8, 6u8, 10u8, 2u8, 14u8, 12u8, 0u8, 0u8, 21u8,
+    17u8, 20u8, 19u8, 11u8, 22u8,
+];
+static cfg2: [u8; 22] = [
+    4, 9, 3, 7, 8, 18, 1, 13, 2, 6, 10, 5, 14, 12, 0, 0, 21, 17, 20, 19, 11, 22,
+];
+static cfg3: [u8; 22] = [
+    1, 7, 8, 12, 10, 18, 4, 13, 5, 6, 3, 2, 9, 0, 0, 0, 21, 17, 20, 19, 11, 22,
+];
+static cfg4: [u8; 22] = [
+    4, 12, 10, 7, 8, 18, 1, 13, 2, 6, 3, 5, 9, 0, 0, 0, 21, 17, 20, 19, 11, 22,
+];
+static cfg5: [u8; 22] = [
+    13, 2, 7, 9, 12, 19, 5, 1, 6, 3, 4, 8, 10, 0, 0, 0, 21, 22, 18, 17, 11, 20,
+];
+static cfg6: [u8; 22] = [
+    3, 10, 7, 13, 9, 11, 1, 2, 4, 6, 8, 5, 12, 0, 0, 0, 20, 1, 0, 21, 22, 17,
+];
+static cfg7: [u8; 22] = [
+    3, 2, 4, 7, 9, 1, 17, 12, 18, 14, 13, 8, 15, 6, 10, 5, 19, 22, 16, 21, 20, 11,
+];
+
 #[repr(C)]
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct DramPara_t {
     //normal configuration
     dram_clk: u32,
@@ -39,8 +62,40 @@ pub struct DramPara_t {
     dram_tpr13: u32,
 }
 
-impl DramPara_t 
-{
+impl Default for DramPara_t {
+    fn default() -> Self {
+        DramPara_t {
+        dram_clk     : 792,
+        dram_type	 : 3,
+        dram_zq	     : 0x7b7bfb,
+        dram_odt_en  : 0x00,
+        dram_para1	 : 0x000010d2,
+        dram_para2	 : 0x0000,
+        dram_mr0	 : 0x1c70,
+        dram_mr1	 : 0x042,
+        dram_mr2	 : 0x18,
+        dram_mr3	 : 0x0,
+        dram_tpr0	 : 0x004A2195,
+        dram_tpr1	 : 0x02423190,
+        dram_tpr2	 : 0x0008B061,
+        dram_tpr3	 : 0xB4787896,
+        dram_tpr4	 : 0x0,
+        dram_tpr5	 : 0x48484848,
+        dram_tpr6	 : 0x00000048,
+        dram_tpr7	 : 0x1620121e,
+        dram_tpr8	 : 0x0,
+        dram_tpr9	 : 0x0,
+        dram_tpr10	 : 0x0,
+        dram_tpr11	 : 0x00340000,
+        dram_tpr12	 : 0x00000046,
+        dram_tpr13	 : 0x34000100,
+        }    
+    }
+        
+    
+}
+
+impl DramPara_t {
     pub fn init(mut self) -> u32 {
         let mut rc: u32;
         let mem_size: u32;
@@ -63,6 +118,7 @@ impl DramPara_t
 
         // Set voltage
         self.vol_set();
+        print!("Volts\r\n");
 
         // Set SDRAM controller auto config
         if (self.dram_tpr13 & 0x1) == 0 {
@@ -157,7 +213,7 @@ impl DramPara_t
         self.enable_all_master();
         if (self.dram_tpr13 & (1 << 28)) != 0 {
             rc = read32(0x70005d4);
-            if ((rc & (1 << 16))!=0 || self.simple_wr_test(mem_size, 4096)!=0) {
+            if ((rc & (1 << 16)) != 0 || self.simple_wr_test(mem_size, 4096) != 0) {
                 return 0;
             }
         }
@@ -223,6 +279,7 @@ impl DramPara_t
             print!("[ERROR DEBUG] auto scan dram rank & width failed !\r\n");
             return 0;
         }
+        print!("asszi\r\n");
         if ((self.dram_tpr13 & (1 << 0)) == 0) && (self.auto_scan_dram_size() == 0) {
             print!("[ERROR DEBUG] auto scan dram size failed !\r\n");
             return 0;
@@ -255,7 +312,7 @@ impl DramPara_t
         // #ifdef CONFIG_DEBUG_DDR_DRIVER
         let mut banks = 0;
         // #endif
-
+        
         if self.mctl_core_init() == 0 {
             print!("[ERROR DEBUG] DRAM initialisation error : 0!\r\n");
             return 0;
@@ -270,10 +327,16 @@ impl DramPara_t
         offs = 0;
 
         // write test pattern
-        // for (i = 0, ptr = RAM_BASE; i < 64; i++, ptr += 4) {
-        // 	write32(ptr, (i & 1) ? ptr : ~ptr);
-        // }
+        print!("test\r\n");
+        i=0;
+        ptr = RAM_BASE;
+        while i < 64 {
+        	write32(ptr, if i & 1 !=0 {ptr} else {!ptr});
+            i+=1;
+            ptr += 4;
+        }
         rank = 0;
+       
         while rank < maxrank {
             // Set row mode
             rval = read32(mc_work_mode);
@@ -506,19 +569,14 @@ impl DramPara_t
         return 1;
     }
 
-    fn mctl_core_init(self) -> u32 {
-        self.mctl_sys_init();
-
-        self.mctl_vrefzq_init();
-
-        self.mctl_com_init();
-
-        self.mctl_phy_ac_remapping();
-
-        self.auto_set_timing_para();
-
-        let res = self.mctl_channel_init(0);
-        return res;
+    fn mctl_core_init(self) -> u32 {              
+        self.mctl_sys_init();        
+        self.mctl_vrefzq_init();        
+        self.mctl_com_init();        
+        self.mctl_phy_ac_remapping();        
+        self.auto_set_timing_para();        
+        let res = self.mctl_channel_init(0);                
+        res
     }
 
     // Init the controller channel. The key part is placing commands in the main
@@ -562,8 +620,8 @@ impl DramPara_t
         // 0x3103208 undocumented
         write32(0x3103208, read32(0x3103208) | 2);
 
-        // eye_delay_compensation(para);
-
+        self.eye_delay_compensation();
+        
         // set PLL SSCG ?
         //
         val = read32(0x3103108);
@@ -598,7 +656,7 @@ impl DramPara_t
             val |= 0xc0;
             write32(0x3103108, val);
         }
-
+        
         if self.dram_type == 6 || self.dram_type == 7 {
             val = read32(0x310311c);
             if dqs_gating_mode == 1 {
@@ -633,7 +691,7 @@ impl DramPara_t
         val |= self.dram_zq & 0x00ffffff;
         val |= 0x02000000;
         write32(0x3103140, val);
-
+        
         // Initialise DRAM controller
         if dqs_gating_mode == 1 {
             //		write32(0x3103000, 0x52); // prep PHY reset + PLL init + z-cal
@@ -722,7 +780,7 @@ impl DramPara_t
                 while (read32(0x3103010) & 0x1) == 0 {}
             }
         }
-
+        
         // Check for training error
         /*	val = read32(0x3103010);
             if (((val >> 20) & 0xff) && (val & 0x100000)) {
@@ -776,6 +834,101 @@ impl DramPara_t
         return 1;
     }
 
+    fn eye_delay_compensation(self) // s1
+    {
+	let mut val=0;
+    let mut ptr=0;
+    
+	// DATn0IOCR, n =  0...7
+    ptr = 0x3103310u32;
+	while ptr!=0x3103334u32 {
+		val = read32(ptr);
+		val |= (self.dram_tpr11 << 9) & 0x1e00;
+		val |= (self.dram_tpr12 << 1) & 0x001e;
+		write32(ptr, val);
+        ptr += 4;
+	}
+   
+	// DATn1IOCR, n =  0...7
+    ptr=0x3103390;
+	while ptr!=0x31033b4 {
+		val = read32(ptr);
+		val |= ((self.dram_tpr11 >> 4) << 9) & 0x1e00;
+		val |= ((self.dram_tpr12 >> 4) << 1) & 0x001e;
+		write32(ptr, val);
+        ptr += 4;
+	}
+
+	// PGCR0: assert AC loopback FIFO reset
+	val = read32(0x3103100);
+	val &= 0xfbffffff;
+	write32(0x3103100, val);
+
+	// ??
+	val = read32(0x3103334);
+	val |= ((self.dram_tpr11 >> 16) << 9) & 0x1e00;
+	val |= ((self.dram_tpr12 >> 16) << 1) & 0x001e;
+	write32(0x3103334, val);
+
+	val = read32(0x3103338);
+	val |= ((self.dram_tpr11 >> 16) << 9) & 0x1e00;
+	val |= ((self.dram_tpr12 >> 16) << 1) & 0x001e;
+	write32(0x3103338, val);
+
+	val = read32(0x31033b4);
+	val |= ((self.dram_tpr11 >> 20) << 9) & 0x1e00;
+	val |= ((self.dram_tpr12 >> 20) << 1) & 0x001e;
+	write32(0x31033b4, val);
+
+	val = read32(0x31033b8);
+	val |= ((self.dram_tpr11 >> 20) << 9) & 0x1e00;
+	val |= ((self.dram_tpr12 >> 20) << 1) & 0x001e;
+	write32(0x31033b8, val);
+
+	val = read32(0x310333c);
+	val |= ((self.dram_tpr11 >> 16) << 25) & 0x1e000000;
+	write32(0x310333c, val);
+
+	val = read32(0x31033bc);
+	val |= ((self.dram_tpr11 >> 20) << 25) & 0x1e000000;
+	write32(0x31033bc, val);
+
+	// PGCR0: release AC loopback FIFO reset
+	val = read32(0x3103100);
+	val |= 0x04000000;
+	write32(0x3103100, val);
+
+	sdelay(1);
+
+	ptr = 0x3103240;
+    while ptr!=0x310327c {
+		val = read32(ptr);
+		val |= ((self.dram_tpr10 >> 4) << 8) & 0x0f00;
+		write32(ptr, val);
+        ptr += 4;
+	}
+
+	ptr= 0x3103228;
+    while ptr!=0x3103240 {
+		val = read32(ptr);
+		val |= ((self.dram_tpr10 >> 4) << 8) & 0x0f00;
+		write32(ptr, val);
+        ptr += 4;
+	}
+
+	val = read32(0x3103218);
+	val |= (self.dram_tpr10 << 8) & 0x0f00;
+	write32(0x3103218, val);
+
+	val = read32(0x310321c);
+	val |= (self.dram_tpr10 << 8) & 0x0f00;
+	write32(0x310321c, val);
+
+	val = read32(0x3103280);
+	val |= ((self.dram_tpr10 >> 12) << 8) & 0x0f00;
+	write32(0x3103280, val);
+}
+
     // Main purpose of the auto_set_timing routine seems to be to calculate all
     // timing settings for the specific type of sdram used. Read together with
     // an sdram datasheet for context on the various variables.
@@ -805,8 +958,8 @@ impl DramPara_t
         vtype = self.dram_type;
         tpr13 = self.dram_tpr13;
 
-        // ddr_debug("vtype = %d\r\n", type);
-        // ddr_debug("tpr13 = %p\r\n", tpr13);
+        print!("vtype = {:?}\r\n", vtype);
+        print!("tpr13 = {:?}\r\n", tpr13);
 
         if (self.dram_tpr13 & 0x2) != 0 {
             // dram_tpr0
@@ -826,15 +979,14 @@ impl DramPara_t
             trfc = ((self.dram_tpr2 >> 12) & 0x1ff) as u16; // [20:12]
             trefi = ((self.dram_tpr2 >> 0) & 0xfff) as u16; // [11:0 ]
         } else {
-
             let mut frq2 = freq >> 1; // s0
 
             if vtype == 3 {
                 // DDR3
-                // trfc  = auto_cal_timing(350, frq2);
-                // trefi = auto_cal_timing(7800, frq2) / 32 + 1; // XXX
-                // twr	  = auto_cal_timing(8, frq2);
-                // trcd  = auto_cal_timing(15, frq2);
+                trfc  = self.auto_cal_timing(350 , frq2 ) as u16;
+                trefi = (self.auto_cal_timing(7800, frq2) / 32 + 1) as u16; // XXX
+                twr	  = self.auto_cal_timing(8, frq2 as u32) as u8;
+                trcd  = self.auto_cal_timing(15, frq2 as u32) as u8;
                 twtr = twr + 2; // + 2 ? XXX
                 if twr < 2 {
                     twtr = 2;
@@ -844,57 +996,57 @@ impl DramPara_t
                     twr = 2;
                 }
                 if freq <= 800 {
-                    // tfaw = auto_cal_timing(50, frq2);
-                    // trrd = auto_cal_timing(10, frq2);
+                    tfaw = self.auto_cal_timing(50, frq2 as u32) as u8;
+                    trrd = self.auto_cal_timing(10, frq2 as u32) as u8;
                     if trrd < 2 {
                         trrd = 2;
                     }
-                    // trc	 = auto_cal_timing(53, frq2);
-                    // tras = auto_cal_timing(38, frq2);
+                    trc	 = self.auto_cal_timing(53, frq2 as u32) as u8;
+                    tras = self.auto_cal_timing(38, frq2 as u32) as u8;
                     txp = trrd; // 10
                     trp = trcd; // 15
                 } else {
-                    // tfaw = auto_cal_timing(35, frq2);
-                    // trrd = auto_cal_timing(10, frq2);
+                    tfaw = self.auto_cal_timing(35, frq2 as u32) as u8;
+                    trrd = self.auto_cal_timing(10, frq2 as u32) as u8;
                     if trrd < 2 {
                         trrd = 2;
                     }
-                    // trcd = auto_cal_timing(14, frq2);
-                    // trc	 = auto_cal_timing(48, frq2);
-                    // tras = auto_cal_timing(34, frq2);
+                    trcd = self.auto_cal_timing(14, frq2) as u8;
+                    trc	 = self.auto_cal_timing(48, frq2) as u8;
+                    tras = self.auto_cal_timing(34, frq2) as u8;
                     txp = trrd; // 10
                     trp = trcd; // 14
                 }
             // #if 1
             } else if vtype == 2 {
                 // DDR2
-                // tfaw  = auto_cal_timing(50, frq2);
-                // trrd  = auto_cal_timing(10, frq2);
-                // trcd  = auto_cal_timing(20, frq2);
-                // trc	  = auto_cal_timing(65, frq2);
-                // twtr  = auto_cal_timing(8, frq2);
-                // trp	  = auto_cal_timing(15, frq2);
-                // tras  = auto_cal_timing(45, frq2);
-                // trefi = auto_cal_timing(7800, frq2) / 32;
-                // trfc  = auto_cal_timing(328, frq2);
+                tfaw  = self.auto_cal_timing(50, frq2) as u8;
+                trrd  = self.auto_cal_timing(10, frq2) as u8;
+                trcd  = self.auto_cal_timing(20, frq2) as u8;
+                trc	  = self.auto_cal_timing(65, frq2) as u8;
+                twtr  = self.auto_cal_timing(8, frq2) as u8;
+                trp	  = self.auto_cal_timing(15, frq2) as u8;
+                tras  = self.auto_cal_timing(45, frq2) as u8;
+                trefi =(self.auto_cal_timing(7800, frq2) / 32) as u16;
+                trfc  = self.auto_cal_timing(328, frq2) as u16;
                 txp = 2;
                 twr = trp; // 15
             } else if vtype == 6 {
                 // LPDDR2
-                // tfaw = auto_cal_timing(50, frq2);
+                tfaw = self.auto_cal_timing(50, frq2) as u8;
                 if tfaw < 4 {
                     tfaw = 4;
                 }
-                // trrd = auto_cal_timing(10, frq2);
+                trrd = self.auto_cal_timing(10, frq2) as u8;
                 if trrd == 0 {
                     trrd = 1;
                 }
-                // trcd = auto_cal_timing(24, frq2);
+                trcd = self.auto_cal_timing(24, frq2) as u8;
                 if trcd < 2 {
                     trcd = 2;
                 }
-                // trc = auto_cal_timing(70, frq2);
-                // txp = auto_cal_timing(8, frq2);
+                trc = self.auto_cal_timing(70, frq2) as u8;
+                txp = self.auto_cal_timing(8, frq2) as u8;
                 if txp == 0 {
                     txp = 1;
                     twtr = 2;
@@ -905,41 +1057,41 @@ impl DramPara_t
                         twtr = 2;
                     }
                 }
-                // twr = auto_cal_timing(15, frq2);
+                twr = self.auto_cal_timing(15, frq2) as u8;
                 if twr < 2 {
                     twr = 2;
                 }
-            // trp	  = auto_cal_timing(17, frq2);
-            // tras  = auto_cal_timing(42, frq2);
-            // trefi = auto_cal_timing(3900, frq2) / 32;
-            // trfc  = auto_cal_timing(210, frq2);
+            trp	  = self.auto_cal_timing(17, frq2) as u8;
+            tras  = self.auto_cal_timing(42, frq2) as u8;
+            trefi = (self.auto_cal_timing(3900, frq2) / 32) as u16;
+            trfc  = self.auto_cal_timing(210, frq2) as u16;
             } else if vtype == 7 {
                 // LPDDR3
-                // tfaw = auto_cal_timing(50, frq2);
+                tfaw = self.auto_cal_timing(50, frq2) as u8;
                 if tfaw < 4 {
                     tfaw = 4;
                 }
-                // trrd = auto_cal_timing(10, frq2);
+                trrd = self.auto_cal_timing(10, frq2) as u8;
                 if trrd == 0 {
                     trrd = 1;
                 }
-                // trcd = auto_cal_timing(24, frq2);
+                trcd = self.auto_cal_timing(24, frq2) as u8;
                 if trcd < 2 {
                     trcd = 2;
                 }
-                // trc	 = auto_cal_timing(70, frq2);
-                // twtr = auto_cal_timing(8, frq2);
+                trc	 = self.auto_cal_timing(70, frq2) as u8;
+                twtr = self.auto_cal_timing(8, frq2) as u8;
                 if twtr < 2 {
                     twtr = 2;
                 }
-                // twr = auto_cal_timing(15, frq2);
+                twr = self.auto_cal_timing(15, frq2) as u8;
                 if twr < 2 {
                     twr = 2;
                 }
-                // trp	  = auto_cal_timing(17, frq2);
-                // tras  = auto_cal_timing(42, frq2);
-                // trefi = auto_cal_timing(3900, frq2) / 32;
-                // trfc  = auto_cal_timing(210, frq2);
+                trp	  = self.auto_cal_timing(17, frq2) as u8;
+                tras  = self.auto_cal_timing(42, frq2) as u8;
+                trefi = (self.auto_cal_timing(3900, frq2) / 32) as u16;
+                trfc  = self.auto_cal_timing(210, frq2) as u16;
                 txp = twtr;
             // #endif
             } else {
@@ -959,12 +1111,16 @@ impl DramPara_t
             // assign the value back to the DRAM structure
             tccd = 2;
             trtp = 4; // not in .S ?
-            self.dram_tpr0 = ((trc as u32) << 0) | ((trcd as u32) << 6) | ((trrd as u32) << 11) | ((tfaw as u32) << 15) | ((tccd as u32) << 21);
-            self.dram_tpr1 = ((tras as u32)<< 0)
-                | ((trp as u32)<< 6)
+            self.dram_tpr0 = ((trc as u32) << 0)
+                | ((trcd as u32) << 6)
+                | ((trrd as u32) << 11)
+                | ((tfaw as u32) << 15)
+                | ((tccd as u32) << 21);
+            self.dram_tpr1 = ((tras as u32) << 0)
+                | ((trp as u32) << 6)
                 | ((twr as u32) << 11)
-                | ((trtp as u32)<< 15)
-                | ((twtr as u32) << 20) 
+                | ((trtp as u32) << 15)
+                | ((twtr as u32) << 20)
                 | ((txp as u32) << 23);
             self.dram_tpr2 = ((trefi as u32) << 0) | ((trfc as u32) << 12);
 
@@ -1251,19 +1407,19 @@ impl DramPara_t
         write32(0x3103094, reg_val);
     }
 
+    fn auto_cal_timing(mut self,time:u32,freq:u32)->u32{
+        let t:u32 = time * freq;
+        let rem = if t%1000 !=0 {1} else {0};
+        return t/1000+rem;
+    }
+
+
     // This routine seems to have several remapping tables for 22 lines.
     // It is unclear which lines are being remapped. It seems to pick
     // table cfg7 for the Nezha board.
     //
     fn mctl_phy_ac_remapping(mut self) {
-        //        cfg0[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-        // static cfg1[] = {1, 9, 3, 7, 8, 18, 4, 13, 5, 6, 10, 2, 14, 12, 0, 0, 21, 17, 20, 19, 11, 22};
-        // static cfg2[] = {4, 9, 3, 7, 8, 18, 1, 13, 2, 6, 10, 5, 14, 12, 0, 0, 21, 17, 20, 19, 11, 22};
-        // static cfg3[] = {1, 7, 8, 12, 10, 18, 4, 13, 5, 6, 3, 2, 9, 0, 0, 0, 21, 17, 20, 19, 11, 22};
-        // static cfg4[] = {4, 12, 10, 7, 8, 18, 1, 13, 2, 6, 3, 5, 9, 0, 0, 0, 21, 17, 20, 19, 11, 22};
-        // static cfg5[] = {13, 2, 7, 9, 12, 19, 5, 1, 6, 3, 4, 8, 10, 0, 0, 0, 21, 22, 18, 17, 11, 20};
-        // static cfg6[] = {3, 10, 7, 13, 9, 11, 1, 2, 4, 6, 8, 5, 12, 0, 0, 0, 20, 1, 0, 21, 22, 17};
-        // static cfg7[] = {3, 2, 4, 7, 9, 1, 17, 12, 18, 14, 13, 8, 15, 6, 10, 5, 19, 22, 16, 21, 20, 11};
+        let mut cfg0 = [0u8; 22];
 
         let mut fuse: u32 = 0;
         let mut val: u32 = 0;
@@ -1276,26 +1432,32 @@ impl DramPara_t
 
         if ((self.dram_tpr13 >> 18) & 0x3) != 0 {
             // memcpy_self(cfg0, cfg7, 22);
+            cfg0 = cfg7;
         } else {
             match fuse {
                 // #if 1
                 8 => {
                     // memcpy_self(cfg0, cfg2, 22);
+                    cfg0 = cfg2;
                 }
                 9 => {
                     // memcpy_self(cfg0, cfg3, 22);
+                    cfg0 = cfg3;
                 }
                 // #endif
                 10 => {
                     // memcpy_self(cfg0, cfg5, 22);
+                    cfg0 = cfg5;
                 }
                 // #if 1
                 11 => {
                     // memcpy_self(cfg0, cfg4, 22);
+                    cfg0 = cfg4;
                 }
 
                 12 => {
                     // memcpy_self(cfg0, cfg1, 22);
+                    cfg0 = cfg1;
                 }
                 13 => {}
                 14 => {}
@@ -1307,26 +1469,50 @@ impl DramPara_t
             if fuse == 15 {
                 return;
             }
-
             // memcpy_self(cfg0, cfg6, 22);
+            cfg0 = cfg6;
         }
 
-        // if (self.dram_type == 2 || self.dram_type == 3) {
-        // 	val = (cfg0[4] << 25) | (cfg0[3] << 20) | (cfg0[2] << 15) | (cfg0[1] << 10) | (cfg0[0] << 5);
-        // 	write32(0x3102500, val);
+        if (self.dram_type == 2 || self.dram_type == 3) {
+            val = ((cfg0[4] as u32) << 25)
+                | ((cfg0[3] as u32) << 20)
+                | ((cfg0[2] as u32) << 15)
+                | ((cfg0[1] as u32) << 10)
+                | ((cfg0[0] as u32) << 5);
+            write32(0x3102500, val);
 
-        // 	val = (cfg0[10] << 25) | (cfg0[9] << 20) | (cfg0[8] << 15) | (cfg0[7] << 10) | (cfg0[6] << 5) | cfg0[5];
-        // 	write32(0x3102504, val);
+            val = ((cfg0[10]as u32) << 25)
+                | ((cfg0[9] as u32)<< 20)
+                | ((cfg0[8] as u32)<< 15)
+                | ((cfg0[7] as u32)<< 10)
+                | ((cfg0[6] as u32)<< 5)
+                | (cfg0[5] as u32);
+            write32(0x3102504, val);
 
-        // 	val = (cfg0[15] << 20) | (cfg0[14] << 15) | (cfg0[13] << 10) | (cfg0[12] << 5) | cfg0[11];
-        // 	write32(0x3102508, val);
+            val =
+                  ((cfg0[15] as u32) << 20) 
+                | ((cfg0[14] as u32) << 15) 
+                | ((cfg0[13] as u32) << 10) 
+                | ((cfg0[12] as u32) << 5) 
+                | (cfg0[11] as u32);
+            write32(0x3102508, val);
 
-        // 	val = (cfg0[21] << 25) | (cfg0[20] << 20) | (cfg0[19] << 15) | (cfg0[18] << 10) | (cfg0[17] << 5) | cfg0[16];
-        // 	write32(0x310250c, val);
+            val = ((cfg0[21] as u32) << 25)
+                | ((cfg0[20] as u32) << 20)
+                | ((cfg0[19] as u32) << 15)
+                | ((cfg0[18] as u32) << 10)
+                | ((cfg0[17] as u32) << 5)
+                | (cfg0[16] as u32);
+            write32(0x310250c, val);
 
-        // 	val = (cfg0[4] << 25) | (cfg0[3] << 20) | (cfg0[2] << 15) | (cfg0[1] << 10) | (cfg0[0] << 5) | 1;
-        // 	write32(0x3102500, val);
-        // }
+            val = ((cfg0[4] as u32) << 25)
+                | ((cfg0[3] as u32) << 20)
+                | ((cfg0[2] as u32) << 15)
+                | ((cfg0[1] as u32) << 10)
+                | ((cfg0[0] as u32) << 5)
+                | (1 as u32);
+            write32(0x3102500, val);
+        }
     }
 
     // The main purpose of this routine seems to be to copy an address configuration
@@ -1444,7 +1630,7 @@ impl DramPara_t
     //
     fn mctl_sys_init(mut self) {
         let mut val: u32 = 0;
-
+        
         // s1 = 0x02001000
 
         // assert MBUS reset
@@ -1480,6 +1666,7 @@ impl DramPara_t
         // mCTL clock enable
         write32(0x310300c, 0x8000);
         sdelay(10);
+        
     }
 
     // Purpose of this routine seems to be to initialize the PLL driving
@@ -1499,16 +1686,23 @@ impl DramPara_t
         // set VCO clock divider
         n = (clk * 2) / 24;
 
-        val = read32(0x2001010);
-        val &= 0xfff800fc; // clear dividers
-        val |= (n - 1) << 8; // set PLL division
+        val = read32(0x2001010);        
+        val &= 0xfff800fc; // clear dividers        
+        val |= (n - 1) << 8; // set PLL division        
         val |= 0xc0000000; // enable PLL and LDO
         val &= 0xdfffffff;
-        write32(0x2001010, val | 0x20000000);
+        val |= 0x20000000;        
+        write32(0x2001010, val);        
 
         // wait for PLL to lock
-        while (read32(0x2001010) & 0x10000000) == 0 {}
-
+        val=0;
+        while val==0{
+            val = read32(0x2001010) & 0x10000000;
+            // print!("val3={:08X}\r\n",val);
+        } //тут застряли
+    
+        
+        
         sdelay(20);
 
         // enable PLL output
@@ -1523,11 +1717,41 @@ impl DramPara_t
         write32(0x2001800, val);
 
         return n * 24;
-        
     }
 
     fn get_size(self) -> u32 {
-        return 0u32;
+        let mut rval:u32;
+        let mut temp=0; 
+        let mut size0=0; 
+        let mut size1=0;
+
+        rval = read32(0x3102000); // MC_WORK_MODE0
+    
+        temp = (rval >> 8) & 0xf; // page size - 3
+        temp += (rval >> 4) & 0xf; // row width - 1
+        temp += (rval >> 2) & 0x3; // bank count - 2
+        temp -= 14; // 1MB = 20 bits, minus above 6 = 14
+        size0 = 1 << temp;
+    
+        temp  = rval & 0x3; // rank count = 0? -> done
+        if temp == 0 {
+            return size0;
+        }
+    
+        rval = read32(0x3102004); // MC_WORK_MODE1
+    
+        temp = rval & 0x3;
+        if temp == 0 { // two identical ranks
+            return 2 * size0;
+        }
+    
+        temp = (rval >> 8) & 0xf; // page size - 3
+        temp += (rval >> 4) & 0xf; // row width - 1
+        temp += (rval >> 2) & 0x3; // bank number - 2
+        temp -= 14; // 1MB = 20 bits, minus above 6 = 14
+        size1 = 1 << temp;
+    
+        return size0 + size1; // add size of each rank
     }
 
     fn enable_all_master(self) {
@@ -1544,8 +1768,7 @@ impl DramPara_t
         sdelay(10);
     }
 
-    fn simple_wr_test(mut self,mem_size: u32, test: u32) -> u32 {
+    fn simple_wr_test(mut self, mem_size: u32, test: u32) -> u32 {
         0u32
     }
- 
 }

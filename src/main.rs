@@ -50,7 +50,7 @@ fn main() -> ! {
 	write32(addr, val);
 	delay();
     let dram=dram::DramPara_t::default();
-    dram.init();
+    dram.init();    
     //мигаем
     loop {
         unsafe {
@@ -81,16 +81,16 @@ fn delay() {
 
 #[panic_handler]
 fn panic(info: &PanicInfo<'_>) -> ! {
-    let (location, line, column) = match info.location() {
-        Some(loc) => (loc.file(), loc.line(), loc.column()),
-        _ => ("???", 0, 0),
-    };
-    print!(
-        "Kernel panic!\n\n\
-        Panic location:\n      File '{}', line {}, column {}\n\n\
-    ",
-        location, line, column,
-    );
+    // let (location, line, column) = match info.location() {
+    //     Some(loc) => (loc.file(), loc.line(), loc.column()),
+    //     _ => ("???", 0, 0),
+    // };
+    // print!(
+    //     "Kernel panic!\n\n\
+    //     Panic location:\n      File '{}', line {}, column {}\n\n\
+    // ",
+    //     location, line, column,
+    // );
     cpu::wfe();
     loop {}
 }
