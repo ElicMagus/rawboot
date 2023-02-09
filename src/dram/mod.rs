@@ -1768,7 +1768,49 @@ impl DramPara_t {
         sdelay(10);
     }
 
-    fn simple_wr_test(mut self, mem_size: u32, test: u32) -> u32 {
-        0u32
+    fn simple_wr_test(mut self, mem_size_mb: u32, len: u32) -> u32 {
+        let offs	= (mem_size_mb >> 1) << 18; // half of memory size
+        let patt1 = 0x01234567;
+        let patt2 = 0xfedcba98;
+        let mut addr=0;
+        let mut v1=0;
+        let mut v2=0;
+        let mut i=0;
+        print!("WR Test {:X}\r\n",offs);
+        addr = RAM_BASE;
+        i=0;
+        // let mut val = 0xDEADC0DEu32;
+        // write32(addr, val);
+        // val = read32(addr);
+        // print!("DC = {:X}\r\n",val);
+        while i != len {
+            // print!("WR Test {:?}\r\n",i);
+            write32(addr, patt1 + i);
+            write32(addr + offs, patt2 + i);
+            addr+=4;
+            i+=4;
+        }
+        print!("Writed\r\n");
+        addr = RAM_BASE;
+        i=0;
+        while i != len {
+            v1 = read32(addr + i);
+            v2 = patt1 + i;
+            if v1 != v2 {
+                print!("DRAM simple test FAIL.\r\n");
+                print!("{:X} != {:X} at address {:X}\r\n", v1, v2, addr + i);
+                return 1;
+            }
+            v1 = read32(addr + offs + i);
+            v2 = patt2 + i;
+            if v1 != v2 {
+                print!("DRAM simple test FAIL.\r\n");
+                print!("{:X} != {:X} at address {:X}\r\n", v1, v2, addr + offs + i);
+                return 1;
+            }
+            i+=4;
+        }
+        print!("DRAM simple test OK.\r\n");
+        return 0;
     }
 }
