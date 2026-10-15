@@ -1,13 +1,3 @@
 /target
-/123.txt
-/app.asm
-/app.bin
-/Cargo.lock
-/checksum.exe
-/dd.exe
-/libusb-1.0.dll
-/sdclr.bat
-/sdwrite.bat
-/xfel.bat
-/xfel.exe
-/План.txt
+/embed/
+/rawboot/rawboot.bin

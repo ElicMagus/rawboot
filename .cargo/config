@@ -1,9 +1,0 @@
-# [target.thumbv7em-none-eabihf]
-# [target.armv7r-none-eabihf]
-[target.armv7a-none-eabi]
-rustflags = ["-C", "link-arg=-Tlink.x"]
-
-[build]
-# target = "thumbv7em-none-eabihf"
-target = "armv7a-none-eabi"
-# target = "armv7r-none-eabihf"

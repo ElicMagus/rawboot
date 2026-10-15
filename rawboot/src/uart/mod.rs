@@ -3,14 +3,18 @@ use crate::gpio;
 use crate::io::{read32, write32};
 use core::fmt;
 
-pub const UART_BASE: u32 = 0x0250_0000;
+const UART_BASE: u32 = 0x0250_0000;
 const UART_MX: u32 = 0x400;
-pub const UART_0_BASE: u32 = UART_BASE + UART_MX * 0;
-// pub const UART_1_BASE: u32 = UART_BASE + UART_MX*1;
-// pub const UART_2_BASE: u32 = UART_BASE + UART_MX*2;
-// pub const UART_3_BASE: u32 = UART_BASE + UART_MX*3;
-// pub const UART_4_BASE: u32 = UART_BASE + UART_MX*4;
-// pub const UART_5_BASE: u32 = UART_BASE + UART_MX*5;
+#[derive(Clone, Copy)]
+#[repr(u32)]
+pub enum Uart {
+    UART0 = UART_BASE,
+    UART1 = UART_BASE + UART_MX * 1,
+    UART2 = UART_BASE + UART_MX * 2,
+    UART3 = UART_BASE + UART_MX * 3,
+    UART4 = UART_BASE + UART_MX * 4,
+    UART5 = UART_BASE + UART_MX * 5,
+}
 
 // pub const UART_RBR:u32= 0x0000;             //UART Receive Buffer Register
 // pub const UART_THR:u32= 0x0000;             //UART Transmit Holding Register
@@ -48,65 +52,101 @@ pub const UART_0_BASE: u32 = UART_BASE + UART_MX * 0;
 // pub const UART_A_RXDMA_RADDRH:u32=0x0134;   //UART RXDMA Read Address high Register
 // pub const UART_A_RXDMA_DCNT:u32=0x0138;     //UART RADMA Data Count Register
 
-#[derive(Default)]
 #[repr(C)]
-pub struct UartRegT;
+pub struct UartRegT {}
+
+pub struct UartHandler {
+    pub base: Uart,
+    pub rx: gpio::Gpio,
+    pub tx: gpio::Gpio,
+}
 
 impl fmt::Write for UartRegT {
     #[inline(always)]
-    fn write_str(&mut self, s: &str) -> fmt::Result {
+    fn write_str(self: &mut UartRegT, s: &str) -> fmt::Result {
         for c in s.chars() {
-            let addr = UART_0_BASE + 0x7c;
+            let addr = Uart::UART0 as u32 + 0x7c;
             while (read32(addr) & (0x1 << 1)) == 0 {}
-            write32(UART_0_BASE, c as u32);
-            let addr = UART_0_BASE + 0x7c;
+            write32(Uart::UART0 as u32, c as u32);
+            let addr = Uart::UART0 as u32 + 0x7c;
             while read32(addr) & (0x1 << 0) == 1 {}
         }
 
         Ok(())
     }
 }
+
 pub fn console() -> impl core::fmt::Write {
     UartRegT {}
 }
 
-pub fn init() {
-    /* Config usart TXD and RXD pins */
-    let gpio_e = gpio::GPIO_E as *mut gpio::GpioRegT;
-    gpio::init(gpio_e, 2, gpio::PE2_Select::Uart0Tx as u8);
-    gpio::init(gpio_e, 3, gpio::PE3_Select::Uart0Rx as u8);
+impl Default for UartHandler {
+    fn default() -> Self {
+        UartHandler {
+            base: Uart::UART0,
+            tx: gpio::Gpio {
+                port: gpio::Port::E,
+                pin: 2,
+                func: gpio::pe2::UART0_TX,
+                pull_mode: gpio::Pull::UP,
+            },
+            rx: gpio::Gpio {
+                port: gpio::Port::E,
+                pin: 2,
+                func: gpio::pe3::UART0_RX,
+                pull_mode: gpio::Pull::UP,
+            },
+        }
+    }
+}
 
-    /* Open the clock gate for usart */
-    let addr = ccu::BASE + ccu::USART_BGR_REG;
-    let mut val = read32(addr);
-    val |= 1 << 0;
-    write32(addr, val);
-    /* Deassert USART reset */
-    let mut val = read32(addr);
-    val |= 1 << (16 + 0);
-    write32(addr, val);
+impl UartHandler {
+    // pub fn new(&self)->UartRegT{
+    // UartRegT{ uart: todo!(), gpio_rx: todo!(), gpio_tx: todo!() }
+    // }
+    pub fn putc(&self, c: char) {
+        while (read32(self.base as u32 + 0x7c) & (0x1 << 1)) == 0 {}
+        write32(self.base as u32, c as u32);
+        while read32(self.base as u32 + 0x7c) & (0x1 << 0) == 1 {}
+    }
 
-    /* Config USART to 115200-8-1-0 */
-    let addr = UART_0_BASE + 0x04;
-    write32(addr, 0x0);
-    let addr = UART_0_BASE + 0x08;
-    write32(addr, 0xf7);
-    let addr = UART_0_BASE + 0x10;
-    write32(addr, 0x0);
-    let addr = UART_0_BASE + 0x0c;
-    let mut val = read32(addr);
-    val |= 1 << 7;
-    write32(addr, val);
-    let addr = UART_0_BASE + 0x00;
-    write32(addr, 0xd & 0xff);
-    let addr = UART_0_BASE + 0x04;
-    write32(addr, (0xd >> 8) & 0xff);
-    let addr = UART_0_BASE + 0x0c;
-    let mut val = read32(addr);
-    val &= !(1 << 7);
-    write32(addr, val);
-    val = read32(addr);
-    val &= !(0x1f);
-    val |= (0x3 << 0) | (0 << 2) | (0x0 << 3);
-    write32(addr, val);
+    pub fn init(&self) {
+        /* Config usart TXD and RXD pins */
+        self.rx.init();
+        self.tx.init();
+        /* Open the clock gate for usart */
+        let addr = ccu::BASE + ccu::USART_BGR_REG;
+        let mut val = read32(addr);
+        val |= 1 << 0;
+        write32(addr, val);
+        /* Deassert USART reset */
+        let mut val = read32(addr);
+        val |= 1 << (16 + 0);
+        write32(addr, val);
+
+        /* Config USART to 115200-8-1-0 */
+        let addr = self.base as u32 + 0x04;
+        write32(addr, 0x0);
+        let addr = self.base as u32 + 0x08;
+        write32(addr, 0xf7);
+        let addr = self.base as u32 + 0x10;
+        write32(addr, 0x0);
+        let addr = self.base as u32 + 0x0c;
+        let mut val = read32(addr);
+        val |= 1 << 7;
+        write32(addr, val);
+        let divisor: u32 = 0xd;
+        let addr = self.base as u32 + 0x00;
+        write32(addr, divisor & 0xff);
+        let addr = self.base as u32 + 0x04;
+        write32(addr, (divisor >> 8) & 0xff);
+        let addr = self.base as u32 + 0x0c;
+        let mut val = read32(addr);
+        val &= !(1 << 7);
+        write32(addr, val);
+        val = read32(addr);
+        val &= !(0x1f);
+        val |= (0x3 << 0) | (0 << 2) | (0x0 << 3);
+        write32(addr, val);
+    }
 }
