@@ -1,0 +1,13 @@
+[package]
+name = "rawboot"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rawboot-rt = { path = "../rawboot-rt" }
+
+[[bin]]
+name = "rawboot"
+path = "src/main.rs"
+test = false
+doctest = false

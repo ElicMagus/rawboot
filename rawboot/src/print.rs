@@ -1,7 +1,7 @@
 use crate::uart;
 use core::fmt;
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[inline(always)]
 pub fn _print(args: fmt::Arguments) {
     pub use core::fmt::Write;

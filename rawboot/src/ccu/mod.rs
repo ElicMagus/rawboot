@@ -9,9 +9,9 @@ pub const PLL_VIDEO0_CTRL_REG: u32 = 0x040;
 pub const PLL_VIDEO1_CTRL_REG: u32 = 0x048;
 pub const PLL_VE_CTRL: u32 = 0x058;
 pub const PLL_DE_CTRL: u32 = 0x060;
-pub const PLL_HSIC_CTRL: u32 = (0x070);
+pub const PLL_HSIC_CTRL: u32 = 0x070;
 pub const PLL_AUDIO0_CTRL_REG: u32 = 0x078;
-pub const PLL_AUDIO1_CTRL_REG: u32 = (0x080);
+pub const PLL_AUDIO1_CTRL_REG: u32 = 0x080;
 pub const PLL_DDR_PAT0_CTRL_REG: u32 = (0x110);
 pub const PLL_DDR_PAT1_CTRL_REG: u32 = (0x114);
 pub const PLL_PERI0_PAT0_CTRL_REG: u32 = (0x120);
@@ -58,7 +58,7 @@ pub const DMA_BGR_REG: u32 = (0x70c);
 pub const DRAM_CLK_REG: u32 = (0x800);
 pub const MBUS_MAT_CLK_GATING_REG: u32 = (0x804);
 pub const DRAM_BGR_REG: u32 = 0x80c;
-pub const USART_BGR_REG: u32 = 0x90c;               //UART Bus Gating Reset Register
+pub const USART_BGR_REG: u32 = 0x90c; //UART Bus Gating Reset Register
 pub const RISCV_CLK_REG: u32 = (0xd00);
 pub const RISCV_GATING_REG: u32 = (0xd04);
 pub const RISCV_CFG_BGR_REG: u32 = (0xd0c);
@@ -72,4 +72,3 @@ pub const RISCV_CFG_BGR_REG: u32 = (0xd0c);
 //     Mask=0,
 //     Pass=1,
 // }
-
