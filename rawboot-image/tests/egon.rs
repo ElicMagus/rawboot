@@ -1,18 +1,23 @@
+// SPDX-License-Identifier: Unlicense
+
 //! Byte-in/byte-out tests for eGON sealing, driven by independently computed vectors.
 
-use rawboot_image::{BROM_PAGE_SIZE, PADDING_BLOCK, PADDING_FLASH, SealError, SealOptions, seal};
+use rawboot_image::{
+    BROM_PAGE_SIZE, EGON_CHECKSUM_OFFSET, EGON_LENGTH_OFFSET, PADDING_BLOCK, PADDING_FLASH,
+    SealError, SealOptions, seal,
+};
 
-/// The 48-byte eGON header as laid down by the runtime, with placeholder checksum/length.
+/// The 48-byte eGON header as laid down by `rawboot-rt`, with placeholder checksum/length.
 fn egon_header() -> Vec<u8> {
     let mut h = Vec::new();
     h.extend_from_slice(&0xEA00_000Au32.to_le_bytes());
     h.extend_from_slice(b"eGON.BT0");
     h.extend_from_slice(&0x1234_5678u32.to_le_bytes());
-    h.extend_from_slice(&0u32.to_le_bytes());
+    h.extend_from_slice(&32768u32.to_le_bytes());
     h.extend_from_slice(&0x30u32.to_le_bytes());
     h.extend_from_slice(&0x3030_3033u32.to_le_bytes());
     h.extend_from_slice(&0x0002_0000u32.to_le_bytes());
-    h.extend_from_slice(&0x0002_8000u32.to_le_bytes());
+    h.extend_from_slice(&0x0002_0000u32.to_le_bytes());
     h.extend_from_slice(&0u32.to_le_bytes());
     h.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x34, 0x2e, 0x30, 0x00]);
     assert_eq!(h.len(), 48);
@@ -37,8 +42,8 @@ fn block_padding_aligns_length_and_checksums() {
     let sealed = seal(&egon_header(), BLOCK).unwrap();
 
     assert_eq!(sealed.len(), 512);
-    assert_eq!(read_u32(&sealed, 16), 512);
-    assert_eq!(read_u32(&sealed, 12), 0xF812_D66D);
+    assert_eq!(read_u32(&sealed, EGON_LENGTH_OFFSET), 512);
+    assert_eq!(read_u32(&sealed, EGON_CHECKSUM_OFFSET), 0xF812_566D);
     assert!(sealed[48..].iter().all(|&b| b == 0));
 }
 
@@ -47,8 +52,8 @@ fn flash_padding_aligns_length_and_checksums() {
     let sealed = seal(&egon_header(), FLASH).unwrap();
 
     assert_eq!(sealed.len(), 8192);
-    assert_eq!(read_u32(&sealed, 16), 8192);
-    assert_eq!(read_u32(&sealed, 12), 0xF812_F46D);
+    assert_eq!(read_u32(&sealed, EGON_LENGTH_OFFSET), 8192);
+    assert_eq!(read_u32(&sealed, EGON_CHECKSUM_OFFSET), 0xF812_746D);
     assert!(sealed[48..].iter().all(|&b| b == 0));
 }
 
@@ -88,7 +93,7 @@ fn large_pages_scatter_each_2kib_page_into_a_full_slot() {
 
 #[test]
 fn rejects_image_smaller_than_header() {
-    assert_eq!(seal(&[0u8; 47], BLOCK), Err(SealError::TooShort),);
+    assert_eq!(seal(&[0u8; 47], BLOCK), Err(SealError::TooShort));
 }
 
 #[test]

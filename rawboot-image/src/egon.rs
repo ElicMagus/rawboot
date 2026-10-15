@@ -1,15 +1,21 @@
+// SPDX-License-Identifier: Unlicense
+
 //! Allwinner eGON boot-image sealing.
 //!
 //! BROM validates an eGON image before running it: it checks that a 32-bit checksum over the
 //! padded image matches the value in the header, with the checksum field seeded to
 //! [`EGON_CHECKSUM_SEED`] before summing. [`seal`] reproduces the `mksunxi` transform used by
-//! awboot: it overwrites the header's length field with the padded length, pads the image to a
-//! block or flash boundary, computes the seeded checksum, and — for BROM page sizes larger than
+//! awboot: it pads the image to a block or flash boundary, overwrites the header's length field
+//! with the padded length, computes the seeded checksum, and — for BROM page sizes larger than
 //! 2 KiB — scatters each 2 KiB logical page into a zero-filled page slot.
 //!
 //! The input is the loader binary *with* its eGON header already laid down by the runtime; only
-//! the length and checksum fields are modified.
+//! the length and checksum fields are modified. Unlike `mksunxi`, which sums
+//! `ALIGN(header.length, padding)` words, `seal` derives the length from the actual input size —
+//! the header field is an output here, so a stale placeholder in the binary cannot under- or
+//! over-read the buffer.
 
+use crate::checksum::sum_le_u32;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -85,13 +91,10 @@ pub fn seal(image: &[u8], options: SealOptions) -> Result<Vec<u8>, SealError> {
     let mut buf = vec![0u8; length];
     buf[..image.len()].copy_from_slice(image);
 
-    let length_field = (length as u32).to_le_bytes();
-    buf[EGON_LENGTH_OFFSET..EGON_LENGTH_OFFSET + 4].copy_from_slice(&length_field);
-    let seed = EGON_CHECKSUM_SEED.to_le_bytes();
-    buf[EGON_CHECKSUM_OFFSET..EGON_CHECKSUM_OFFSET + 4].copy_from_slice(&seed);
-
-    let checksum = seeded_checksum(&buf).to_le_bytes();
-    buf[EGON_CHECKSUM_OFFSET..EGON_CHECKSUM_OFFSET + 4].copy_from_slice(&checksum);
+    write_u32(&mut buf, EGON_LENGTH_OFFSET, length as u32);
+    write_u32(&mut buf, EGON_CHECKSUM_OFFSET, EGON_CHECKSUM_SEED);
+    let checksum = sum_le_u32(&buf);
+    write_u32(&mut buf, EGON_CHECKSUM_OFFSET, checksum);
 
     Ok(scatter_pages(buf, options.page_size))
 }
@@ -100,12 +103,8 @@ fn align_up(value: usize, align: usize) -> usize {
     (value + align - 1) & !(align - 1)
 }
 
-fn seeded_checksum(buf: &[u8]) -> u32 {
-    let mut sum = 0u32;
-    for word in buf.as_chunks::<4>().0 {
-        sum = sum.wrapping_add(u32::from_le_bytes(*word));
-    }
-    sum
+fn write_u32(buf: &mut [u8], offset: usize, value: u32) {
+    buf[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
 }
 
 fn scatter_pages(buf: Vec<u8>, page_size: usize) -> Vec<u8> {

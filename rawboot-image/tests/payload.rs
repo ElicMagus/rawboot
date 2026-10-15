@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Unlicense
+
 //! Byte-in/byte-out tests for payload header parsing, driven by independently computed vectors.
 
 use rawboot_image::{

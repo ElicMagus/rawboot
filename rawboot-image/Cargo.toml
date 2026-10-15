@@ -2,5 +2,13 @@
 name = "rawboot-image"
 version = "0.1.0"
 edition = "2024"
+license = "Unlicense"
 
 [dependencies]
+
+[features]
+# `seal` builds the padded/scattered image on the heap, so it needs `alloc`. The loader consumes
+# only `payload` and can depend on this crate with `default-features = false` to stay
+# allocation-free.
+default = ["alloc"]
+alloc = []

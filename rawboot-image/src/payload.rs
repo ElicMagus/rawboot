@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Unlicense
+
 //! Parsing of the rawboot payload image header.
 //!
 //! The payload ships as a raw binary behind a fixed 28-byte [`ImageHeader`]. `size` counts the
@@ -91,13 +93,7 @@ pub fn parse(image: &[u8]) -> Result<Payload<'_>, ImageError> {
 /// The payload checksum: the wrapping sum of `data` as little-endian 32-bit words, with a
 /// trailing partial word zero-padded.
 pub fn image_checksum(data: &[u8]) -> u32 {
-    let mut sum = 0u32;
-    for chunk in data.chunks(4) {
-        let mut word = [0u8; 4];
-        word[..chunk.len()].copy_from_slice(chunk);
-        sum = sum.wrapping_add(u32::from_le_bytes(word));
-    }
-    sum
+    crate::checksum::sum_le_u32(data)
 }
 
 const fn read_u32(bytes: &[u8], offset: usize) -> u32 {
