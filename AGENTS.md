@@ -7,16 +7,20 @@ written in 100% Rust and ported from `szemzoa/awboot`. It brings up the SoC, rea
 image from a FAT partition on an SD card over SDHCI, loads it into DRAM, and hands off through a
 versioned `BootInfo` contract. The payload is our own firmware, not Linux (no FDT, no PSCI).
 
-Cargo workspace with two members: `rawboot` (the loader) and `rawboot-rt` (the runtime). Target
-`armv7a-none-eabi` (soft-float), Rust edition 2024.
+Cargo workspace with three members: `rawboot` (the loader), `rawboot-rt` (the runtime) and
+`rawboot-image` (host-testable payload/eGON image tooling). Target `armv7a-none-eabi`
+(soft-float), Rust edition 2024.
 
 Standard commands:
 
 - Build: `cargo build --release`
-- Test (host, tooling): `cargo test`
+- Test (host, tooling): `cargo test -p rawboot-image --target x86_64-unknown-linux-gnu`
+  (the workspace default target is `armv7a-none-eabi`, so host tests need an explicit
+  `--target` and the package scope keeps the bare-metal members out of the host build)
 - Lint: `cargo clippy -- -D warnings` (the `no_std` crates have no host test
   target, so `--all-targets` cannot build the libtest harness on
-  `armv7a-none-eabi`)
+  `armv7a-none-eabi`; the host tooling tests are linted with
+  `cargo clippy -p rawboot-image --target x86_64-unknown-linux-gnu --all-targets -- -D warnings`)
 - Format: `cargo fmt`
 - Seal an image: `cargo xtask image`
 
