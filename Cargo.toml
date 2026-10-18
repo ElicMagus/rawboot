@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["rawboot", "rawboot-rt", "rawboot-image"]
+members = ["rawboot", "rawboot-rt", "rawboot-image", "xtask"]
+# The xtask is a host tool and must not be built for the loader's bare-metal
+# default target; keep it out of the default build.
+default-members = ["rawboot", "rawboot-rt", "rawboot-image"]
 
 [profile.dev]
 panic = "abort"

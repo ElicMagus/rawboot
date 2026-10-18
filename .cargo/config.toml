@@ -3,3 +3,8 @@ rustflags = ["-C", "link-arg=-Tlink.x"]
 
 [build]
 target = "armv7a-none-eabi"
+
+[alias]
+# The xtask is a host tool: pin the host triple because `[build] target` above
+# is the loader's. Windows keeps the build.bat path instead.
+xtask = "run --package xtask --target x86_64-unknown-linux-gnu --"
