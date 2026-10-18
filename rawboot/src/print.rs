@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Unlicense
+
 use crate::uart;
 use core::fmt;
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Unlicense
+
 #[inline(always)]
 pub fn write32(addr: u32, value: u32) {
     unsafe {

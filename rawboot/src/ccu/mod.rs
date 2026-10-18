@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Unlicense
+
 pub const BASE: u32 = 0x0200_1000;
 
 pub const PLL_CPU_CTRL_REG: u32 = 0x000;

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Unlicense
+
 pub mod ccu;
 pub mod gpio;
 pub mod uart;

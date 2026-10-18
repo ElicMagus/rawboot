@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Unlicense
+
 use core::arch::asm;
 
 #[unsafe(no_mangle)]

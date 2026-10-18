@@ -12,6 +12,9 @@ Cargo workspace with five members: `rawboot` (the loader), `rawboot-rt` (the run
 payload/eGON image tooling) and `xtask` (host build tooling).
 Target `armv7a-none-eabi` (soft-float), Rust edition 2024.
 
+`embed/` is an ignored vendored snapshot of the upstream reference and `target/` is build
+output; explore the workspace crates, not those trees.
+
 Standard commands:
 
 - Build: `cargo build --release` (`xtask` is a host tool, kept out of the bare-metal
@@ -23,11 +26,19 @@ Standard commands:
   target, so `--all-targets` cannot build the libtest harness on
   `armv7a-none-eabi`; the host tooling is linted with
   `cargo clippy -p rawboot-image -p xtask --target x86_64-unknown-linux-gnu --all-targets -- -D warnings`)
-- Format: `cargo fmt`
+- Format: `cargo fmt` (CI runs `cargo fmt --all -- --check`)
+- Check everything: `scripts/check.sh` (fmt, build, both clippy passes, host tests, SPDX
+  headers, and `cargo xtask image`/`payload` smoke builds)
 - Seal an image: `cargo xtask image` (builds the loader and writes the sealed
   `target/rawboot-fel.bin`; the `xtask` alias pins the host triple in `.cargo/config.toml`)
 - Build the payload image: `cargo xtask payload` (builds the `payload` crate and writes
   `target/rawboot-payload.img`, its flat binary wrapped in the payload image header)
+
+## CI
+
+`.gitea/workflows/ci.yml` runs `scripts/check.sh` on every push and pull request. It needs an
+`act_runner` registered with the `ubuntu-latest` label; until one is, run the script by hand before
+pushing.
 
 ## Working agreements
 
@@ -59,4 +70,5 @@ Two category + five state roles, mapped to this repo's label strings. See `docs/
 
 ### Domain docs
 
-Single-context. Glossary at `GLOSSARY.md`, decisions at `docs/adr/`. See `docs/agents/domain.md`.
+Single-context. Spec at `docs/spec-rawboot-v1.md`, research notes at `research/`, glossary at
+`GLOSSARY.md`, decisions at `docs/adr/`. See `docs/agents/domain.md`.

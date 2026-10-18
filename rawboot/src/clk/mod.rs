@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Unlicense
+
 use crate::{
     ccu,
     io::{read32, sdelay, write32},

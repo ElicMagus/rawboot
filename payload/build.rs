@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Unlicense
+
 use std::{env, error::Error, fs::File, io::Write, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn Error>> {

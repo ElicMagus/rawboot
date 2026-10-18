@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Unlicense
+
 #![allow(warnings)]
 use crate::{
     ccu,

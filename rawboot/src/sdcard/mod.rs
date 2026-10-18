@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Unlicense
+
 use core::{
     cmp::min,
     ops::BitAnd,

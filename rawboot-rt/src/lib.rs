@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Unlicense
+
 #![no_std]
 
 use core::arch::asm;

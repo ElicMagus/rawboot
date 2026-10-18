@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Unlicense
+
 use crate::io::{read32, write32};
 
 pub const GPIO_BASE: u32 = 0x0200_0000;

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Unlicense
+
 #![no_std]
 #![no_main]
 #![allow(warnings)]
