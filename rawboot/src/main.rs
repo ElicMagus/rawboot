@@ -39,6 +39,10 @@ fn main() -> ! {
     for c in s.chars() {
         uart.putc(c);
     }
+    let clk_fail = clk::sunxi_clk_get_fail_addr();
+    if clk_fail != 0 {
+        print!("CLK: init timeout at 0x{:08x}\r\n", clk_fail);
+    }
     let pr = clk::sunxi_clk_dump();
     print!("CLK={:?} MHz\r\n", pr);
     /* ?? */

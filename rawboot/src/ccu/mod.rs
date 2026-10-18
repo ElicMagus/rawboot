@@ -62,13 +62,3 @@ pub const USART_BGR_REG: u32 = 0x90c; //UART Bus Gating Reset Register
 pub const RISCV_CLK_REG: u32 = (0xd00);
 pub const RISCV_GATING_REG: u32 = (0xd04);
 pub const RISCV_CFG_BGR_REG: u32 = (0xd0c);
-
-// pub enum CcuUartReset {
-//     Assert=0,
-//     De_Assert=1,
-// }
-
-// pub enum CcuUartGating{
-//     Mask=0,
-//     Pass=1,
-// }
