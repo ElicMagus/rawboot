@@ -46,5 +46,14 @@ Transferring control from the loader to the payload, in a defined CPU and regist
 **DRAM init**:
 Bringing up the T113 DDR3 controller, without which DRAM is unusable.
 
+**upstream**:
+The C project `szemzoa/awboot` that `rawboot` is ported from; the behaviour we align to.
+_Avoid_: original, reference, vendor
+
+**parity**:
+Behavioural equivalence with upstream — same step order, constants, branches and tables — reached
+with our own Rust expression.
+_Avoid_: port, match, fidelity
+
 **regs**:
 Named MMIO register constants and structs, transcribed from the T113 datasheet and awboot.
