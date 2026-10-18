@@ -5,6 +5,13 @@
 //! The payload ships as a raw binary behind a fixed 28-byte [`ImageHeader`]. `size` counts the
 //! payload bytes that follow the header, and `checksum` is the wrapping sum of those bytes as
 //! little-endian 32-bit words (a trailing partial word is zero-padded).
+//!
+//! [`parse`] is the loader's seam: it reads and validates the header. [`build`] is the build
+//! tooling's seam: it wraps a raw binary in the header, computing the checksum, so `xtask` emits
+//! images the loader accepts.
+
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
 
 pub const IMAGE_MAGIC: u32 = u32::from_le_bytes(*b"RBIF");
 pub const IMAGE_VERSION: u32 = 1;
@@ -29,6 +36,73 @@ pub struct ImageHeader {
     pub checksum: u32,
 }
 
+mod offset {
+    pub const MAGIC: usize = 0;
+    pub const VERSION: usize = 4;
+    pub const FLAGS: usize = 8;
+    pub const ENTRY: usize = 12;
+    pub const LOAD_ADDR: usize = 16;
+    pub const SIZE: usize = 20;
+    pub const CHECKSUM: usize = 24;
+}
+
+impl ImageHeader {
+    /// The header's little-endian byte representation, ready to prefix to a payload.
+    pub const fn to_bytes(self) -> [u8; IMAGE_HEADER_SIZE] {
+        let mut out = [0u8; IMAGE_HEADER_SIZE];
+        write_u32(&mut out, offset::MAGIC, self.magic);
+        write_u32(&mut out, offset::VERSION, self.version);
+        write_u32(&mut out, offset::FLAGS, self.flags);
+        write_u32(&mut out, offset::ENTRY, self.entry);
+        write_u32(&mut out, offset::LOAD_ADDR, self.load_addr);
+        write_u32(&mut out, offset::SIZE, self.size);
+        write_u32(&mut out, offset::CHECKSUM, self.checksum);
+        out
+    }
+
+    /// Read a header from the first [`IMAGE_HEADER_SIZE`] bytes of `bytes`, without validating it.
+    const fn from_bytes(bytes: &[u8]) -> Self {
+        Self {
+            magic: read_u32(bytes, offset::MAGIC),
+            version: read_u32(bytes, offset::VERSION),
+            flags: read_u32(bytes, offset::FLAGS),
+            entry: read_u32(bytes, offset::ENTRY),
+            load_addr: read_u32(bytes, offset::LOAD_ADDR),
+            size: read_u32(bytes, offset::SIZE),
+            checksum: read_u32(bytes, offset::CHECKSUM),
+        }
+    }
+}
+
+/// How [`build`] stamps a payload image header. `flags` is reserved for future features; leave it
+/// zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImageOptions {
+    /// Where the payload should be placed in DRAM.
+    pub load_addr: u32,
+    /// Where execution should begin once the payload is placed.
+    pub entry: u32,
+    /// Reserved feature bits.
+    pub flags: u32,
+}
+
+impl ImageOptions {
+    /// Load and enter at `load_addr` from the start of the image, with no flags.
+    pub const fn new(load_addr: u32) -> Self {
+        Self {
+            load_addr,
+            entry: load_addr,
+            flags: 0,
+        }
+    }
+}
+
+impl Default for ImageOptions {
+    fn default() -> Self {
+        Self::new(DEFAULT_LOAD_ADDR)
+    }
+}
+
 /// A parsed image: its header and the payload bytes it describes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Payload<'a> {
@@ -51,21 +125,28 @@ pub enum ImageError {
     BadChecksum,
 }
 
+impl core::fmt::Display for ImageError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let msg = match self {
+            ImageError::Truncated => "image truncated",
+            ImageError::BadMagic => "bad image magic",
+            ImageError::UnsupportedVersion => "unsupported image version",
+            ImageError::SizeTooLarge => "declared image size too large",
+            ImageError::BadChecksum => "image checksum mismatch",
+        };
+        f.write_str(msg)
+    }
+}
+
+impl core::error::Error for ImageError {}
+
 /// Parse a payload image, validating its header and checksum.
 pub fn parse(image: &[u8]) -> Result<Payload<'_>, ImageError> {
     if image.len() < IMAGE_HEADER_SIZE {
         return Err(ImageError::Truncated);
     }
 
-    let header = ImageHeader {
-        magic: read_u32(image, 0),
-        version: read_u32(image, 4),
-        flags: read_u32(image, 8),
-        entry: read_u32(image, 12),
-        load_addr: read_u32(image, 16),
-        size: read_u32(image, 20),
-        checksum: read_u32(image, 24),
-    };
+    let header = ImageHeader::from_bytes(image);
 
     if header.magic != IMAGE_MAGIC {
         return Err(ImageError::BadMagic);
@@ -96,6 +177,32 @@ pub fn image_checksum(data: &[u8]) -> u32 {
     crate::checksum::sum_le_u32(data)
 }
 
+/// Wrap a raw payload binary in an [`ImageHeader`], producing an image [`parse`] accepts.
+///
+/// The header's `size` and `checksum` are derived from `data`; `magic` and `version` are the
+/// current ones.
+#[cfg(feature = "alloc")]
+pub fn build(data: &[u8], options: ImageOptions) -> Result<Vec<u8>, ImageError> {
+    if data.len() > MAX_IMAGE_SIZE as usize {
+        return Err(ImageError::SizeTooLarge);
+    }
+
+    let header = ImageHeader {
+        magic: IMAGE_MAGIC,
+        version: IMAGE_VERSION,
+        flags: options.flags,
+        entry: options.entry,
+        load_addr: options.load_addr,
+        size: data.len() as u32,
+        checksum: image_checksum(data),
+    };
+
+    let mut image = Vec::with_capacity(IMAGE_HEADER_SIZE + data.len());
+    image.extend_from_slice(&header.to_bytes());
+    image.extend_from_slice(data);
+    Ok(image)
+}
+
 const fn read_u32(bytes: &[u8], offset: usize) -> u32 {
     u32::from_le_bytes([
         bytes[offset],
@@ -105,14 +212,22 @@ const fn read_u32(bytes: &[u8], offset: usize) -> u32 {
     ])
 }
 
+const fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
+    let encoded = value.to_le_bytes();
+    bytes[offset] = encoded[0];
+    bytes[offset + 1] = encoded[1];
+    bytes[offset + 2] = encoded[2];
+    bytes[offset + 3] = encoded[3];
+}
+
 const _: () = {
     use core::mem::{offset_of, size_of};
     assert!(size_of::<ImageHeader>() == IMAGE_HEADER_SIZE);
-    assert!(offset_of!(ImageHeader, magic) == 0);
-    assert!(offset_of!(ImageHeader, version) == 4);
-    assert!(offset_of!(ImageHeader, flags) == 8);
-    assert!(offset_of!(ImageHeader, entry) == 12);
-    assert!(offset_of!(ImageHeader, load_addr) == 16);
-    assert!(offset_of!(ImageHeader, size) == 20);
-    assert!(offset_of!(ImageHeader, checksum) == 24);
+    assert!(offset_of!(ImageHeader, magic) == offset::MAGIC);
+    assert!(offset_of!(ImageHeader, version) == offset::VERSION);
+    assert!(offset_of!(ImageHeader, flags) == offset::FLAGS);
+    assert!(offset_of!(ImageHeader, entry) == offset::ENTRY);
+    assert!(offset_of!(ImageHeader, load_addr) == offset::LOAD_ADDR);
+    assert!(offset_of!(ImageHeader, size) == offset::SIZE);
+    assert!(offset_of!(ImageHeader, checksum) == offset::CHECKSUM);
 };

@@ -3,6 +3,10 @@
 version = 4
 
 [[package]]
+name = "payload"
+version = "0.1.0"
+
+[[package]]
 name = "rawboot"
 version = "0.1.0"
 dependencies = [

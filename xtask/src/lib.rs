@@ -11,8 +11,17 @@
 use core::fmt;
 
 use rawboot_image::{
-    EGON_CHECKSUM_OFFSET, EGON_CHECKSUM_SEED, EGON_HEADER_SIZE, EGON_LENGTH_OFFSET,
+    EGON_CHECKSUM_OFFSET, EGON_CHECKSUM_SEED, EGON_HEADER_SIZE, EGON_LENGTH_OFFSET, ImageError,
+    ImageOptions, build, parse,
 };
+
+/// Wrap a flat payload binary in the rawboot image header and check the result parses
+/// back, so a contract drift fails the build on the host rather than on the board.
+pub fn wrap_payload(raw: &[u8], options: ImageOptions) -> Result<Vec<u8>, ImageError> {
+    let image = build(raw, options)?;
+    parse(&image)?;
+    Ok(image)
+}
 
 /// Offset of the `eGON.BT0` magic within the header.
 const EGON_MAGIC_OFFSET: usize = 0x04;
@@ -80,7 +89,23 @@ fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rawboot_image::{SealOptions, seal};
+    use rawboot_image::{IMAGE_MAGIC, IMAGE_VERSION, SealOptions, seal};
+
+    const PAYLOAD_LOAD_ADDR: u32 = 0x4200_0000;
+
+    #[test]
+    fn wraps_a_raw_payload_into_a_parseable_image() {
+        let raw = [0xDE, 0xAD, 0xBE, 0xEF];
+
+        let image = wrap_payload(&raw, ImageOptions::new(PAYLOAD_LOAD_ADDR)).unwrap();
+
+        let parsed = parse(&image).unwrap();
+        assert_eq!(parsed.header.magic, IMAGE_MAGIC);
+        assert_eq!(parsed.header.version, IMAGE_VERSION);
+        assert_eq!(parsed.header.load_addr, PAYLOAD_LOAD_ADDR);
+        assert_eq!(parsed.header.entry, PAYLOAD_LOAD_ADDR);
+        assert_eq!(parsed.data, raw);
+    }
 
     /// The 48-byte eGON header `rawboot-rt` lays down, before sealing.
     fn raw_header() -> Vec<u8> {

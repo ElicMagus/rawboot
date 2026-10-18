@@ -7,8 +7,9 @@ written in 100% Rust and ported from `szemzoa/awboot`. It brings up the SoC, rea
 image from a FAT partition on an SD card over SDHCI, loads it into DRAM, and hands off through a
 versioned `BootInfo` contract. The payload is our own firmware, not Linux (no FDT, no PSCI).
 
-Cargo workspace with four members: `rawboot` (the loader), `rawboot-rt` (the runtime),
-`rawboot-image` (host-testable payload/eGON image tooling) and `xtask` (host build tooling).
+Cargo workspace with five members: `rawboot` (the loader), `rawboot-rt` (the runtime),
+`payload` (the stub payload image the loader boots), `rawboot-image` (host-testable
+payload/eGON image tooling) and `xtask` (host build tooling).
 Target `armv7a-none-eabi` (soft-float), Rust edition 2024.
 
 Standard commands:
@@ -25,6 +26,8 @@ Standard commands:
 - Format: `cargo fmt`
 - Seal an image: `cargo xtask image` (builds the loader and writes the sealed
   `target/rawboot-fel.bin`; the `xtask` alias pins the host triple in `.cargo/config.toml`)
+- Build the payload image: `cargo xtask payload` (builds the `payload` crate and writes
+  `target/rawboot-payload.img`, its flat binary wrapped in the payload image header)
 
 ## Working agreements
 

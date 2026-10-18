@@ -5,13 +5,16 @@
 //! `image` builds the loader, converts the ELF to a flat binary with the
 //! toolchain's `llvm-objcopy`, and eGON-seals it for BROM. The result is a
 //! FEL/SD loader image, loadable with `xfel`.
+//!
+//! `payload` builds the payload crate and wraps its flat binary in the rawboot
+//! image header, producing the image the loader parses.
 
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use rawboot_image::{SealOptions, seal};
+use rawboot_image::{DEFAULT_LOAD_ADDR, ImageOptions, SealOptions, seal};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -21,7 +24,7 @@ const TARGET: &str = "armv7a-none-eabi";
 /// FEL load address of the loader (matches `rawboot-rt`'s `RAM` origin).
 const FEL_LOAD_ADDR: u32 = 0x0002_8000;
 
-const USAGE: &str = "usage: cargo xtask image";
+const USAGE: &str = "usage: cargo xtask image | cargo xtask payload";
 
 fn main() {
     if let Err(err) = run() {
@@ -33,6 +36,7 @@ fn main() {
 fn run() -> Result<()> {
     match std::env::args().nth(1).as_deref() {
         Some("image") => image(),
+        Some("payload") => payload(),
         Some(other) => Err(format!("unknown command `{other}`\n{USAGE}").into()),
         None => Err(format!("missing command\n{USAGE}").into()),
     }
@@ -41,9 +45,7 @@ fn run() -> Result<()> {
 /// Build the loader and seal it into a FEL/SD image.
 fn image() -> Result<()> {
     let root = workspace_root();
-    let out_dir = root.join("target").join(TARGET).join("release");
-    let elf = out_dir.join("rawboot");
-    let raw = out_dir.join("rawboot.bin");
+    let (elf, raw) = release_bin(&root, "rawboot");
 
     build_loader(&root)?;
     objcopy(&elf, &raw)?;
@@ -67,10 +69,45 @@ fn image() -> Result<()> {
 }
 
 fn build_loader(root: &Path) -> Result<()> {
+    build_bin(root, "rawboot")
+}
+
+/// Build the payload crate and wrap its flat binary in the rawboot image header.
+fn payload() -> Result<()> {
+    let root = workspace_root();
+    let (elf, raw) = release_bin(&root, "payload");
+
+    build_bin(&root, "payload")?;
+    objcopy(&elf, &raw)?;
+
+    let raw_bytes = fs::read(&raw)?;
+    let image = xtask::wrap_payload(&raw_bytes, ImageOptions::default())
+        .map_err(|e| format!("wrapping `{}`: {e}", raw.display()))?;
+
+    let image_path = root.join("target").join("rawboot-payload.img");
+    fs::write(&image_path, &image)
+        .map_err(|e| format!("writing `{}`: {e}", image_path.display()))?;
+
+    println!(
+        "wrapped {} bytes -> {} (load/entry {DEFAULT_LOAD_ADDR:#010x})",
+        image.len(),
+        image_path.display()
+    );
+    Ok(())
+}
+
+/// The release ELF of a workspace binary and the flat binary `objcopy` produces.
+fn release_bin(root: &Path, bin: &str) -> (PathBuf, PathBuf) {
+    let out_dir = root.join("target").join(TARGET).join("release");
+    (out_dir.join(bin), out_dir.join(format!("{bin}.bin")))
+}
+
+/// Build a workspace binary for the loader's target.
+fn build_bin(root: &Path, bin: &str) -> Result<()> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let status = Command::new(cargo)
         .current_dir(root)
-        .args(["build", "--release", "--bin", "rawboot", "--target", TARGET])
+        .args(["build", "--release", "--bin", bin, "--target", TARGET])
         .status()
         .map_err(|e| format!("running cargo build: {e}"))?;
     if !status.success() {

@@ -3,8 +3,8 @@
 //! Byte-in/byte-out tests for payload header parsing, driven by independently computed vectors.
 
 use rawboot_image::{
-    IMAGE_HEADER_SIZE, IMAGE_MAGIC, IMAGE_VERSION, ImageError, MAX_IMAGE_SIZE, image_checksum,
-    parse,
+    IMAGE_HEADER_SIZE, IMAGE_MAGIC, IMAGE_VERSION, ImageError, ImageHeader, ImageOptions,
+    MAX_IMAGE_SIZE, build, image_checksum, parse,
 };
 
 const BODY: [u8; 8] = [0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04];
@@ -93,4 +93,69 @@ fn rejects_oversized_declared_length() {
     let bytes = image(IMAGE_VERSION, MAX_IMAGE_SIZE + 1, BODY_CHECKSUM, &BODY);
 
     assert_eq!(parse(&bytes), Err(ImageError::SizeTooLarge));
+}
+
+const LOAD_ADDR: u32 = 0x4300_0000;
+const ENTRY: u32 = 0x4300_0100;
+
+fn options() -> ImageOptions {
+    ImageOptions {
+        load_addr: LOAD_ADDR,
+        entry: ENTRY,
+        flags: 0,
+    }
+}
+
+#[test]
+fn default_options_load_and_enter_at_the_default_address() {
+    let default = ImageOptions::default();
+
+    assert_eq!(default.load_addr, rawboot_image::DEFAULT_LOAD_ADDR);
+    assert_eq!(default.entry, rawboot_image::DEFAULT_LOAD_ADDR);
+    assert_eq!(default.flags, 0);
+}
+
+#[test]
+fn build_lays_down_the_expected_header_bytes() {
+    let built = build(&BODY, options()).unwrap();
+
+    let mut expected = Vec::new();
+    expected.extend_from_slice(&IMAGE_MAGIC.to_le_bytes());
+    expected.extend_from_slice(&IMAGE_VERSION.to_le_bytes());
+    expected.extend_from_slice(&0u32.to_le_bytes());
+    expected.extend_from_slice(&ENTRY.to_le_bytes());
+    expected.extend_from_slice(&LOAD_ADDR.to_le_bytes());
+    expected.extend_from_slice(&(BODY.len() as u32).to_le_bytes());
+    expected.extend_from_slice(&BODY_CHECKSUM.to_le_bytes());
+
+    assert_eq!(&built[..IMAGE_HEADER_SIZE], expected.as_slice());
+    assert_eq!(&built[IMAGE_HEADER_SIZE..], &BODY);
+}
+
+#[test]
+fn build_round_trips_through_parse() {
+    let built = build(&BODY, options()).unwrap();
+
+    assert_eq!(
+        parse(&built).unwrap(),
+        rawboot_image::Payload {
+            header: ImageHeader {
+                magic: IMAGE_MAGIC,
+                version: IMAGE_VERSION,
+                flags: 0,
+                entry: ENTRY,
+                load_addr: LOAD_ADDR,
+                size: BODY.len() as u32,
+                checksum: BODY_CHECKSUM,
+            },
+            data: &BODY,
+        }
+    );
+}
+
+#[test]
+fn build_rejects_an_oversized_payload() {
+    let too_big = vec![0u8; MAX_IMAGE_SIZE as usize + 1];
+
+    assert_eq!(build(&too_big, options()), Err(ImageError::SizeTooLarge));
 }
