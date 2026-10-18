@@ -33,7 +33,7 @@ Reference numbers in square brackets map to the **Sources** section at the end.
   VTFCR (0xb8), whereas upstream reworked code reads VTFCR itself [10:290-295][1:1397-1398].
   This branch is **live with the shipped default** `dram_tpr13 = 0x34000100`, whose bit 8 is set
   [10:188], so the port writes `0x80000300` into VTFCR instead of setting bits 8-9 on the existing
-  VTFCR value.
+  VTFCR value. **Fixed in issue #15.**
 - `embed/app/src/dram/mod.rs` is **functionally identical** to `rawboot/src/dram/mod.rs` at the
   source level: a whitespace-insensitive diff produces only 13 hunks, all line-wrapping, comment
   placement, or `use` reordering; no numeric constant or control-flow difference was found [10][11].
@@ -45,7 +45,7 @@ Reference numbers in square brackets map to the **Sources** section at the end.
 Our DRAM port is a faithful port of an **older code base** (`mctl_hal.c`), not a stale copy of the
 current `dram.c`. For the T113-S3 default configuration the register-level behaviour is largely
 unchanged, but the port is missing the 2023 `auto_scan_dram_size` update, the T113-S4 AC-remap
-exception, the VTFCR read fix (active by default), and the `dram_get_top` API. These are all **older-than-upstream**, not
+exception, the VTFCR read fix (active by default; now fixed in issue #15), and the `dram_get_top` API. These are all **older-than-upstream**, not
 intentional divergences, with the exception of the forced `vol = 25` and the MR-write gating, which
 are inherited verbatim from `mctl_hal.c` but were deliberately removed upstream.
 
@@ -273,6 +273,9 @@ boot. Upstream instead ORs `0x300` into the current VTFCR value [1:1397-1398]. T
 concrete live behavioural divergence found; its observable effect on T113-S3 (if any) is
 **UNVERIFIED** without hardware.
 
+**Status (issue #15): fixed.** `rawboot/src/dram/mod.rs` now reads VTFCR before OR-ing `0x300`, matching
+upstream [1:1397-1398]. On-hardware confirmation (UART log + working LED payload) is tracked in #15.
+
 ### 4.5 Timing parameters and mode-register writes
 
 Our `auto_set_timing_para` (`rawboot/src/dram/mod.rs:1041-1513`) is the old `mctl_hal.c` routine
@@ -327,8 +330,9 @@ Ordered by likely impact on T113-S3:
    [10:404-589][1:1096-1249][8]. **OLDER; potentially a correctness fix for dual-rank parts.**
 2. **T113-S4 AC-remap exception** — missing `chipid == 0x6800` no-remap branch
    [10:1525-1623][1:697-755][8]. **OLDER; inert on T113-S3, wrong table on T113-S4.**
-3. **VTFCR source-register fix** — port reads ZQCR and writes it to VTFCR; branch is live with
+3. **VTFCR source-register fix** — port read ZQCR and wrote it to VTFCR; branch is live with
    default `tpr13` bit 8 set [10:290-295,188][1:1397-1398]. **OLDER; live behavioural divergence.**
+   **FIXED in issue #15** (hardware confirmation pending).
 4. **`dram_get_top()` / `dram_top`** — not exposed [1:115-120,1449-1452][10]. **OLDER; API gap
    introduced by the 2025 refactor.**
 5. **Forced `vol = 25`** — inherited from `mctl_hal.c`; upstream removed it
