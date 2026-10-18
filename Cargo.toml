@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["rawboot", "rawboot-rt"]
+members = ["rawboot", "rawboot-rt", "rawboot-image"]
 
 [profile.dev]
 panic = "abort"
