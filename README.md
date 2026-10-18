@@ -10,6 +10,7 @@ Cargo workspace:
 
 - `rawboot` — the loader (SoC bring-up, storage, handoff)
 - `rawboot-rt` — the runtime (eGON header, `_start`, linker script)
-- `rawboot-image` — host-testable payload/eGON image tooling (`parse`, `seal`)
+- `payload` — the stub payload image the loader boots
+- `rawboot-image` — host-testable payload/eGON image tooling (`build`, `parse`, `seal`)
 
 See `GLOSSARY.md` for terminology and `docs/adr/` for architecture decisions.

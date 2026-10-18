@@ -1,0 +1,12 @@
+[package]
+name = "payload"
+version = "0.1.0"
+edition = "2024"
+license = "Unlicense"
+publish = false
+
+[[bin]]
+name = "payload"
+path = "src/main.rs"
+test = false
+doctest = false
