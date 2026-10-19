@@ -27,6 +27,21 @@ fi
 echo "==> branch docs rule"
 bash scripts/check-branch-docs.sh
 
+echo "==> no crate-level allow(warnings)"
+blanket=$(
+  git ls-files --cached --others --exclude-standard '*.rs' |
+    while read -r file; do
+      if grep -Eq '^[[:space:]]*#!\[allow\((warnings|unused)\)\]' "$file"; then
+        echo "$file"
+      fi
+    done
+)
+if [ -n "$blanket" ]; then
+  echo "crate-level allow(warnings/unused) is forbidden (use targeted allows):" >&2
+  echo "$blanket" >&2
+  exit 1
+fi
+
 echo "==> shellcheck (scripts)"
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck scripts/*.sh

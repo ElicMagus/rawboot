@@ -47,7 +47,7 @@ fn set_pll_cpux_axi() {
     sdelay(5);
 
     val = read32(ccu::BASE + ccu::PLL_CPU_CTRL_REG);
-    val &= !((0x3 << 16) | (0xff << 8) | (0x3 << 0));
+    val &= !((0x3 << 16) | (0xff << 8) | 0x3);
     val |= 41 << 8;
     write32(ccu::BASE + ccu::PLL_CPU_CTRL_REG, val);
 
@@ -74,7 +74,7 @@ fn set_pll_cpux_axi() {
     sdelay(1);
 
     val = read32(ccu::BASE + ccu::CPU_AXI_CFG_REG);
-    val &= !(0x07 << 24 | 0x3 << 16 | 0x3 << 8 | 0xf << 0);
+    val &= !(0x07 << 24 | 0x3 << 16 | 0x3 << 8 | 0xf);
     val |= 0x03 << 24 | 0x1 << 8 | 0x1 << 0;
     write32(ccu::BASE + ccu::CPU_AXI_CFG_REG, val);
     sdelay(1);
@@ -108,18 +108,12 @@ fn set_pll_periph0() {
 }
 
 fn set_ahb() {
-    write32(
-        ccu::BASE + ccu::PSI_CLK_REG,
-        (2 << 0) | (0 << 8) | (0x03 << 24),
-    );
+    write32(ccu::BASE + ccu::PSI_CLK_REG, 2 | (0x03 << 24));
     sdelay(1);
 }
 
 fn set_apb() {
-    write32(
-        ccu::BASE + ccu::APB0_CLK_REG,
-        (2 << 0) | (1 << 8) | (0x03 << 24),
-    );
+    write32(ccu::BASE + ccu::APB0_CLK_REG, 2 | (1 << 8) | (0x03 << 24));
     sdelay(1);
 }
 
@@ -183,17 +177,26 @@ pub fn sunxi_clk_init() {
     set_module(ccu::BASE + ccu::PLL_AUDIO1_CTRL_REG);
 }
 
-pub fn sunxi_clk_get_peri1x_rate() -> u32 {
-    let reg32 = read32(ccu::BASE + ccu::PLL_PERI0_CTRL_REG);
-
-    if (reg32 & (1 << 31)) != 0 {
-        let plln = ((reg32 >> 8) & 0xff) + 1;
-        let pllm = (reg32 & 0x01) + 1;
-        let p0 = ((reg32 >> 16) & 0x03) + 1;
-        return (((24 * plln) / (pllm * p0)) >> 1) * 1000 * 1000;
+const fn pll_peri1x_rate(reg32: u32) -> u32 {
+    if reg32 & (1 << 31) == 0 {
+        return 0;
     }
-    0
+
+    let plln = ((reg32 >> 8) & 0xff) + 1;
+    let pllm = (reg32 & 0x01) + 1;
+    let p0 = ((reg32 >> 16) & 0x03) + 1;
+    (((24 * plln) / (pllm * p0)) >> 1) * 1000 * 1000
 }
+
+pub fn sunxi_clk_get_peri1x_rate() -> u32 {
+    pll_peri1x_rate(read32(ccu::BASE + ccu::PLL_PERI0_CTRL_REG))
+}
+
+const _: () = {
+    assert!(pll_peri1x_rate(0) == 0);
+    assert!(pll_peri1x_rate((1u32 << 31) | (49 << 8)) == 600_000_000);
+    assert!(pll_peri1x_rate((1u32 << 31) | (49 << 8) | (1 << 16)) == 300_000_000);
+};
 
 pub fn sunxi_clk_dump() {
     let reg32 = read32(ccu::BASE + ccu::CPU_AXI_CFG_REG);

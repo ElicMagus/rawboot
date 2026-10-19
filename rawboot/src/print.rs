@@ -4,7 +4,6 @@ use crate::uart;
 use core::fmt;
 
 #[unsafe(no_mangle)]
-#[inline(always)]
 pub fn _print(args: fmt::Arguments) {
     pub use core::fmt::Write;
     uart::console().write_fmt(args).unwrap();

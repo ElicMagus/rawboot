@@ -2,14 +2,12 @@
 
 #![no_std]
 #![no_main]
-#![allow(warnings)]
-use core::arch::asm;
 use core::panic::PanicInfo;
 
 use rawboot_rt::entry;
 entry!(main);
 
-use rawboot_rt::cpu::{get_sp, get_spl_size, set_sp, udelay, wfe};
+use rawboot_rt::cpu::{udelay, wfe};
 
 use crate::io::{read32, write32};
 pub mod ccu;
@@ -54,7 +52,7 @@ fn main() -> ! {
 
     let mut sdio = sdhci::Sdhci::default();
     sdhci::sunxi_sdhci_init(&mut sdio);
-    let mut card = sdcard::Sdcard {
+    let card = sdcard::Sdcard {
         version: 0,
         ocr: 0,
         rca: 0,
@@ -69,7 +67,7 @@ fn main() -> ! {
         capacity: 0,
     };
     let mut sdcard = sdcard::Sdcard_data {
-        card: card,
+        card,
         hci: sdio,
         buf: [0u8; 512],
         online: false,
@@ -100,7 +98,7 @@ fn main() -> ! {
 }
 
 #[panic_handler]
-fn panic(info: &PanicInfo<'_>) -> ! {
+fn panic(_info: &PanicInfo<'_>) -> ! {
     // let (location, line, column) = match info.location() {
     //     Some(loc) => (loc.file(), loc.line(), loc.column()),
     //     _ => ("???", 0, 0),

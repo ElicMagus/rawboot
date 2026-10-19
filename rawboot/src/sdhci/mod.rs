@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Unlicense
 
+#![allow(dead_code)]
+
 use core::{
     mem::size_of,
     sync::atomic::{Ordering, fence},
@@ -222,8 +224,8 @@ const SDXC_NTDC_START_CAL: u32 = 1 << 15;
 const SDXC_NTDC_CAL_DONE: u32 = 1 << 14;
 const SDXC_NTDC_CAL_DLY: u32 = 0x3f << 8;
 const SDXC_NTDC_ENABLE_DLY: u32 = 1 << 7;
-const SDXC_NTDC_CFG_DLY: u32 = 0x3f << 0;
-const SDXC_NTDC_CFG_NEW_DLY: u32 = 0xf << 0;
+const SDXC_NTDC_CFG_DLY: u32 = 0x3f;
+const SDXC_NTDC_CFG_NEW_DLY: u32 = 0xf;
 
 const DTO_MAX: u32 = 200;
 const SDXC_CAL_START: u32 = 1 << 15;
@@ -391,7 +393,7 @@ fn set_read_timeout(sdhci: &Sdhci, timeout: u32) {
 
     rval = read32(sdhci.reg + reg::GCTRL);
     if rdto_clk > 0x00ff_ffff && sdhci.clock_active == MMC_CLK_50M_DDR {
-        rdto_clk = (rdto_clk + 255) / 256;
+        rdto_clk = rdto_clk.div_ceil(256);
         rval |= 0x1 << 11;
     } else {
         rdto_clk = 0x00ff_ffff;
@@ -432,9 +434,10 @@ fn prepare_dma(sdhci: &mut Sdhci, data: &SdhciData) -> bool {
         } else {
             0
         };
-        let mut desc = SdhciIdmaDesc::default();
-
-        desc.control = SMHC_IDMAC_DES0_CH | SMHC_IDMAC_DES0_OWN | SMHC_IDMAC_DES0_DIC;
+        let mut desc = SdhciIdmaDesc {
+            control: SMHC_IDMAC_DES0_CH | SMHC_IDMAC_DES0_OWN | SMHC_IDMAC_DES0_DIC,
+            ..Default::default()
+        };
         if buff_frag_num > 1 && i as u32 != buff_frag_num - 1 {
             desc.data_buf_sz = SMHC_DES_BUFFER_MAX_LEN - 1;
         } else {
@@ -550,7 +553,6 @@ fn read_bytes(sdhci: &Sdhci, dat: &SdhciData) -> bool {
             in_fifo -= 1;
         }
 
-        status = read32(sdhci.reg + reg::STATUS);
         err = read32(sdhci.reg + reg::RINT) & SMHC_RINT_INTERRUPT_ERROR_BIT;
     }
 
@@ -592,7 +594,7 @@ fn write_bytes(sdhci: &Sdhci, dat: &SdhciData) -> bool {
         timeout = 250;
     }
 
-    let mut status = read32(sdhci.reg + reg::STATUS);
+    let mut status;
     let mut err = read32(sdhci.reg + reg::RINT) & SMHC_RINT_INTERRUPT_ERROR_BIT;
     while err == 0 && count != 0 {
         while read32(sdhci.reg + reg::STATUS) & SMHC_STATUS_FIFO_FULL != 0 {
@@ -611,7 +613,6 @@ fn write_bytes(sdhci: &Sdhci, dat: &SdhciData) -> bool {
         }
         count -= size_of::<u32>() as u32;
 
-        status = read32(sdhci.reg + reg::STATUS);
         err = read32(sdhci.reg + reg::RINT) & SMHC_RINT_INTERRUPT_ERROR_BIT;
     }
 
@@ -650,22 +651,20 @@ pub fn sdhci_set_voltage(_sdhci: &mut Sdhci, _voltage: u32) -> bool {
 
 pub fn sdhci_set_width(sdhci: &mut Sdhci, width: u32) -> bool {
     let mut gctrl = read32(sdhci.reg + reg::GCTRL);
-    let enable_ddr;
-
-    match width {
+    let enable_ddr = match width {
         MMC_BUS_WIDTH_1 => {
             write32(sdhci.reg + reg::WIDTH, SMHC_WIDTH_1BIT);
-            enable_ddr = false;
+            false
         }
         MMC_BUS_WIDTH_4 => {
             write32(sdhci.reg + reg::WIDTH, SMHC_WIDTH_4BIT);
-            enable_ddr = sdhci.clock_active == MMC_CLK_50M_DDR;
+            sdhci.clock_active == MMC_CLK_50M_DDR
         }
         _ => {
             print!("SMHC: {} width value invalid\r\n", width);
             return false;
         }
-    }
+    };
 
     if enable_ddr {
         gctrl |= SMHC_GCTRL_DDR_MODE | SMHC_GCTRL_POSEDGE_LATCH_DATA;
@@ -836,7 +835,7 @@ pub fn sdhci_set_clock(sdhci: &mut Sdhci, clock: u32) -> bool {
     let mut n = 0;
     while div > 16 {
         n += 1;
-        div = (div + 1) / 2;
+        div = div.div_ceil(2);
     }
 
     if n > 3 {
@@ -936,7 +935,7 @@ pub fn sdhci_set_clock(sdhci: &mut Sdhci, clock: u32) -> bool {
 pub fn sdhci_transfer(sdhci: &mut Sdhci, cmd: &mut SdhciCmd, dat: Option<&SdhciData>) -> bool {
     let mut cmdval = 0u32;
     let mut status;
-    let mut timeout;
+    let timeout;
 
     if cmd.idx == MMC::STOP_TRANSMISSION as u32 {
         timeout = time_ms();
@@ -1017,9 +1016,9 @@ pub fn sdhci_transfer(sdhci: &mut Sdhci, cmd: &mut SdhciCmd, dat: Option<&SdhciD
                 read32(sdhci.reg + reg::GCTRL) | SMHC_GCTRL_ACCESS_BY_AHB,
             );
             write32(sdhci.reg + reg::CMD, cmdval | cmd.idx | SMHC_CMD_START);
-            if dat.flag & MMC_Data::READ as u32 != 0 && !read_bytes(sdhci, dat) {
-                return false;
-            } else if dat.flag & MMC_Data::WRITE as u32 != 0 && !write_bytes(sdhci, dat) {
+            if (dat.flag & MMC_Data::READ as u32 != 0 && !read_bytes(sdhci, dat))
+                || (dat.flag & MMC_Data::WRITE as u32 != 0 && !write_bytes(sdhci, dat))
+            {
                 return false;
             }
         } else {
