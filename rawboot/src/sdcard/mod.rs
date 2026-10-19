@@ -183,15 +183,24 @@ pub struct Sdcard_data {
 
 impl Sdcard_data {
     pub fn init(&mut self) -> bool {
-        self.online = false;
+        let mut retries = 10;
 
-        if sdcard_detect(&mut self.hci, &mut self.card) {
-            self.online = true;
-            print!("SD/MMC card found\r\n");
-            return true;
+        loop {
+            self.online = false;
+
+            if sdcard_detect(&mut self.hci, &mut self.card) {
+                self.online = true;
+                print!("SD/MMC card found\r\n");
+                return true;
+            }
+
+            retries -= 1;
+            if retries == 0 {
+                print!("SD/MMC card not found\r\n");
+                return false;
+            }
+            udelay(100_000);
         }
-        print!("SD/MMC card not found\r\n");
-        false
     }
 
     pub fn blk_read(&mut self, mut buf: *mut u8, mut blkno: u64, blkcnt: u64) -> u64 {
