@@ -281,7 +281,7 @@ contract actually needs a top address [14]; today it does not.
 ### 4.7 Hardware confirmation
 
 `scripts/hil-check.sh` on T113-S3 loads `target/rawboot-fel.bin` over FEL and asserts the boot
-log. The #18 image produced a single clean boot (`hello=1`) and the HIL script reported `PASS`:
+log. Manual captures of the #18 image reached the full sequence:
 
 ```
 Hello
@@ -298,9 +298,9 @@ S=0x10000
 ```
 
 `DRAM simple test OK` and the following SD line mean the new scanner completed and the loader
-kept executing. The script's reset-loop guard can still trip when the board is left with a
-watchdog armed from an earlier `xfel reset`; the runbook requires a power-cycle into FEL before
-a clean capture (`docs/agents/hil.md`). The PD22 LED blink is a human check.
+kept executing. A clean single-boot `hil-check.sh` run needs a power-cycle into FEL first: an
+earlier `xfel reset` leaves the watchdog armed, and the reset loop trips the script's
+multiple-`Hello` guard (`docs/agents/hil.md`). The PD22 LED blink is a human check.
 
 ---
 
