@@ -281,7 +281,8 @@ contract actually needs a top address [14]; today it does not.
 ### 4.7 Hardware confirmation
 
 `scripts/hil-check.sh` on T113-S3 loads `target/rawboot-fel.bin` over FEL and asserts the boot
-log. Manual captures of the #18 image reached the full sequence:
+log. After a power-cycle into FEL, the #18 image produced `hello=1`, `PASS: UART assertions`,
+and this sequence:
 
 ```
 Hello
@@ -298,9 +299,10 @@ S=0x10000
 ```
 
 `DRAM simple test OK` and the following SD line mean the new scanner completed and the loader
-kept executing. A clean single-boot `hil-check.sh` run needs a power-cycle into FEL first: an
-earlier `xfel reset` leaves the watchdog armed, and the reset loop trips the script's
-multiple-`Hello` guard (`docs/agents/hil.md`). The PD22 LED blink is a human check.
+kept executing; the PD22 LED blink (human check) was also confirmed. A clean single-boot
+`hil-check.sh` run needs a power-cycle into FEL first: an earlier `xfel reset` leaves the
+watchdog armed, and the reset loop trips the script's multiple-`Hello` guard
+(`docs/agents/hil.md`).
 
 ---
 
