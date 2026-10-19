@@ -2,197 +2,129 @@
 
 use crate::io::{read32, write32};
 
-pub const GPIO_BASE: u32 = 0x0200_0000;
-const MP: u32 = 0x30;
-#[repr(u32)]
-#[derive(Debug, Clone, Copy)]
-pub enum Port {
-    B = GPIO_BASE + MP * 1,
-    C = GPIO_BASE + MP * 2,
-    D = GPIO_BASE + MP * 3,
-    E = GPIO_BASE + MP * 4,
-    F = GPIO_BASE + MP * 5,
-    G = GPIO_BASE + MP * 6,
-}
-#[repr(u8)]
-#[derive(Debug, Clone, Copy)]
-pub enum FUNC {
-    INPUT = 0b0000,
-    OUTPUT = 0b0001,
-    MUX2 = 2,
-    MUX3 = 3,
-    MUX4 = 4,
-    MUX5 = 5,
-    MUX6 = 6,
-    MUX7 = 7,
-    MUX8 = 8,
-    MUX14 = 14,
-    DISABLED = 0xf,
-}
-#[derive(Default, Debug)]
-#[repr(C)]
-struct GpioRegT {
-    cfg: u128,
-    dat: u32, //0-31 pin state; 1 bit per pipn
-    drv: u128,
-    pull: u64, //0x0114 2 bit per pin
+const GPIO_CFG0: u32 = 0x00;
+const GPIO_DAT: u32 = 0x10;
+const GPIO_DRV0: u32 = 0x14;
+const GPIO_PUL0: u32 = 0x24;
+
+pub const PORTB: u32 = 0;
+pub const PORTC: u32 = 1;
+pub const PORTD: u32 = 2;
+pub const PORTE: u32 = 3;
+pub const PORTF: u32 = 4;
+pub const PORTG: u32 = 5;
+
+pub const PIO_NUM_IO_BITS: u32 = 5;
+
+pub type gpio_t = u32;
+
+pub const fn gpio_pin(port: u32, pin: u32) -> gpio_t {
+    (port << PIO_NUM_IO_BITS) | pin
 }
 
+pub const GPIO_INPUT: u32 = 0;
+pub const GPIO_OUTPUT: u32 = 1;
+pub const GPIO_PERIPH_MUX2: u32 = 2;
+pub const GPIO_PERIPH_MUX3: u32 = 3;
+pub const GPIO_PERIPH_MUX4: u32 = 4;
+pub const GPIO_PERIPH_MUX5: u32 = 5;
+pub const GPIO_PERIPH_MUX6: u32 = 6;
+pub const GPIO_PERIPH_MUX7: u32 = 7;
+pub const GPIO_PERIPH_MUX8: u32 = 8;
+pub const GPIO_PERIPH_MUX14: u32 = 14;
+pub const GPIO_DISABLED: u32 = 0xf;
+
+pub type gpio_pull_t = u32;
+
+pub const GPIO_PULL_UP: gpio_pull_t = 0;
+pub const GPIO_PULL_DOWN: gpio_pull_t = 1;
+pub const GPIO_PULL_NONE: gpio_pull_t = 2;
+
 #[derive(Debug, Clone, Copy)]
-#[repr(u8)]
-pub enum Pull {
-    NO_PULL = 0x0,
-    UP = 0x01,
-    DOWN = 0x10,
-}
-#[derive(Debug, Clone, Copy)]
-pub struct Gpio {
-    pub port: Port,
-    pub pin: u8,
-    pub func: FUNC,
-    pub pull_mode: Pull,
+pub struct gpio_mux_t {
+    pub pin: gpio_t,
+    pub mux: u32,
 }
 
-impl Gpio {
-    // #[inline(always)]
-    #[unsafe(no_mangle)]
-    pub fn init(&self) {
-        let port = (self.port as u32) as *mut GpioRegT;
-        unsafe {
-            (*port).cfg &= !(0b1111 << (self.pin * 4));
-            (*port).cfg |= (self.func as u128) << (self.pin * 4);
-            (*port).pull &= !(0b1111 << (self.pin * 2));
-            (*port).pull |= (self.pull_mode as u64) << (self.pin * 2);
-        }
-    }
-    pub fn toggle_lvl(&self) {
-        let port = (self.port as u32) as *mut GpioRegT;
-        unsafe {
-            (*port).dat ^= 1 << self.pin as u32;
-        }
-    }
+#[inline(always)]
+fn port_num(pin: gpio_t) -> u32 {
+    pin >> PIO_NUM_IO_BITS
+}
 
-    pub fn set_logic(&self, lvl: bool) {
-        let port = (self.port as u32) as *mut GpioRegT;
-        if lvl {
-            unsafe {
-                (*port).dat |= 1 << self.pin as u32;
-            }
-        } else {
-            unsafe {
-                (*port).dat &= !(1 << self.pin as u32);
-            }
-        }
+#[inline(always)]
+fn port_base_get(pin: gpio_t) -> u32 {
+    match port_num(pin) {
+        PORTB => 0x0200_0030,
+        PORTC => 0x0200_0060,
+        PORTD => 0x0200_0090,
+        PORTE => 0x0200_00c0,
+        PORTF => 0x0200_00f0,
+        PORTG => 0x0200_0120,
+        _ => 0,
     }
 }
 
-pub mod pd22 {
-    use super::FUNC;
-
-    pub const INPUT: FUNC = FUNC::INPUT;
-    pub const OUTPUT: FUNC = FUNC::OUTPUT;
-    pub const OWA_OUT: FUNC = FUNC::MUX2;
-    pub const IR_RX: FUNC = FUNC::MUX3;
-    pub const UART1_RX: FUNC = FUNC::MUX4;
-    pub const PWM7: FUNC = FUNC::MUX5;
-    pub const PD_EINT22: FUNC = FUNC::MUX14;
-    pub const DISABLE: FUNC = FUNC::DISABLED;
+#[inline(always)]
+fn pin_num(pin: gpio_t) -> u32 {
+    pin & ((1 << PIO_NUM_IO_BITS) - 1)
 }
 
-pub mod pe3 {
-    use super::FUNC;
+pub fn sunxi_gpio_init(pin: gpio_t, cfg: u32) {
+    let port_addr = port_base_get(pin);
+    let pin_num = pin_num(pin);
+    let addr = port_addr + GPIO_CFG0 + ((pin_num >> 3) << 2);
+    let mut val = read32(addr);
 
-    pub const INPUT: FUNC = FUNC::INPUT;
-    pub const OUTPUT: FUNC = FUNC::OUTPUT;
-    pub const NCSI0_MCLK: FUNC = FUNC::MUX2;
-    pub const UART2_RX: FUNC = FUNC::MUX3;
-    pub const TWI0_SDA: FUNC = FUNC::MUX4;
-    pub const CLK_FANOUT1: FUNC = FUNC::MUX5;
-    pub const UART0_RX: FUNC = FUNC::MUX6;
-    pub const RMII_TXCK: FUNC = FUNC::MUX8;
-    pub const PE_EINT3: FUNC = FUNC::MUX14;
-    pub const DISABLE: FUNC = FUNC::DISABLED;
+    val &= !(0xf << ((pin_num & 0x7) << 2));
+    if cfg != 0 {
+        val |= (cfg & 0xf) << ((pin_num & 0x7) << 2);
+    }
+    write32(addr, val);
 }
 
-pub mod pe2 {
-    use super::FUNC;
+pub fn sunxi_gpio_write(pin: gpio_t, value: i32) {
+    let port_addr = port_base_get(pin);
+    let pin_num = pin_num(pin);
+    let mut val = read32(port_addr + GPIO_DAT);
 
-    pub const INPUT: FUNC = FUNC::INPUT;
-    pub const OUTPUT: FUNC = FUNC::OUTPUT;
-    pub const NCSI0_PCLK: FUNC = FUNC::MUX2;
-    pub const UART2_TX: FUNC = FUNC::MUX3;
-    pub const TWI0_SCK: FUNC = FUNC::MUX4;
-    pub const CLK_FANOUT0: FUNC = FUNC::MUX5;
-    pub const UART0_TX: FUNC = FUNC::MUX6;
-    pub const RMII_RXD1: FUNC = FUNC::MUX8;
-    pub const PE_EINT2: FUNC = FUNC::MUX14;
-    pub const DISABLE: FUNC = FUNC::DISABLED;
+    val &= !(1 << pin_num);
+    val |= ((value != 0) as u32) << pin_num;
+    write32(port_addr + GPIO_DAT, val);
 }
 
-pub mod pf0 {
-    use super::FUNC;
-    pub const INPUT: FUNC = FUNC::INPUT;
-    pub const OUTPUT: FUNC = FUNC::OUTPUT;
-    pub const DISABLE: FUNC = FUNC::DISABLED;
-    pub const SDC0_D1: FUNC = FUNC::MUX2;
-    pub const JTAG_MS: FUNC = FUNC::MUX3;
-    pub const I2S2_DOUT1: FUNC = FUNC::MUX5;
-    pub const I2S2_DIN0: FUNC = FUNC::MUX6;
-    pub const PF_EINT0: FUNC = FUNC::MUX14;
+pub fn sunxi_gpio_read(pin: gpio_t) -> i32 {
+    let port_addr = port_base_get(pin);
+    let pin_num = pin_num(pin);
+    let val = read32(port_addr + GPIO_DAT);
+
+    ((val & (1 << pin_num)) != 0) as i32
 }
 
-pub mod pf1 {
-    use super::FUNC;
-    pub const INPUT: FUNC = FUNC::INPUT;
-    pub const OUTPUT: FUNC = FUNC::OUTPUT;
-    pub const DISABLE: FUNC = FUNC::DISABLED;
-    pub const SDC0_D0: FUNC = FUNC::MUX2;
-    pub const JTAG_DI: FUNC = FUNC::MUX3;
-    pub const I2S2_DOUT: FUNC = FUNC::MUX5;
-    pub const I2S2_DIN1: FUNC = FUNC::MUX6;
-    pub const PF_EINT1: FUNC = FUNC::MUX14;
+pub fn sunxi_gpio_set_pull(pin: gpio_t, pull: gpio_pull_t) {
+    let port_addr = port_base_get(pin);
+    let pin_num = pin_num(pin);
+    let v = match pull {
+        GPIO_PULL_UP => 0x1,
+        GPIO_PULL_DOWN => 0x2,
+        GPIO_PULL_NONE => 0x0,
+        _ => 0x0,
+    };
+    let addr = port_addr + GPIO_PUL0 + ((pin_num >> 4) << 2);
+    let mut val = read32(addr);
+
+    val &= !(v << ((pin_num & 0xf) << 1));
+    val |= v << ((pin_num & 0xf) << 1);
+    write32(addr, val);
 }
-pub mod pf2 {
-    use super::FUNC;
-    pub const INPUT: FUNC = FUNC::INPUT;
-    pub const OUTPUT: FUNC = FUNC::OUTPUT;
-    pub const DISABLE: FUNC = FUNC::DISABLED;
-    pub const SDC0_CLK: FUNC = FUNC::MUX2;
-    pub const UART0_TX: FUNC = FUNC::MUX3;
-    pub const TWI0_SCK: FUNC = FUNC::MUX4;
-    pub const LEDC_DO: FUNC = FUNC::MUX5;
-    pub const OWA_IN: FUNC = FUNC::MUX6;
-    pub const PF_EINT2: FUNC = FUNC::MUX14;
-}
-pub mod pf3 {
-    use super::FUNC;
-    pub const INPUT: FUNC = FUNC::INPUT;
-    pub const OUTPUT: FUNC = FUNC::OUTPUT;
-    pub const DISABLE: FUNC = FUNC::DISABLED;
-    pub const SDC0_CMD: FUNC = FUNC::MUX2;
-    pub const JTAG_DO: FUNC = FUNC::MUX3;
-    pub const I2S2_BCLK: FUNC = FUNC::MUX5;
-    pub const PF_EINT3: FUNC = FUNC::MUX14;
-}
-pub mod pf4 {
-    use super::FUNC;
-    pub const INPUT: FUNC = FUNC::INPUT;
-    pub const OUTPUT: FUNC = FUNC::OUTPUT;
-    pub const DISABLE: FUNC = FUNC::DISABLED;
-    pub const SDC0_D3: FUNC = FUNC::MUX2;
-    pub const UART0_RX: FUNC = FUNC::MUX3;
-    pub const TWI0_SDA: FUNC = FUNC::MUX4;
-    pub const PWM6: FUNC = FUNC::MUX5;
-    pub const IR_TX: FUNC = FUNC::MUX6;
-    pub const PF_EINT4: FUNC = FUNC::MUX14;
-}
-pub mod pf5 {
-    use super::FUNC;
-    pub const INPUT: FUNC = FUNC::INPUT;
-    pub const OUTPUT: FUNC = FUNC::OUTPUT;
-    pub const DISABLE: FUNC = FUNC::DISABLED;
-    pub const SDC0_D2: FUNC = FUNC::MUX2;
-    pub const JTAG_CK: FUNC = FUNC::MUX3;
-    pub const I2S2_LRCK: FUNC = FUNC::MUX5;
-    pub const PF_EINT5: FUNC = FUNC::MUX14;
+
+pub fn sunxi_gpio_set_drive_lvl(pin: gpio_t, lvl: u8) {
+    let port_addr = port_base_get(pin);
+    let pin_num = pin_num(pin);
+    let lvl = (lvl as u32) & 3;
+    let addr = port_addr + GPIO_DRV0 + ((pin_num >> 4) << 2);
+    let mut val = read32(addr);
+
+    val &= !(lvl << ((pin_num & 0xf) << 1));
+    val |= lvl << ((pin_num & 0xf) << 1);
+    write32(addr, val);
 }

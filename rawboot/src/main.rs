@@ -11,7 +11,6 @@ entry!(main);
 
 use rawboot_rt::cpu::{get_sp, get_spl_size, set_sp, udelay, wfe};
 
-use crate::gpio::{Port, Pull, pd22, pe2, pe3};
 use crate::io::{read32, write32};
 pub mod ccu;
 pub mod clk;
@@ -24,23 +23,14 @@ pub mod sdhci;
 pub mod uart;
 
 fn main() -> ! {
-    // //инициализация порта D ноги 22
+    // LED on port D pin 22, as upstream board_init_led()
     clk::sunxi_clk_init();
-    let led = gpio::Gpio {
-        port: Port::D,
-        pin: 22,
-        func: pd22::OUTPUT,
-        pull_mode: Pull::UP,
-    };
-    led.init();
+    let led = gpio::gpio_pin(gpio::PORTD, 22);
+    gpio::sunxi_gpio_init(led, gpio::GPIO_OUTPUT);
+    gpio::sunxi_gpio_write(led, 0);
 
-    let uart = uart::UartHandler::default();
-    uart.init();
-
-    let s = "Hello\n";
-    for c in s.chars() {
-        uart.putc(c);
-    }
+    uart::sunxi_usart_init(&uart::usart0_dbg, 115200);
+    uart::sunxi_usart_put(&uart::usart0_dbg, b"Hello\n");
     let clk_fail = clk::sunxi_clk_get_fail_addr();
     if clk_fail != 0 {
         print!("CLK: init timeout at 0x{:08x}\r\n", clk_fail);
@@ -91,10 +81,10 @@ fn main() -> ! {
     loop {
         let status = read32(sdio.addr + 56); //tmp
         print!("S=0x{:x}\n", status);
-        led.set_logic(true);
+        gpio::sunxi_gpio_write(led, 1);
         udelay(50000);
         // write32(sdio.addr + 56, 1 << 16);
-        led.set_logic(false);
+        gpio::sunxi_gpio_write(led, 0);
         udelay(50000);
     }
 }
