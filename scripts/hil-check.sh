@@ -32,7 +32,22 @@ if ! can_read; then
     exit 2
 fi
 
-echo "waiting for responsive FEL (reset/power-cycle the board into FEL)..."
+# FEL hand-off is still manual: ask the human to power-cycle the board into FEL.
+# Piped stdin or HIL_NO_PROMPT=1 skips the prompt for automated runs.
+if [ -t 0 ] && [ "${HIL_NO_PROMPT:-0}" != "1" ]; then
+    cat <<'EOF'
+Put the board into FEL:
+  - hold the FEL/BOOT button while applying power, or hold it and press reset;
+  - power-cycle rather than `xfel reset`: a watchdog reset leaves the watchdog
+    armed, so the loader then boots in a loop, and a loader left running from a
+    previous run keeps printing on USART0.
+EOF
+    printf 'Press Enter once the board is in FEL... '
+    read -r _
+    echo
+fi
+
+echo "waiting for responsive FEL (up to 180 s; power-cycle, do not xfel reset)..."
 for _ in $(seq 1 180); do
     if "$XFEL" version >/dev/null 2>&1; then
         break
