@@ -24,6 +24,9 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
+echo "==> branch docs rule"
+bash scripts/check-branch-docs.sh
+
 echo "==> cargo build --release"
 cargo build --release
 
