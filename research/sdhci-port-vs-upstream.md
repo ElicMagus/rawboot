@@ -161,6 +161,9 @@ Issue #20 owns full `sdmmc.c` parity. #19 changes only what the new host API for
   first CMD8 on a cold boot timed out.
 - The CMD55 retry loop is bounded, so a missing card fails detection instead of spinning
   forever printing `cmd55 timeout`.
+- `Sdcard_data::init` retries detection up to 10 times with a 100 ms pause, matching
+  `sdmmc_init`; this removes the cold-start flakiness where the first CMD8 arrived before the
+  card was ready.
 
 CID/CSD/EXT_CSD parsing and command sequencing are still the old port; #20 will align them
 with `sdmmc.c`.
@@ -169,13 +172,12 @@ with `sdmmc.c`.
 
 ## 7. Hardware confirmation
 
-Verified manually on the T113-S3 over FEL with an empty (all-zero) SD card. The
-`scripts/hil-check.sh` preflight could not be used on this board state: USART0 carries a
-continuous replay/noise pattern (`S=0x4`, then a floating-line pattern) while the board is in
-FEL, so the script's "UART quiet" gate rejects the run. The same write/exec sequence was
-therefore driven by hand, with the UART drained immediately before the load.
-
-The diagnostic build (temporary register prints, removed afterwards) produced:
+Verified on the T113-S3 over FEL with an empty (all-zero) SD card. `scripts/hil-check.sh`
+could not be used on this board state: its preflight saw the previously running loader (and a
+floating-line pattern while idle in FEL), so the "UART quiet" gate rejected the run. The same
+write/exec sequence was driven by hand with the UART drained immediately before the load; the
+capture contains one `Hello` and the final image is the committed code (no diagnostic
+prints).
 
 ```
 Hello
@@ -186,30 +188,21 @@ trefi:7.8ms
 DRAMC read ODT  off.
 DRAM ODT value: 0x42.
 DRAM simple test OK.
-SMHC: vers=50310 clkcr=10000 gctrl=20000300 status=506 ccu0=8000010e ccu84c=10001
-SD: version=20200 ocr=80ff8000 hc=0 tran=0 bl=0 width=2
-SD: cmd6 resp=920
-SD: after switch vers=50310 clkcr=10000 ccu0=81000005 status=506 clk=2 width=2
 SD/MMC card found
 SD: read 1 block(s), first bytes [00, 00, 00, 00]
 S=0x4
 ```
 
-Interpretation:
-
-- `vers=50310` proves the SMHC register block is clocked and accessible.
-- `ccu0=8000010e` at 400 kHz is N=1, M=14 (divider 30), i.e. 24 MHz / 30 / 2 = 400 kHz.
-- `ccu0=81000005` after the switch is PLL_PERIPH1X, M=5 (divider 6), i.e. 600 MHz / 6 / 2 =
-  50 MHz.
-- `cmd6 resp=920` has state bits `TRAN` and ready-for-data set.
-- The 512-byte read goes through IDMAC (above the 64-byte threshold) and returns the card's
-  first block (zero-filled test card).
+- `SD/MMC card found` means CMD0/CMD8/ACMD41/CID/CSD/RCA/select and the 50 MHz 4-bit switch
+  all succeeded on a cold boot.
+- The 512-byte read is above the 64-byte threshold and therefore goes through IDMAC; the
+  returned block is zero-filled because the test card is blank.
 - `S=0x4` is the LED-loop status line after the read.
+- No cache maintenance is performed; the loader runs with caches off.
 
-Caveat: the raw capture was contaminated by the same UART replay/noise, so the automated
-`hello == 1` assertion did not pass even though the boot sequence itself contains one
-`Hello`. A clean `scripts/hil-check.sh` pass should be re-run once the FEL UART line is
-quiet; the functional card/read result above is the hardware evidence for #19.
+The raw capture also contains one `S=0x104` line from the loader that was already running
+before the FEL exec; it is stale output, not a reset loop. A clean automated
+`scripts/hil-check.sh` pass is still worth running once the FEL UART line is quiet.
 
 ---
 
