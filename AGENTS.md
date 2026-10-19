@@ -33,6 +33,10 @@ Standard commands:
   `target/rawboot-fel.bin`; the `xtask` alias pins the host triple in `.cargo/config.toml`)
 - Build the payload image: `cargo xtask payload` (builds the `payload` crate and writes
   `target/rawboot-payload.img`, its flat binary wrapped in the payload image header)
+- HIL: `scripts/hil-check.sh target/rawboot-fel.bin <label>` loads the image over FEL, captures
+  USART0 and asserts the boot log; run it after `code-review`. Runbook: `docs/agents/hil.md`.
+  The loader initialises DRAM itself, so the load is `xfel write 0x00028000 ... && xfel exec
+  0x00028000` with no separate DDR step.
 
 ## CI
 
