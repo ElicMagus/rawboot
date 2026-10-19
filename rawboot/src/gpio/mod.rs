@@ -17,6 +17,7 @@ const GPIO_PORTG_BASE: u32 = 0x0200_0120;
 const GPIO_CFG_PINS_PER_REG: u32 = 8;
 const GPIO_CFG_PIN_SHIFT: u32 = 3;
 const GPIO_CFG_BITS_PER_PIN: u32 = 4;
+const GPIO_CFG_REG_SHIFT: u32 = 2;
 const GPIO_CFG_FIELD_SHIFT: u32 = 2;
 const GPIO_CFG_MASK: u32 = (1 << GPIO_CFG_BITS_PER_PIN) - 1;
 const GPIO_PIN_NUM_MASK: u32 = GPIO_CFG_PINS_PER_REG - 1;
@@ -24,11 +25,17 @@ const GPIO_PIN_NUM_MASK: u32 = GPIO_CFG_PINS_PER_REG - 1;
 const GPIO_PULL_PINS_PER_REG: u32 = 16;
 const GPIO_PULL_PIN_SHIFT: u32 = 4;
 const GPIO_PULL_BITS_PER_PIN: u32 = 2;
+const GPIO_PULL_REG_SHIFT: u32 = 2;
 const GPIO_PULL_FIELD_SHIFT: u32 = 1;
 const GPIO_PULL_PIN_MASK: u32 = GPIO_PULL_PINS_PER_REG - 1;
 
-const GPIO_DRV_PIN_MASK: u32 = GPIO_PULL_PINS_PER_REG - 1;
-const GPIO_DRV_BITS_MAX: u32 = (1 << GPIO_PULL_BITS_PER_PIN) - 1;
+const GPIO_DRV_PINS_PER_REG: u32 = 16;
+const GPIO_DRV_PIN_SHIFT: u32 = 4;
+const GPIO_DRV_BITS_PER_PIN: u32 = 2;
+const GPIO_DRV_REG_SHIFT: u32 = 2;
+const GPIO_DRV_FIELD_SHIFT: u32 = 1;
+const GPIO_DRV_PIN_MASK: u32 = GPIO_DRV_PINS_PER_REG - 1;
+const GPIO_DRV_BITS_MAX: u32 = (1 << GPIO_DRV_BITS_PER_PIN) - 1;
 
 pub const PIO_NUM_IO_BITS: u32 = 5;
 
@@ -91,7 +98,7 @@ fn pin_num(pin: GpioPin) -> u32 {
 pub fn sunxi_gpio_init(pin: GpioPin, cfg: u32) {
     let port_addr = port_base_get(pin);
     let num = pin_num(pin);
-    let addr = port_addr + GPIO_CFG0 + ((num >> GPIO_CFG_PIN_SHIFT) << GPIO_CFG_FIELD_SHIFT);
+    let addr = port_addr + GPIO_CFG0 + ((num >> GPIO_CFG_PIN_SHIFT) << GPIO_CFG_REG_SHIFT);
     let mut val = read32(addr);
 
     val &= !(GPIO_CFG_MASK << ((num & GPIO_PIN_NUM_MASK) << GPIO_CFG_FIELD_SHIFT));
@@ -127,7 +134,7 @@ pub fn sunxi_gpio_set_pull(pin: GpioPin, pull: GpioPull) {
         GpioPull::Down => 0x2,
         GpioPull::None => 0x0,
     };
-    let addr = port_addr + GPIO_PUL0 + ((num >> GPIO_PULL_PIN_SHIFT) << GPIO_PULL_FIELD_SHIFT);
+    let addr = port_addr + GPIO_PUL0 + ((num >> GPIO_PULL_PIN_SHIFT) << GPIO_PULL_REG_SHIFT);
     let mut val = read32(addr);
 
     val &= !(v << ((num & GPIO_PULL_PIN_MASK) << GPIO_PULL_FIELD_SHIFT));
@@ -139,10 +146,10 @@ pub fn sunxi_gpio_set_drive_lvl(pin: GpioPin, lvl: u8) {
     let port_addr = port_base_get(pin);
     let num = pin_num(pin);
     let lvl = (lvl as u32) & GPIO_DRV_BITS_MAX;
-    let addr = port_addr + GPIO_DRV0 + ((num >> GPIO_PULL_PIN_SHIFT) << GPIO_PULL_FIELD_SHIFT);
+    let addr = port_addr + GPIO_DRV0 + ((num >> GPIO_DRV_PIN_SHIFT) << GPIO_DRV_REG_SHIFT);
     let mut val = read32(addr);
 
-    val &= !(lvl << ((num & GPIO_DRV_PIN_MASK) << GPIO_PULL_FIELD_SHIFT));
-    val |= lvl << ((num & GPIO_DRV_PIN_MASK) << GPIO_PULL_FIELD_SHIFT);
+    val &= !(lvl << ((num & GPIO_DRV_PIN_MASK) << GPIO_DRV_FIELD_SHIFT));
+    val |= lvl << ((num & GPIO_DRV_PIN_MASK) << GPIO_DRV_FIELD_SHIFT);
     write32(addr, val);
 }

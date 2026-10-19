@@ -26,6 +26,7 @@ const UART_LCR_8N1: u32 = 3;
 const UART_FCR_FIFO_ENABLE: u32 = 0x1;
 const UART_BYTE_MASK: u32 = 0xff;
 
+const USART_BGR_GATE_SHIFT: u8 = 0;
 const USART_BGR_RESET_SHIFT: u8 = 16;
 
 const UART_CLK_HZ: u32 = 1_500_000;
@@ -55,19 +56,19 @@ pub const usart0_dbg: SunxiUsart = SunxiUsart {
 };
 
 pub fn sunxi_usart_init(usart: &SunxiUsart, baudrate: u32) {
-    /* Config usart TXD and RXD pins */
+    // Route the TX and RX pads to the USART function and pull them up
     sunxi_gpio_init(usart.gpio_tx.pin, usart.gpio_tx.mux);
     sunxi_gpio_init(usart.gpio_rx.pin, usart.gpio_rx.mux);
     sunxi_gpio_set_pull(usart.gpio_tx.pin, GpioPull::Up);
     sunxi_gpio_set_pull(usart.gpio_rx.pin, GpioPull::Up);
 
-    /* Open the clock gate for usart */
+    // Ungate the USART clock
     let addr = ccu::BASE + ccu::USART_BGR_REG;
     let mut val = read32(addr);
-    val |= 1 << usart.id;
+    val |= 1 << (USART_BGR_GATE_SHIFT + usart.id);
     write32(addr, val);
 
-    /* Deassert USART reset */
+    // Release the USART reset
     let addr = ccu::BASE + ccu::USART_BGR_REG;
     let mut val = read32(addr);
     val |= 1 << (USART_BGR_RESET_SHIFT + usart.id);
@@ -78,7 +79,7 @@ pub fn sunxi_usart_init(usart: &SunxiUsart, baudrate: u32) {
         div = 1;
     }
 
-    /* Configure baud rate and 8N1, enable the FIFO */
+    // 8N1 at the requested baud rate, with the FIFO enabled
     let base = uart_base(usart.id);
     write32(base + UART_LCR, UART_LCR_DLAB | UART_LCR_8N1);
     write32(base + UART_DLL, div);
