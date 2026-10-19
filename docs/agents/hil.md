@@ -40,6 +40,12 @@ cargo xtask image
 scripts/hil-check.sh target/rawboot-fel.bin hil
 ```
 
+Put the board into FEL with a power-cycle (or reset while holding the FEL/BOOT button), not
+with `xfel reset`: `xfel reset` resets through the watchdog, which stays armed, and the
+loader then boots in a loop. A loader left running from a previous run also keeps printing
+on USART0, so clear it with a power-cycle before each run. On a terminal the script prints
+this and waits for Enter; piped or `HIL_NO_PROMPT=1` runs skip the prompt.
+
 The script:
 
 1. waits up to 3 minutes for a responsive FEL (`xfel version` succeeds);
@@ -99,8 +105,8 @@ S=0x10000
 - `xfel` says `Can't connect to device`: the device node is not writable by the user. Check
   the udev rule and `ls -l /dev/bus/usb/<bus>/<dev>`.
 - The UART is silent: check USART0 PE2/PE3, 115200 8N1, and that the CH340 is `/dev/ttyUSB0`.
-- The log starts with repeated `Hello`/`S=` lines: that is the tty buffer from a previous
-  run, or a reset loop. The script drains the buffer and warns on multiple `Hello` lines;
-  if the warning persists, power-cycle the board and check the supply/USB cable.
+- The log starts with repeated `Hello`/`S=` lines: the tty buffer still holds a previous
+  run, or the board is in a reset loop. The script drains the buffer and now fails the run
+  on multiple `Hello` lines; power-cycle the board (do not `xfel reset`) and rerun.
 - The loader prints `CLK: init timeout at ...`: a clock PLL did not lock; capture the full
   line and the register address for diagnosis.
