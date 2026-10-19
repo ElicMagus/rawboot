@@ -187,12 +187,12 @@ pub fn sunxi_clk_get_peri1x_rate() -> u32 {
     let reg32 = read32(ccu::BASE + ccu::PLL_PERI0_CTRL_REG);
 
     if (reg32 & (1 << 31)) != 0 {
-        let plln = ((reg32 >> 8) & 0xff) as u8 + 1u8;
-        let pllm = (reg32 & 0x01) as u8 + 1u8;
-        let p0 = ((reg32 >> 16) & 0x03) as u8 + 1u8;
-        return (((24 * plln) / (pllm * p0)) >> 1) as u32 * 1000 * 1000;
+        let plln = ((reg32 >> 8) & 0xff) + 1;
+        let pllm = (reg32 & 0x01) + 1;
+        let p0 = ((reg32 >> 16) & 0x03) + 1;
+        return (((24 * plln) / (pllm * p0)) >> 1) * 1000 * 1000;
     }
-    0u32
+    0
 }
 
 pub fn sunxi_clk_dump() {

@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Unlicense
 
-use core::{
-    cmp::min,
-    ops::BitAnd,
-    slice::{self},
-};
+use core::cmp::min;
 use rawboot_rt::cpu::udelay;
 
 use crate::{
     print,
-    sdhci::{sdhci_cmd_t, sdhci_data_t, sdhci_t},
+    sdhci::{
+        MMC_BUS_WIDTH_1, MMC_BUS_WIDTH_4, MMC_CLK_400K, Sdhci, SdhciCmd, SdhciData, sdhci_reset,
+        sdhci_set_clock, sdhci_set_width, sdhci_transfer,
+    },
 };
 
 pub enum MMC {
@@ -130,24 +129,6 @@ pub enum MMC_Vdd {
     V27_36 = (1 << 0),
     V165_195 = (1 << 1),
 }
-#[repr(u32)]
-#[derive(Debug, Clone, Copy)]
-pub enum MMC_Bus_Width {
-    W1 = (1 << 0),
-    W4 = (1 << 2),
-    W8 = (1 << 3),
-}
-impl BitAnd for MMC_Bus_Width {
-    type Output = bool;
-
-    fn bitand(self, rhs: Self) -> Self::Output {
-        let a = self as u32 & rhs as u32;
-        match (a) {
-            0 => false,
-            _ => true,
-        }
-    }
-}
 
 #[repr(u32)]
 enum SD_MMC_VERSION {
@@ -195,33 +176,31 @@ pub struct Sdcard {
 
 pub struct Sdcard_data {
     pub card: Sdcard,
-    pub hci: sdhci_t,
+    pub hci: Sdhci,
     pub buf: [u8; 512],
     pub online: bool,
 }
 
 impl Sdcard_data {
-    pub fn init(mut self, smhc: sdhci_t) -> bool {
-        self.hci = smhc;
+    pub fn init(&mut self) -> bool {
         self.online = false;
 
-        if (sdcard_detect(self.hci, self.card) == true) {
+        if sdcard_detect(&mut self.hci, &mut self.card) {
+            self.online = true;
             print!("SD/MMC card found\r\n");
-            // debug("  Attached is a %s card\r\n", self.version & SD_VERSION_SD ? "SD" : "MMC");
             return true;
         }
         print!("SD/MMC card not found\r\n");
-        return false;
+        false
     }
 
-    pub fn blk_read(mut self, mut buf: *mut u8, mut blkno: u64, blkcnt: u64) -> u64 {
-        let mut cnt = blkcnt;
+    pub fn blk_read(&mut self, mut buf: *mut u8, mut blkno: u64, blkcnt: u64) -> u64 {
         let mut blks = blkcnt;
-        let mut card = self.card;
+        let card = self.card;
 
-        while (blks > 0) {
-            cnt = if (blks > 127) { 127 } else { blks };
-            if (mmc_read_blocks(self.hci, card, buf, blkno, cnt) != cnt) {
+        while blks > 0 {
+            let cnt = if blks > 127 { 127 } else { blks };
+            if mmc_read_blocks(&mut self.hci, &card, buf, blkno, cnt) != cnt {
                 return 0;
             }
             blks -= cnt;
@@ -229,44 +208,40 @@ impl Sdcard_data {
             let off = buf as *const _ as u32 + (cnt as u32 * card.read_bl_len);
             buf = off as *const u32 as *mut u8;
         }
-        return blkcnt;
+        blkcnt
     }
 }
 
-fn mmc_read_blocks(hci: sdhci_t, card: Sdcard, buf: *mut u8, start: u64, blkcnt: u64) -> u64 {
-    let mut cmd = sdhci_cmd_t::default();
-    let mut dat = sdhci_data_t {
-        buf: 0 as *mut u8,
-        flag: 0,
-        blksz: 0,
-        blkcnt: 0,
+fn mmc_read_blocks(hci: &mut Sdhci, card: &Sdcard, buf: *mut u8, start: u64, blkcnt: u64) -> u64 {
+    let mut cmd = SdhciCmd::default();
+    let dat = SdhciData {
+        buf,
+        flag: MMC_Data::READ as u32,
+        blksz: card.read_bl_len,
+        blkcnt: blkcnt as u32,
     };
     let mut status = 0i32;
 
-    if (blkcnt > 1) {
-        cmd.cmdidx = MMC::READ_MULTIPLE_BLOCK as u32;
+    if blkcnt > 1 {
+        cmd.idx = MMC::READ_MULTIPLE_BLOCK as u32;
     } else {
-        cmd.cmdidx = MMC::READ_SINGLE_BLOCK as u32;
+        cmd.idx = MMC::READ_SINGLE_BLOCK as u32;
     }
-    if (card.high_capacity) != 0 {
-        cmd.cmdarg = start as u32;
+    if card.high_capacity != 0 {
+        cmd.arg = start as u32;
     } else {
-        cmd.cmdarg = start as u32 * card.read_bl_len;
+        cmd.arg = start as u32 * card.read_bl_len;
     }
     cmd.resptype = MMC_RSP_R::_1 as u32;
-    dat.buf = buf;
-    dat.flag = MMC_Data::READ as u32;
-    dat.blksz = card.read_bl_len;
-    dat.blkcnt = blkcnt as u32;
 
-    if (!hci.transfer(cmd, dat)) {
+    if !sdhci_transfer(hci, &mut cmd, Some(&dat)) {
         return 0;
     }
 
-    if (!hci.isspi) {
+    if !hci.isspi {
         loop {
             status = mmc_status(hci, card);
-            if (status < 0) {
+            if status < 0 {
                 return 0;
             }
 
@@ -276,55 +251,43 @@ fn mmc_read_blocks(hci: sdhci_t, card: Sdcard, buf: *mut u8, start: u64, blkcnt:
         }
     }
 
-    if (blkcnt > 1) {
-        cmd.cmdidx = MMC::STOP_TRANSMISSION as u32;
-        cmd.cmdarg = 0;
+    if blkcnt > 1 {
+        cmd.idx = MMC::STOP_TRANSMISSION as u32;
+        cmd.arg = 0;
         cmd.resptype = MMC_RSP_R::_1B as u32;
-        if (!hci.transfer(cmd, dat)) {
+        if !sdhci_transfer(hci, &mut cmd, None) {
             return 0;
         }
     }
-    return blkcnt;
+    blkcnt
 }
 
-fn go_idle_state(hci: sdhci_t) -> bool {
-    let mut cmd = sdhci_cmd_t::default();
-    let mut dat = sdhci_data_t {
-        buf: 0 as *mut u8,
-        flag: 0,
-        blksz: 0,
-        blkcnt: 0,
-    };
-    cmd.cmdidx = MMC::GO_IDLE_STATE as u32;
-    cmd.cmdarg = 0;
+fn go_idle_state(hci: &mut Sdhci) -> bool {
+    let mut cmd = SdhciCmd::default();
+    cmd.idx = MMC::GO_IDLE_STATE as u32;
+    cmd.arg = 0;
     cmd.resptype = if hci.isspi {
         MMC_RSP_R::_1 as u32
     } else {
         MMC_RSP_R::NONE as u32
     };
 
-    if (hci.transfer(cmd, dat)) {
+    if sdhci_transfer(hci, &mut cmd, None) {
         return true;
     }
 
-    return hci.transfer(cmd, dat);
+    sdhci_transfer(hci, &mut cmd, None)
 }
 
-fn mmc_status(hci: sdhci_t, card: Sdcard) -> i32 {
-    let mut cmd = sdhci_cmd_t::default();
-    let mut dat = sdhci_data_t {
-        buf: 0 as *mut u8,
-        flag: 0,
-        blksz: 0,
-        blkcnt: 0,
-    };
+fn mmc_status(hci: &mut Sdhci, card: &Sdcard) -> i32 {
+    let mut cmd = SdhciCmd::default();
     let mut retries = 100i32;
 
-    cmd.cmdidx = MMC::SEND_STATUS as u32;
+    cmd.idx = MMC::SEND_STATUS as u32;
     cmd.resptype = MMC_RSP_R::_1 as u32;
-    cmd.cmdarg = card.rca << 16;
+    cmd.arg = card.rca << 16;
     loop {
-        if (!hci.transfer(cmd, dat)) {
+        if !sdhci_transfer(hci, &mut cmd, None) {
             continue;
         }
         if (cmd.response[0] & (1 << 8)) != 0 {
@@ -332,96 +295,84 @@ fn mmc_status(hci: sdhci_t, card: Sdcard) -> i32 {
         }
         udelay(1);
         retries -= 1;
-        if (retries == 0) {
+        if retries == 0 {
             break;
         }
     }
-    if (retries > 0) {
+    if retries > 0 {
         return ((cmd.response[0] >> 9) & 0xf).try_into().unwrap();
     }
-    return -1;
+    -1
 }
 
-fn sd_send_if_cond(hci: sdhci_t, mut card: Sdcard) -> bool {
-    let mut cmd = sdhci_cmd_t::default();
-    let mut dat = sdhci_data_t {
-        buf: 0 as *mut u8,
-        flag: 0,
-        blksz: 0,
-        blkcnt: 0,
-    };
+fn sd_send_if_cond(hci: &mut Sdhci, card: &mut Sdcard) -> bool {
+    let mut cmd = SdhciCmd::default();
 
-    cmd.cmdidx = SD_Cmd::SEND_IF_COND;
-    if (hci.voltage as u32 & MMC_Vdd::V27_36 as u32) != 0 {
-        cmd.cmdarg = (0x1 << 8);
-    } else if (hci.voltage as u32 & MMC_Vdd::V165_195 as u32) != 0 {
-        cmd.cmdarg = (0x2 << 8);
+    cmd.idx = SD_Cmd::SEND_IF_COND;
+    if (hci.voltage & MMC_Vdd::V27_36 as u32) != 0 {
+        cmd.arg = 0x1 << 8;
+    } else if (hci.voltage & MMC_Vdd::V165_195 as u32) != 0 {
+        cmd.arg = 0x2 << 8;
     } else {
-        cmd.cmdarg = (0x0 << 8);
+        cmd.arg = 0x0 << 8;
     }
-    cmd.cmdarg |= 0xaa;
+    cmd.arg |= 0xaa;
     cmd.resptype = MMC_RSP_R::_7 as u32;
-    if (!hci.transfer(cmd, dat)) {
+    if !sdhci_transfer(hci, &mut cmd, None) {
         return false;
     }
 
-    if ((cmd.response[0] & 0xff) != 0xaa) {
+    if (cmd.response[0] & 0xff) != 0xaa {
         return false;
     }
     card.version = SD_MMC_VERSION::SDV_2 as u32;
-    return true;
+    true
 }
 
 #[allow(clippy::never_loop, clippy::while_immutable_condition)]
-fn mmc_send_op_cond(hci: sdhci_t, card: Sdcard) -> bool {
-    let mut cmd = sdhci_cmd_t::default();
-    let mut dat = sdhci_data_t {
-        buf: 0 as *mut u8,
-        flag: 0,
-        blksz: 0,
-        blkcnt: 0,
-    };
+fn mmc_send_op_cond(hci: &mut Sdhci, card: &mut Sdcard) -> bool {
+    let mut cmd = SdhciCmd::default();
 
     let mut retries = 100i32;
 
-    if (!go_idle_state(hci)) {
+    if !go_idle_state(hci) {
         return false;
     }
 
-    cmd.cmdidx = MMC::SEND_OP_COND as u32;
-    cmd.cmdarg = 0;
+    cmd.idx = MMC::SEND_OP_COND as u32;
+    cmd.arg = 0;
     cmd.resptype = MMC_RSP_R::_3 as u32;
-    if (!hci.transfer(cmd, dat)) {
+    if !sdhci_transfer(hci, &mut cmd, None) {
         return false;
     }
 
     loop {
-        cmd.cmdidx = MMC::SEND_OP_COND as u32;
-        cmd.cmdarg = if hci.isspi {
+        cmd.idx = MMC::SEND_OP_COND as u32;
+        cmd.arg = if hci.isspi {
             0
         } else {
             (card.ocr & OCR::VOLTAGE_MASK as u32) | (card.ocr & OCR::ACCESS_MODE as u32)
         };
-        cmd.cmdarg |= OCR::HCS as u32;
+        cmd.arg |= OCR::HCS as u32;
         cmd.resptype = MMC_RSP_R::_3 as u32;
-        if (!hci.transfer(cmd, dat)) {
+        if !sdhci_transfer(hci, &mut cmd, None) {
             return false;
         }
         retries -= 1;
-        while ((cmd.response[0] & OCR::BUSY as u32) == 0 && retries == 0) {
+        while (cmd.response[0] & OCR::BUSY as u32) == 0 && retries == 0 {
             break;
         }
     }
 
-    if (retries <= 0) {
+    if retries <= 0 {
         return false;
     }
 
-    if (hci.isspi) {
-        cmd.cmdidx = MMC::SPI_READ_OCR as u32;
-        cmd.cmdarg = 0;
+    if hci.isspi {
+        cmd.idx = MMC::SPI_READ_OCR as u32;
+        cmd.arg = 0;
         cmd.resptype = MMC_RSP_R::_3 as u32;
-        if (!hci.transfer(cmd, dat)) {
+        if !sdhci_transfer(hci, &mut cmd, None) {
             return false;
         }
     }
@@ -429,71 +380,69 @@ fn mmc_send_op_cond(hci: sdhci_t, card: Sdcard) -> bool {
     card.ocr = cmd.response[0];
     card.high_capacity = ((card.ocr & OCR::HCS as u32) == OCR::HCS as u32) as u32;
     card.rca = 0;
-    return true;
+    true
 }
 
-fn sd_send_op_cond(hci: sdhci_t, mut card: Sdcard) -> bool {
-    let mut cmd = sdhci_cmd_t::default();
-    let mut dat = sdhci_data_t {
-        buf: 0 as *mut u8,
-        flag: 0,
-        blksz: 0,
-        blkcnt: 0,
-    };
+fn sd_send_op_cond(hci: &mut Sdhci, card: &mut Sdcard) -> bool {
+    let mut cmd = SdhciCmd::default();
     let mut retries = 100i32;
 
     loop {
-        cmd.cmdidx = MMC::APP_CMD as u32;
-        cmd.cmdarg = 0;
+        cmd.idx = MMC::APP_CMD as u32;
+        cmd.arg = 0;
         cmd.resptype = MMC_RSP_R::_1 as u32;
-        if (!hci.transfer(cmd, dat)) {
+        if !sdhci_transfer(hci, &mut cmd, None) {
+            retries -= 1;
+            if retries == 0 {
+                break;
+            }
             continue;
         }
 
-        cmd.cmdidx = SD_Cmd::APP_SEND_OP_COND;
-        if (hci.isspi) {
-            cmd.cmdarg = 0;
-            if (card.version == SD_MMC_VERSION::SDV_2 as u32) {
-                cmd.cmdarg |= OCR::HCS as u32;
+        cmd.idx = SD_Cmd::APP_SEND_OP_COND;
+        if hci.isspi {
+            cmd.arg = 0;
+            if card.version == SD_MMC_VERSION::SDV_2 as u32 {
+                cmd.arg |= OCR::HCS as u32;
             }
             cmd.resptype = MMC_RSP_R::_1 as u32;
-            if (hci.transfer(cmd, dat)) {
+            if sdhci_transfer(hci, &mut cmd, None) {
                 break;
             }
         } else {
-            if (hci.voltage as u32 & MMC_Vdd::V27_36 as u32) != 0 {
-                cmd.cmdarg = 0x00ff8000;
-            } else if (hci.voltage as u32 & MMC_Vdd::V165_195 as u32) != 0 {
-                cmd.cmdarg = 0x00000080;
+            if (hci.voltage & MMC_Vdd::V27_36 as u32) != 0 {
+                cmd.arg = 0x00ff8000;
+            } else if (hci.voltage & MMC_Vdd::V165_195 as u32) != 0 {
+                cmd.arg = 0x00000080;
             } else {
-                cmd.cmdarg = 0;
+                cmd.arg = 0;
             }
-            if (card.version == SD_MMC_VERSION::SDV_2 as u32) {
-                cmd.cmdarg |= OCR::HCS as u32;
+            if card.version == SD_MMC_VERSION::SDV_2 as u32 {
+                cmd.arg |= OCR::HCS as u32;
             }
             cmd.resptype = MMC_RSP_R::_3 as u32;
-            if (!hci.transfer(cmd, dat) || (cmd.response[0] & OCR::BUSY as u32) != 0) {
+            if !sdhci_transfer(hci, &mut cmd, None) || (cmd.response[0] & OCR::BUSY as u32) != 0 {
                 break;
             }
         }
         retries -= 1;
-        if (retries == 0) {
+        if retries == 0 {
             break;
         }
     }
 
-    if (retries <= 0) {
+    if retries <= 0 {
         return false;
     }
 
-    if (card.version != SD_MMC_VERSION::SDV_2 as u32) {
+    if card.version != SD_MMC_VERSION::SDV_2 as u32 {
         card.version = SD_MMC_VERSION::SDV_1_0 as u32;
     }
-    if (hci.isspi) {
-        cmd.cmdidx = MMC::SPI_READ_OCR as u32;
-        cmd.cmdarg = 0;
+    if hci.isspi {
+        cmd.idx = MMC::SPI_READ_OCR as u32;
+        cmd.arg = 0;
         cmd.resptype = MMC_RSP_R::_3 as u32;
-        if (!hci.transfer(cmd, dat)) {
+        if !sdhci_transfer(hci, &mut cmd, None) {
             return false;
         }
     }
@@ -501,17 +450,11 @@ fn sd_send_op_cond(hci: sdhci_t, mut card: Sdcard) -> bool {
     card.high_capacity = ((card.ocr & OCR::HCS as u32) == OCR::HCS as u32) as u32;
     card.rca = 0;
 
-    return true;
+    true
 }
 
-fn sdcard_detect(hci: sdhci_t, mut card: Sdcard) -> bool {
-    let mut cmd = sdhci_cmd_t::default();
-    let mut dat = sdhci_data_t {
-        buf: 0 as *mut u8,
-        flag: 0,
-        blksz: 0,
-        blkcnt: 0,
-    };
+fn sdcard_detect(hci: &mut Sdhci, card: &mut Sdcard) -> bool {
+    let mut cmd = SdhciCmd::default();
     let mut csize = 0u64;
     let mut cmult = 0u64;
     let mut unit = 0u32;
@@ -519,28 +462,31 @@ fn sdcard_detect(hci: sdhci_t, mut card: Sdcard) -> bool {
     let mut width = 0i32;
     let mut status = 0i32;
 
-    hci.reset();
-    hci.set_clock(400 * 1000);
-    hci.set_width(MMC_Bus_Width::W1);
-
-    if (!go_idle_state(hci)) {
-        print!("get state\r\n");
+    sdhci_reset(hci);
+    if !sdhci_set_clock(hci, MMC_CLK_400K) || !sdhci_set_width(hci, MMC_BUS_WIDTH_1) {
+        print!("SMHC: set clock/width failed\r\n");
         return false;
     }
 
+    if !go_idle_state(hci) {
+        print!("get state\r\n");
+        return false;
+    }
+    udelay(2000);
+
     sd_send_if_cond(hci, card);
 
-    if (!sd_send_op_cond(hci, card)) {
-        if (!mmc_send_op_cond(hci, card)) {
+    if !sd_send_op_cond(hci, card) {
+        if !mmc_send_op_cond(hci, card) {
             return false;
         }
     }
 
-    if (hci.isspi) {
-        cmd.cmdidx = MMC::SEND_CID as u32;
-        cmd.cmdarg = 0;
+    if hci.isspi {
+        cmd.idx = MMC::SEND_CID as u32;
+        cmd.arg = 0;
         cmd.resptype = MMC_RSP_R::_1 as u32;
-        if (!hci.transfer(cmd, dat)) {
+        if !sdhci_transfer(hci, &mut cmd, None) {
             return false;
         }
         card.cid[0] = cmd.response[0];
@@ -548,10 +494,10 @@ fn sdcard_detect(hci: sdhci_t, mut card: Sdcard) -> bool {
         card.cid[2] = cmd.response[2];
         card.cid[3] = cmd.response[3];
 
-        cmd.cmdidx = MMC::SEND_CSD as u32;
-        cmd.cmdarg = 0;
+        cmd.idx = MMC::SEND_CSD as u32;
+        cmd.arg = 0;
         cmd.resptype = MMC_RSP_R::_1 as u32;
-        if (!hci.transfer(cmd, dat)) {
+        if !sdhci_transfer(hci, &mut cmd, None) {
             return false;
         }
         card.csd[0] = cmd.response[0];
@@ -559,10 +505,10 @@ fn sdcard_detect(hci: sdhci_t, mut card: Sdcard) -> bool {
         card.csd[2] = cmd.response[2];
         card.csd[3] = cmd.response[3];
     } else {
-        cmd.cmdidx = MMC::ALL_SEND_CID as u32;
-        cmd.cmdarg = 0;
+        cmd.idx = MMC::ALL_SEND_CID as u32;
+        cmd.arg = 0;
         cmd.resptype = MMC_RSP_R::_2 as u32;
-        if (!hci.transfer(cmd, dat)) {
+        if !sdhci_transfer(hci, &mut cmd, None) {
             return false;
         }
         card.cid[0] = cmd.response[0];
@@ -570,20 +516,20 @@ fn sdcard_detect(hci: sdhci_t, mut card: Sdcard) -> bool {
         card.cid[2] = cmd.response[2];
         card.cid[3] = cmd.response[3];
 
-        cmd.cmdidx = SD_Cmd::SEND_RELATIVE_ADDR;
-        cmd.cmdarg = card.rca << 16;
+        cmd.idx = SD_Cmd::SEND_RELATIVE_ADDR;
+        cmd.arg = card.rca << 16;
         cmd.resptype = MMC_RSP_R::_6 as u32;
-        if (!hci.transfer(cmd, dat)) {
+        if !sdhci_transfer(hci, &mut cmd, None) {
             return false;
         }
         if (card.version & SD_MMC_VERSION::_SD as u32) != 0 {
             card.rca = (cmd.response[0] >> 16) & 0xffff;
         }
 
-        cmd.cmdidx = MMC::SEND_CSD as u32;
-        cmd.cmdarg = card.rca << 16;
+        cmd.idx = MMC::SEND_CSD as u32;
+        cmd.arg = card.rca << 16;
         cmd.resptype = MMC_RSP_R::_2 as u32;
-        if (!hci.transfer(cmd, dat)) {
+        if !sdhci_transfer(hci, &mut cmd, None) {
             return false;
         }
         card.csd[0] = cmd.response[0];
@@ -591,25 +537,25 @@ fn sdcard_detect(hci: sdhci_t, mut card: Sdcard) -> bool {
         card.csd[2] = cmd.response[2];
         card.csd[3] = cmd.response[3];
 
-        cmd.cmdidx = MMC::SELECT_CARD as u32;
-        cmd.cmdarg = card.rca << 16;
+        cmd.idx = MMC::SELECT_CARD as u32;
+        cmd.arg = card.rca << 16;
         cmd.resptype = MMC_RSP_R::_1 as u32;
-        if (!hci.transfer(cmd, dat)) {
+        if !sdhci_transfer(hci, &mut cmd, None) {
             return false;
         }
         loop {
             status = mmc_status(hci, card);
-            if (status < 0) {
+            if status < 0 {
                 return false;
             }
-            if (status == (MMC_Status::TRAN as u32).try_into().unwrap()) {
+            if status == (MMC_Status::TRAN as u32).try_into().unwrap() {
                 break;
             };
         }
     }
 
-    if (card.version == SD_MMC_VERSION::_MMC as u32) {
-        card.version = match ((card.csd[0] >> 26) & 0xf) {
+    if card.version == SD_MMC_VERSION::_MMC as u32 {
+        card.version = match (card.csd[0] >> 26) & 0xf {
             0 => SD_MMC_VERSION::_1_2 as u32,
             1 => SD_MMC_VERSION::_1_4 as u32,
             2 => SD_MMC_VERSION::_2_2 as u32,
@@ -630,38 +576,40 @@ fn sdcard_detect(hci: sdhci_t, mut card: Sdcard) -> bool {
     } else {
         card.write_bl_len = 1 << ((card.csd[3] >> 22) & 0xf);
     }
-    if (card.read_bl_len > 512) {
+    if card.read_bl_len > 512 {
         card.read_bl_len = 512;
     }
-    if (card.write_bl_len > 512) {
+    if card.write_bl_len > 512 {
         card.write_bl_len = 512;
     }
 
     if ((card.version & SD_MMC_VERSION::_MMC as u32) != 0
         && (card.version >= SD_MMC_VERSION::_4 as u32))
     {
-        cmd.cmdidx = MMC::SEND_EXT_CSD as u32;
-        cmd.cmdarg = 0;
+        cmd.idx = MMC::SEND_EXT_CSD as u32;
+        cmd.arg = 0;
         cmd.resptype = MMC_RSP_R::_1 as u32;
-        dat.buf = &card.extcsd as *const _ as *mut u8;
-        dat.flag = MMC_Data::READ as u32;
-        dat.blksz = 512;
-        dat.blkcnt = 1;
-        if (!hci.transfer(cmd, dat)) {
+        let dat = SdhciData {
+            buf: card.extcsd.as_mut_ptr(),
+            flag: MMC_Data::READ as u32,
+            blksz: 512,
+            blkcnt: 1,
+        };
+        if !sdhci_transfer(hci, &mut cmd, Some(&dat)) {
             return false;
         }
-        if (!hci.isspi) {
+        if !hci.isspi {
             loop {
                 status = mmc_status(hci, card);
-                if (status < 0) {
+                if status < 0 {
                     return false;
                 }
-                if (status == (MMC_Status::TRAN as u32).try_into().unwrap()) {
+                if status == (MMC_Status::TRAN as u32).try_into().unwrap() {
                     break;
                 }
             }
         }
-        card.version = match (card.extcsd[192]) {
+        card.version = match card.extcsd[192] {
             1 => SD_MMC_VERSION::_4_1 as u32,
             2 => SD_MMC_VERSION::_4_2 as u32,
             3 => SD_MMC_VERSION::_4_3 as u32,
@@ -673,7 +621,7 @@ fn sdcard_detect(hci: sdhci_t, mut card: Sdcard) -> bool {
         }
     }
 
-    if (card.high_capacity != 0) {
+    if card.high_capacity != 0 {
         if (card.version & SD_MMC_VERSION::_SD as u32) != 0 {
             csize = UNSTUFF_BITS(card.csd, 48, 22);
             card.capacity = (1 + csize) << 10;
@@ -690,81 +638,79 @@ fn sdcard_detect(hci: sdhci_t, mut card: Sdcard) -> bool {
     }
     card.capacity *= 1 << UNSTUFF_BITS(card.csd, 80, 4);
 
-    if (hci.isspi) {
-        hci.set_clock(min(card.tran_speed, hci.clock));
-        hci.set_width(MMC_Bus_Width::W1);
+    if hci.isspi {
+        sdhci_set_clock(hci, min(card.tran_speed, hci.clock_wanted));
+        sdhci_set_width(hci, MMC_BUS_WIDTH_1);
     } else {
         if (card.version & SD_MMC_VERSION::_SD as u32) != 0 {
-            if (((hci.width as u32 & (MMC_Bus_Width::W8 as u32)) != 0)
-                || ((hci.width as u32 & MMC_Bus_Width::W4 as u32) != 0))
-            {
+            if hci.width == MMC_BUS_WIDTH_4 {
                 width = 2;
             } else {
                 width = 0;
             }
 
-            cmd.cmdidx = MMC::APP_CMD as u32;
-            cmd.cmdarg = card.rca << 16;
+            cmd.idx = MMC::APP_CMD as u32;
+            cmd.arg = card.rca << 16;
             cmd.resptype = MMC_RSP_R::_5 as u32;
-            if (!hci.transfer(cmd, dat)) {
+            if !sdhci_transfer(hci, &mut cmd, None) {
                 return false;
             }
 
-            cmd.cmdidx = SD_Cmd::SWITCH_FUNC as u32;
-            cmd.cmdarg = width as u32;
+            cmd.idx = SD_Cmd::SWITCH_FUNC as u32;
+            cmd.arg = width as u32;
             cmd.resptype = MMC_RSP_R::_1 as u32;
-            if (!hci.transfer(cmd, dat)) {
+            if !sdhci_transfer(hci, &mut cmd, None) {
                 return false;
             }
-
-            hci.set_clock(min(card.tran_speed, hci.clock));
-            if ((hci.width & MMC_Bus_Width::W8) || (hci.width & MMC_Bus_Width::W4)) {
-                hci.set_width(MMC_Bus_Width::W4);
-            } else {
-                hci.set_width(MMC_Bus_Width::W1);
+            if !sdhci_set_clock(hci, hci.clock_wanted)
+                || !sdhci_set_width(
+                    hci,
+                    if hci.width == MMC_BUS_WIDTH_4 {
+                        MMC_BUS_WIDTH_4
+                    } else {
+                        MMC_BUS_WIDTH_1
+                    },
+                )
+            {
+                print!("SMHC: set clock/width failed\r\n");
+                return false;
             }
         } else if (card.version & SD_MMC_VERSION::_MMC as u32) != 0 {
-            if (hci.width & MMC_Bus_Width::W8) {
-                width = 2;
-            } else if (hci.width & MMC_Bus_Width::W4) {
+            if hci.width == MMC_BUS_WIDTH_4 {
                 width = 1;
             } else {
                 width = 0;
             }
 
-            cmd.cmdidx = MMC::APP_CMD as u32;
-            cmd.cmdarg = card.rca << 16;
+            cmd.idx = MMC::APP_CMD as u32;
+            cmd.arg = card.rca << 16;
             cmd.resptype = MMC_RSP_R::_5 as u32;
-            if (!hci.transfer(cmd, dat)) {
+            if !sdhci_transfer(hci, &mut cmd, None) {
                 return false;
             }
 
-            cmd.cmdidx = SD_Cmd::SWITCH_FUNC as u32;
-            cmd.cmdarg = width as u32;
+            cmd.idx = SD_Cmd::SWITCH_FUNC as u32;
+            cmd.arg = width as u32;
             cmd.resptype = MMC_RSP_R::_1 as u32;
-            if (!hci.transfer(cmd, dat)) {
+            if !sdhci_transfer(hci, &mut cmd, None) {
                 return false;
             }
 
-            hci.set_clock(min(card.tran_speed, hci.clock));
-            if (hci.width & MMC_Bus_Width::W8) {
-                hci.set_width(MMC_Bus_Width::W8);
-            } else if (hci.width & MMC_Bus_Width::W4) {
-                hci.set_width(MMC_Bus_Width::W4);
-            } else if (hci.width & MMC_Bus_Width::W1) {
-                hci.set_width(MMC_Bus_Width::W1);
+            if !sdhci_set_clock(hci, hci.clock_wanted) || !sdhci_set_width(hci, hci.width) {
+                print!("SMHC: set clock/width failed\r\n");
+                return false;
             }
         }
     }
 
-    cmd.cmdidx = MMC::SET_BLOCKLEN as u32;
-    cmd.cmdarg = card.read_bl_len;
+    cmd.idx = MMC::SET_BLOCKLEN as u32;
+    cmd.arg = card.read_bl_len;
     cmd.resptype = MMC_RSP_R::_1 as u32;
-    if (!hci.transfer(cmd, dat)) {
+    if !sdhci_transfer(hci, &mut cmd, None) {
         return false;
     }
 
-    return true;
+    true
 }
 
 fn UNSTUFF_BITS(resp: [u32; 4], start: u32, size: u32) -> u64 {

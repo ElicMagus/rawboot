@@ -60,7 +60,31 @@ pub const DMA_BGR_REG: u32 = (0x70c);
 pub const DRAM_CLK_REG: u32 = (0x800);
 pub const MBUS_MAT_CLK_GATING_REG: u32 = (0x804);
 pub const DRAM_BGR_REG: u32 = 0x80c;
+pub const SMHC0_CLK_REG: u32 = 0x830;
+pub const SMHC1_CLK_REG: u32 = 0x834;
+pub const SMHC2_CLK_REG: u32 = 0x838;
+pub const SMHC_BGR_REG: u32 = 0x84c;
 pub const USART_BGR_REG: u32 = 0x90c; //UART Bus Gating Reset Register
 pub const RISCV_CLK_REG: u32 = (0xd00);
 pub const RISCV_GATING_REG: u32 = (0xd04);
 pub const RISCV_CFG_BGR_REG: u32 = (0xd0c);
+
+pub const fn mmc_ctrl_m(n: u32) -> u32 {
+    n - 1
+}
+
+pub const fn mmc_ctrl_n(n: u32) -> u32 {
+    n << 8
+}
+pub const MMC_CTRL_OSCM24: u32 = 0x0 << 24;
+pub const MMC_CTRL_PLL_PERIPH1X: u32 = 0x1 << 24;
+pub const MMC_CTRL_PLL_PERIPH2X: u32 = 0x2 << 24;
+pub const MMC_CTRL_NEW_TIMING: u32 = 0x1 << 30;
+pub const MMC_CTRL_ENABLE: u32 = 0x1 << 31;
+
+pub const MMC_BGR_SMHC0_GATE: u32 = 1 << 0;
+pub const MMC_BGR_SMHC1_GATE: u32 = 1 << 1;
+pub const MMC_BGR_SMHC2_GATE: u32 = 1 << 2;
+pub const MMC_BGR_SMHC0_RST: u32 = 1 << 16;
+pub const MMC_BGR_SMHC1_RST: u32 = 1 << 17;
+pub const MMC_BGR_SMHC2_RST: u32 = 1 << 18;
