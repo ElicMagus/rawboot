@@ -61,11 +61,15 @@ fn image() -> Result<()> {
         .map_err(|e| format!("writing `{}`: {e}", sealed_path.display()))?;
 
     println!("sealed {} bytes -> {}", sealed.len(), sealed_path.display());
-    println!(
-        "load: xfel ddr t113-s3 && xfel write {FEL_LOAD_ADDR:#010x} {} && xfel exec {FEL_LOAD_ADDR:#010x}",
-        sealed_path.display()
-    );
+    println!("load: {}", fel_load_command(&sealed_path));
     Ok(())
+}
+
+fn fel_load_command(image: &Path) -> String {
+    format!(
+        "xfel write {FEL_LOAD_ADDR:#010x} {} && xfel exec {FEL_LOAD_ADDR:#010x}",
+        image.display()
+    )
 }
 
 fn build_loader(root: &Path) -> Result<()> {
@@ -173,4 +177,18 @@ fn workspace_root() -> PathBuf {
         .parent()
         .expect("xtask crate lives in a workspace")
         .to_path_buf()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fel_load_command_does_not_run_xfel_ddr() {
+        let command = fel_load_command(Path::new("target/rawboot-fel.bin"));
+
+        assert!(!command.contains("xfel ddr"), "{command}");
+        assert!(command.contains("xfel write 0x00028000"), "{command}");
+        assert!(command.contains("xfel exec 0x00028000"), "{command}");
+    }
 }
