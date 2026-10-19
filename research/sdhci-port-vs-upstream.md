@@ -172,12 +172,9 @@ with `sdmmc.c`.
 
 ## 7. Hardware confirmation
 
-Verified on the T113-S3 over FEL with an empty (all-zero) SD card. `scripts/hil-check.sh`
-could not be used on this board state: its preflight saw the previously running loader (and a
-floating-line pattern while idle in FEL), so the "UART quiet" gate rejected the run. The same
-write/exec sequence was driven by hand with the UART drained immediately before the load; the
-capture contains one `Hello` and the final image is the committed code (no diagnostic
-prints).
+Verified on the T113-S3 with `scripts/hil-check.sh target/rawboot-fel.bin iss19` after a clean
+power-cycle into FEL. The script confirmed a quiet UART, an image built from the code branch
+(`f31d65a`, dirty=false), one `Hello`, and all required assertions:
 
 ```
 Hello
@@ -191,6 +188,7 @@ DRAM simple test OK.
 SD/MMC card found
 SD: read 1 block(s), first bytes [00, 00, 00, 00]
 S=0x4
+PASS: UART assertions
 ```
 
 - `SD/MMC card found` means CMD0/CMD8/ACMD41/CID/CSD/RCA/select and the 50 MHz 4-bit switch
@@ -199,10 +197,7 @@ S=0x4
   returned block is zero-filled because the test card is blank.
 - `S=0x4` is the LED-loop status line after the read.
 - No cache maintenance is performed; the loader runs with caches off.
-
-The raw capture also contains one `S=0x104` line from the loader that was already running
-before the FEL exec; it is stale output, not a reset loop. A clean automated
-`scripts/hil-check.sh` pass is still worth running once the FEL UART line is quiet.
+- The LED on PD22 is the script's human check and blinks in the same loop.
 
 ---
 
