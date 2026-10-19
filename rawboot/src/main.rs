@@ -73,11 +73,11 @@ fn main() -> ! {
         online: false,
     };
 
-    sdcard.init();
+    sdcard::sdmmc_init(&mut sdcard);
 
     if sdcard.online {
         let mut block = [0u8; 512];
-        let read = sdcard.blk_read(block.as_mut_ptr(), 0, 1);
+        let read = sdcard::sdmmc_blk_read(&mut sdcard, block.as_mut_ptr(), 0, 1);
         print!(
             "SD: read {} block(s), first bytes {:02x?}\r\n",
             read,
