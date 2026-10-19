@@ -36,7 +36,7 @@ const PWRTMG: u32 = 0x98; /**/
 // const res3 	        :u32= 0x9c ;/*[0x4]*/
 const UNK_0X0A0: u32 = 0xa0; /**/
 // const res3_1        :u32= 0xa4 ;/*[0x14]*/
-const VTFCR: u32 = 0xb8; /*(unused on H3) */
+const VTFCR: u32 = 0xb8; /* VTF feature control register */
 const DQSGMR: u32 = 0xbc; /**/
 const DTCR: u32 = 0xc0; /**/
 const DTAR: u32 = 0xc4; /*[4]*/
@@ -289,11 +289,11 @@ impl DramPara_t {
             write32(addr, rc | 0x5000);
         }
 
-        let addr = SUNXI_DRAM_CTL0_BASE + 0x140;
-        let addr1 = SUNXI_DRAM_CTL0_BASE + 0x0b8;
+        let addr = SUNXI_DRAM_CTL0_BASE + ZQCR;
+        let addr1 = SUNXI_DRAM_CTL0_BASE + VTFCR;
         write32(addr, read32(addr) | (1 << 31));
         if (self.dram_tpr13 & (1 << 8)) != 0 {
-            write32(addr1, read32(addr) | 0x300);
+            write32(addr1, read32(addr1) | 0x300);
         }
 
         let addr = SUNXI_DRAM_CTL0_BASE + 0x108;
