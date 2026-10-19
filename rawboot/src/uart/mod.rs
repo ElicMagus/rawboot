@@ -2,11 +2,13 @@
 
 use crate::ccu;
 use crate::gpio::{
-    GPIO_PERIPH_MUX6, GPIO_PULL_UP, PORTE, gpio_mux_t, gpio_pin, sunxi_gpio_init,
-    sunxi_gpio_set_pull,
+    GPIO_PERIPH_MUX6, GpioMux, GpioPull, PORTE, gpio_pin, sunxi_gpio_init, sunxi_gpio_set_pull,
 };
 use crate::io::{read32, write32};
 use core::fmt;
+
+const UART0_BASE: u32 = 0x0250_0000;
+const UART_MX: u32 = 0x400;
 
 const UART_RBR: u32 = 0x00;
 const UART_THR: u32 = 0x00;
@@ -19,36 +21,42 @@ const UART_USR_BUSY: u32 = 1 << 0;
 const UART_USR_TFNF: u32 = 1 << 1;
 const UART_USR_RFNE: u32 = 1 << 3;
 
+const UART_LCR_DLAB: u32 = 1 << 7;
+const UART_LCR_8N1: u32 = 3;
+const UART_FCR_FIFO_ENABLE: u32 = 0x1;
+
+const UART_CLK_HZ: u32 = 1_500_000;
+
 #[inline(always)]
-fn UART_BASE(id: u8) -> u32 {
-    0x0250_0000 + (0x400 * id as u32)
+fn uart_base(id: u8) -> u32 {
+    UART0_BASE + UART_MX * id as u32
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct sunxi_usart_t {
+pub struct SunxiUsart {
     pub id: u8,
-    pub gpio_tx: gpio_mux_t,
-    pub gpio_rx: gpio_mux_t,
+    pub gpio_tx: GpioMux,
+    pub gpio_rx: GpioMux,
 }
 
-pub const usart0_dbg: sunxi_usart_t = sunxi_usart_t {
+pub const usart0_dbg: SunxiUsart = SunxiUsart {
     id: 0,
-    gpio_tx: gpio_mux_t {
+    gpio_tx: GpioMux {
         pin: gpio_pin(PORTE, 2),
         mux: GPIO_PERIPH_MUX6,
     },
-    gpio_rx: gpio_mux_t {
+    gpio_rx: GpioMux {
         pin: gpio_pin(PORTE, 3),
         mux: GPIO_PERIPH_MUX6,
     },
 };
 
-pub fn sunxi_usart_init(usart: &sunxi_usart_t, baudrate: u32) {
+pub fn sunxi_usart_init(usart: &SunxiUsart, baudrate: u32) {
     /* Config usart TXD and RXD pins */
     sunxi_gpio_init(usart.gpio_tx.pin, usart.gpio_tx.mux);
     sunxi_gpio_init(usart.gpio_rx.pin, usart.gpio_rx.mux);
-    sunxi_gpio_set_pull(usart.gpio_tx.pin, GPIO_PULL_UP);
-    sunxi_gpio_set_pull(usart.gpio_rx.pin, GPIO_PULL_UP);
+    sunxi_gpio_set_pull(usart.gpio_tx.pin, GpioPull::Up);
+    sunxi_gpio_set_pull(usart.gpio_rx.pin, GpioPull::Up);
 
     /* Open the clock gate for usart */
     let addr = ccu::BASE + ccu::USART_BGR_REG;
@@ -62,35 +70,35 @@ pub fn sunxi_usart_init(usart: &sunxi_usart_t, baudrate: u32) {
     val |= 1 << (16 + usart.id);
     write32(addr, val);
 
-    let mut div: u32 = 1_500_000 / baudrate;
+    let mut div: u32 = UART_CLK_HZ / baudrate;
     if div == 0 {
         div = 1;
     }
 
     /* Configure baud rate and 8N1, enable the FIFO */
-    let base = UART_BASE(usart.id);
-    write32(base + UART_LCR, (1 << 7) | 3);
+    let base = uart_base(usart.id);
+    write32(base + UART_LCR, UART_LCR_DLAB | UART_LCR_8N1);
     write32(base + UART_DLL, div);
-    write32(base + UART_LCR, 3);
-    write32(base + UART_FCR, 0x0000_0001);
+    write32(base + UART_LCR, UART_LCR_8N1);
+    write32(base + UART_FCR, UART_FCR_FIFO_ENABLE);
 }
 
-pub fn sunxi_usart_putc(usart: &sunxi_usart_t, c: u8) {
-    let base = UART_BASE(usart.id);
+pub fn sunxi_usart_putc(usart: &SunxiUsart, c: u8) {
+    let base = uart_base(usart.id);
 
     while (read32(base + UART_USR) & UART_USR_TFNF) == 0 {}
     write32(base + UART_THR, c as u32);
     while (read32(base + UART_USR) & UART_USR_BUSY) == 1 {}
 }
 
-pub fn sunxi_usart_put(usart: &sunxi_usart_t, data: &[u8]) {
+pub fn sunxi_usart_put(usart: &SunxiUsart, data: &[u8]) {
     for &c in data {
         sunxi_usart_putc(usart, c);
     }
 }
 
-pub fn sunxi_usart_get(usart: &sunxi_usart_t, out: &mut [u8]) {
-    let base = UART_BASE(usart.id);
+pub fn sunxi_usart_get(usart: &SunxiUsart, out: &mut [u8]) {
+    let base = uart_base(usart.id);
 
     for c in out.iter_mut() {
         while (read32(base + UART_USR) & UART_USR_RFNE) == 0 {}

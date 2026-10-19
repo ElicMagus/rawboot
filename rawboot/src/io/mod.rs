@@ -1,50 +1,48 @@
 // SPDX-License-Identifier: Unlicense
 
-pub type virtual_addr_t = u32;
-
 #[inline(always)]
-pub fn read8(addr: virtual_addr_t) -> u8 {
+pub fn read8(addr: u32) -> u8 {
     unsafe { core::ptr::read_volatile(addr as *const u8) }
 }
 
 #[inline(always)]
-pub fn read16(addr: virtual_addr_t) -> u16 {
+pub fn read16(addr: u32) -> u16 {
     unsafe { core::ptr::read_volatile(addr as *const u16) }
 }
 
 #[inline(always)]
-pub fn read32(addr: virtual_addr_t) -> u32 {
+pub fn read32(addr: u32) -> u32 {
     unsafe { core::ptr::read_volatile(addr as *const u32) }
 }
 
 #[inline(always)]
-pub fn read64(addr: virtual_addr_t) -> u64 {
+pub fn read64(addr: u32) -> u64 {
     unsafe { core::ptr::read_volatile(addr as *const u64) }
 }
 
 #[inline(always)]
-pub fn write8(addr: virtual_addr_t, value: u8) {
+pub fn write8(addr: u32, value: u8) {
     unsafe {
         core::ptr::write_volatile(addr as *mut u8, value);
     }
 }
 
 #[inline(always)]
-pub fn write16(addr: virtual_addr_t, value: u16) {
+pub fn write16(addr: u32, value: u16) {
     unsafe {
         core::ptr::write_volatile(addr as *mut u16, value);
     }
 }
 
 #[inline(always)]
-pub fn write32(addr: virtual_addr_t, value: u32) {
+pub fn write32(addr: u32, value: u32) {
     unsafe {
         core::ptr::write_volatile(addr as *mut u32, value);
     }
 }
 
 #[inline(always)]
-pub fn write64(addr: virtual_addr_t, value: u64) {
+pub fn write64(addr: u32, value: u64) {
     unsafe {
         core::ptr::write_volatile(addr as *mut u64, value);
     }

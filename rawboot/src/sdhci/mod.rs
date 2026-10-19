@@ -176,12 +176,12 @@ pub struct sdhci_t {
     pub removable: bool,
     pub isspi: bool,
 
-    gpio_d0: gpio::gpio_mux_t,
-    gpio_d1: gpio::gpio_mux_t,
-    gpio_d2: gpio::gpio_mux_t,
-    gpio_d3: gpio::gpio_mux_t,
-    gpio_cmd: gpio::gpio_mux_t,
-    gpio_clk: gpio::gpio_mux_t,
+    gpio_d0: gpio::GpioMux,
+    gpio_d1: gpio::GpioMux,
+    gpio_d2: gpio::GpioMux,
+    gpio_d3: gpio::GpioMux,
+    gpio_cmd: gpio::GpioMux,
+    gpio_clk: gpio::GpioMux,
 
     sdcard: *mut u32, //адрес по которому хранится структура для SD карты
 }
@@ -198,27 +198,27 @@ impl Default for sdhci_t {
             clock: 25 * 1000 * 1000,
             removable: false,
             isspi: false,
-            gpio_d0: gpio::gpio_mux_t {
+            gpio_d0: gpio::GpioMux {
                 pin: gpio::gpio_pin(gpio::PORTF, 1),
                 mux: gpio::GPIO_PERIPH_MUX2,
             },
-            gpio_d1: gpio::gpio_mux_t {
+            gpio_d1: gpio::GpioMux {
                 pin: gpio::gpio_pin(gpio::PORTF, 0),
                 mux: gpio::GPIO_PERIPH_MUX2,
             },
-            gpio_d2: gpio::gpio_mux_t {
+            gpio_d2: gpio::GpioMux {
                 pin: gpio::gpio_pin(gpio::PORTF, 5),
                 mux: gpio::GPIO_PERIPH_MUX2,
             },
-            gpio_d3: gpio::gpio_mux_t {
+            gpio_d3: gpio::GpioMux {
                 pin: gpio::gpio_pin(gpio::PORTF, 4),
                 mux: gpio::GPIO_PERIPH_MUX2,
             },
-            gpio_cmd: gpio::gpio_mux_t {
+            gpio_cmd: gpio::GpioMux {
                 pin: gpio::gpio_pin(gpio::PORTF, 3),
                 mux: gpio::GPIO_PERIPH_MUX2,
             },
-            gpio_clk: gpio::gpio_mux_t {
+            gpio_clk: gpio::GpioMux {
                 pin: gpio::gpio_pin(gpio::PORTF, 2),
                 mux: gpio::GPIO_PERIPH_MUX2,
             },
@@ -522,17 +522,17 @@ impl sdhci_t {
         let mut addr = 0u32;
         let mut val = 0u32;
         gpio::sunxi_gpio_init(self.gpio_clk.pin, self.gpio_clk.mux);
-        gpio::sunxi_gpio_set_pull(self.gpio_clk.pin, gpio::GPIO_PULL_UP);
+        gpio::sunxi_gpio_set_pull(self.gpio_clk.pin, gpio::GpioPull::Up);
         gpio::sunxi_gpio_init(self.gpio_cmd.pin, self.gpio_cmd.mux);
-        gpio::sunxi_gpio_set_pull(self.gpio_cmd.pin, gpio::GPIO_PULL_UP);
+        gpio::sunxi_gpio_set_pull(self.gpio_cmd.pin, gpio::GpioPull::Up);
         gpio::sunxi_gpio_init(self.gpio_d0.pin, self.gpio_d0.mux);
-        gpio::sunxi_gpio_set_pull(self.gpio_d0.pin, gpio::GPIO_PULL_UP);
+        gpio::sunxi_gpio_set_pull(self.gpio_d0.pin, gpio::GpioPull::Up);
         gpio::sunxi_gpio_init(self.gpio_d1.pin, self.gpio_d1.mux);
-        gpio::sunxi_gpio_set_pull(self.gpio_d1.pin, gpio::GPIO_PULL_UP);
+        gpio::sunxi_gpio_set_pull(self.gpio_d1.pin, gpio::GpioPull::Up);
         gpio::sunxi_gpio_init(self.gpio_d2.pin, self.gpio_d2.mux);
-        gpio::sunxi_gpio_set_pull(self.gpio_d2.pin, gpio::GPIO_PULL_UP);
+        gpio::sunxi_gpio_set_pull(self.gpio_d2.pin, gpio::GpioPull::Up);
         gpio::sunxi_gpio_init(self.gpio_d3.pin, self.gpio_d3.mux);
-        gpio::sunxi_gpio_set_pull(self.gpio_d3.pin, gpio::GPIO_PULL_UP);
+        gpio::sunxi_gpio_set_pull(self.gpio_d3.pin, gpio::GpioPull::Up);
 
         //my
         addr = self.addr + SMHC::INTMASK;
