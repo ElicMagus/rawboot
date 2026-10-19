@@ -7,6 +7,9 @@ numbers, or GitHub API metadata). Items that could not be verified against a pri
 
 Reference numbers in square brackets map to the **Sources** section at the end.
 
+> Local `rawboot/...:line` references below predate the symbol-citation rule in
+> `docs/agents/domain.md`; migrate them to symbol citations when touching this note.
+
 ---
 
 ## 1. Executive summary

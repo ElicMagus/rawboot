@@ -34,3 +34,9 @@ If the concept you need isn't in the glossary yet, that's a signal: either you'r
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
 > _Contradicts ADR-0004 (CPU handoff state), but worth reopening because…_
+
+## Cite code by symbol, not by line
+
+Upstream (`szemzoa/awboot`) is cited by pinned file and line, because that tree never moves. Cite
+**our own** code by symbol (`sunxi_gpio_set_pull`, `ccu::USART_BGR_REG`), never by line number:
+our files change, and a `mod.rs:120` reference rots into a wrong fact.
