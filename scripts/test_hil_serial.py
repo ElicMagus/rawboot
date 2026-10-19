@@ -47,5 +47,15 @@ class TestEvaluate(unittest.TestCase):
         self.assertTrue(ok)
 
 
+class TestBusyMessage(unittest.TestCase):
+    def test_quiet_uart_has_no_message(self):
+        self.assertIsNone(hil_serial.busy_message(b""))
+
+    def test_traffic_means_the_board_is_busy(self):
+        message = hil_serial.busy_message(b"S=0x10000\n")
+        self.assertIn("not quiet", message)
+        self.assertIn("Power-cycle", message)
+
+
 if __name__ == "__main__":
     unittest.main()

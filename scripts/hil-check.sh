@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Unlicense
 #
 # Load target/rawboot-fel.bin over FEL, capture USART0, and assert the boot log.
-# Runbook: docs/agents/hil.md.
+# Refuses an image whose build stamp is not HEAD and requires a quiet UART
+# before loading. Runbook: docs/agents/hil.md.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -22,6 +23,28 @@ fi
 if [ ! -f "$IMAGE" ]; then
     echo "error: image not found: $IMAGE (run cargo xtask image)" >&2
     exit 2
+fi
+
+# Refuse an image built from another tree: switching branches to commit docs
+# used to leave the previously built image in place, so HIL tested stale code.
+STAMP="${IMAGE}.build"
+if [ -f "$STAMP" ]; then
+    build_commit=$(grep '^commit=' "$STAMP" | cut -d= -f2- || true)
+    build_branch=$(grep '^branch=' "$STAMP" | cut -d= -f2- || true)
+    build_dirty=$(grep '^dirty=' "$STAMP" | cut -d= -f2- || true)
+    echo "image built from ${build_branch:-unknown} @ ${build_commit:-unknown} (dirty=${build_dirty:-unknown})"
+    head_commit=$(git rev-parse HEAD 2>/dev/null || true)
+    if [ "${HIL_SKIP_PROVENANCE:-0}" != "1" ] && [ -n "$head_commit" ] \
+        && [ "$build_commit" != "$head_commit" ]; then
+        echo "error: image commit ${build_commit:-unknown} does not match HEAD $head_commit" >&2
+        echo "error: rebuild with 'cargo xtask image' on the branch under test" >&2
+        exit 2
+    fi
+    if [ "$build_dirty" = "true" ]; then
+        echo "warning: image was built from a dirty tree" >&2
+    fi
+else
+    echo "warning: no build stamp at $STAMP; cannot verify the image matches HEAD" >&2
 fi
 
 can_read() {
@@ -57,6 +80,17 @@ done
 if ! "$XFEL" version >/dev/null 2>&1; then
     echo "error: no responsive FEL after 180 s" >&2
     exit 2
+fi
+
+# `xfel version` can succeed while a loader from a previous run still prints on
+# USART0. Require silence before touching the board, so stale output is reported
+# as a busy board rather than as a reset loop after loading.
+echo "preflight: checking that UART is quiet (board idle in FEL)..."
+PREFLIGHT=(python3 scripts/hil_serial.py --preflight --dev "$DEV")
+if [ -r "$DEV" ]; then
+    "${PREFLIGHT[@]}"
+else
+    sg dialout -c "$(printf '%q ' "${PREFLIGHT[@]}")"
 fi
 
 LOG=${TMPDIR:-/tmp}/rawboot-hil-${LABEL}.log

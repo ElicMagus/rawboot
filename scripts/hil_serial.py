@@ -38,14 +38,32 @@ def evaluate(text: str) -> tuple[bool, str]:
     return True, ""
 
 
+def busy_message(data: bytes) -> str | None:
+    """Explain non-empty preflight traffic; a quiet board yields ``None``.
+
+    The FEL USB gadget can still answer `xfel` while a loader from a previous
+    run is printing on USART0, so UART silence is the authority on an idle board.
+    """
+    if not data:
+        return None
+    return (
+        f"UART is not quiet ({len(data)} bytes); a loader is already running. "
+        "Power-cycle into FEL (do not xfel reset) and rerun."
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("log")
+    parser.add_argument("log", nargs="?")
     parser.add_argument("--seconds", type=float, default=4.0)
     parser.add_argument("--drain", type=float, default=1.0)
+    parser.add_argument("--quiet", type=float, default=0.5)
+    parser.add_argument("--preflight", action="store_true", help="require a quiet UART and exit")
     parser.add_argument("--dev", default="/dev/ttyUSB0")
     parser.add_argument("--baud", type=int, default=115200)
     args = parser.parse_args()
+    if args.log is None and not args.preflight:
+        parser.error("log is required unless --preflight is given")
 
     try:
         port = serial.Serial(args.dev, args.baud, timeout=0.05)
@@ -53,6 +71,27 @@ def main() -> int:
         print(f"error: cannot open {args.dev}: {err}", file=sys.stderr)
         print("see docs/agents/hil.md (dialout / udev rule)", file=sys.stderr)
         return 2
+
+    if args.preflight:
+        port.reset_input_buffer()
+        drain_until = time.time() + args.drain
+        while time.time() < drain_until:
+            port.read(65536)
+        port.reset_input_buffer()
+
+        start = time.time()
+        data = b""
+        while time.time() - start < args.quiet:
+            chunk = port.read(4096)
+            if chunk:
+                data += chunk
+                break
+        message = busy_message(data)
+        if message:
+            print(f"error: {message}", file=sys.stderr)
+            return 3
+        print("UART quiet: board is idle in FEL.")
+        return 0
 
     port.reset_input_buffer()
     drain_until = time.time() + args.drain

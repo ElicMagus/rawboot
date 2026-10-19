@@ -59,10 +59,45 @@ fn image() -> Result<()> {
     let sealed_path = root.join("target").join("rawboot-fel.bin");
     fs::write(&sealed_path, &sealed)
         .map_err(|e| format!("writing `{}`: {e}", sealed_path.display()))?;
+    write_build_stamp(&root, &sealed_path)?;
 
     println!("sealed {} bytes -> {}", sealed.len(), sealed_path.display());
     println!("load: {}", fel_load_command(&sealed_path));
     Ok(())
+}
+
+/// Record the tree the FEL image came from, so `hil-check.sh` can refuse an
+/// image that no longer matches `HEAD` (for example after switching branches).
+fn write_build_stamp(root: &Path, image: &Path) -> Result<()> {
+    let commit = git_line(root, &["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".into());
+    let branch =
+        git_line(root, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_else(|| "unknown".into());
+    let dirty = match git_line(root, &["status", "--porcelain"]) {
+        Some(status) => (!status.is_empty()).to_string(),
+        None => "unknown".into(),
+    };
+    let stamp = format!("commit={commit}\nbranch={branch}\ndirty={dirty}\n");
+
+    let stamp_path = build_stamp_path(image);
+    fs::write(&stamp_path, stamp)
+        .map_err(|e| format!("writing `{}`: {e}", stamp_path.display()))?;
+    Ok(())
+}
+
+fn build_stamp_path(image: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.build", image.display()))
+}
+
+fn git_line(root: &Path, args: &[&str]) -> Option<String> {
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(args)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 fn fel_load_command(image: &Path) -> String {
@@ -190,5 +225,13 @@ mod tests {
         assert!(!command.contains("xfel ddr"), "{command}");
         assert!(command.contains("xfel write 0x00028000"), "{command}");
         assert!(command.contains("xfel exec 0x00028000"), "{command}");
+    }
+
+    #[test]
+    fn build_stamp_sits_next_to_the_image() {
+        assert_eq!(
+            build_stamp_path(Path::new("target/rawboot-fel.bin")),
+            PathBuf::from("target/rawboot-fel.bin.build")
+        );
     }
 }

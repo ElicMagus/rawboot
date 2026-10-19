@@ -36,9 +36,11 @@ Standard commands:
 - Build the payload image: `cargo xtask payload` (builds the `payload` crate and writes
   `target/rawboot-payload.img`, its flat binary wrapped in the payload image header)
 - HIL: `scripts/hil-check.sh target/rawboot-fel.bin <label>` loads the image over FEL, captures
-  USART0 and asserts the boot log; run it after `code-review`. Runbook: `docs/agents/hil.md`.
-  The loader initialises DRAM itself, so the load is `xfel write 0x00028000 ... && xfel exec
-  0x00028000` with no separate DDR step.
+  USART0 and asserts the boot log; run it after `code-review`, on the code branch, before
+  committing docs or merging. The script checks the image build stamp against `HEAD` and
+  requires a quiet UART (board idle in FEL). Runbook: `docs/agents/hil.md`. The loader
+  initialises DRAM itself, so the load is `xfel write 0x00028000 ... && xfel exec 0x00028000`
+  with no separate DDR step.
 
 ## CI
 

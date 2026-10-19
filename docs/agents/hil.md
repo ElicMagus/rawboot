@@ -40,22 +40,33 @@ cargo xtask image
 scripts/hil-check.sh target/rawboot-fel.bin hil
 ```
 
+Run HIL from the code branch under test, before switching to `master` for docs or a merge.
+`cargo xtask image` writes `target/rawboot-fel.bin.build` with the source commit, branch and
+dirty flag; `hil-check.sh` refuses an image whose commit is not `HEAD`, so rebuild after
+switching branches (`HIL_SKIP_PROVENANCE=1` is the escape hatch).
+
 Put the board into FEL with a power-cycle (or reset while holding the FEL/BOOT button), not
 with `xfel reset`: `xfel reset` resets through the watchdog, which stays armed, and the
 loader then boots in a loop. A loader left running from a previous run also keeps printing
 on USART0, so clear it with a power-cycle before each run. On a terminal the script prints
 this and waits for Enter; piped or `HIL_NO_PROMPT=1` runs skip the prompt.
 
+`xfel version` succeeding does **not** prove the board is idle in FEL: the FEL USB gadget can
+still answer while a loader from a previous run prints on USART0. The script's UART-quiet
+preflight is the authority.
+
 The script:
 
-1. waits up to 3 minutes for a responsive FEL (`xfel version` succeeds);
-2. drains the UART input buffer before loading (stale bytes from the previous run otherwise
-   look like a reset loop);
-3. writes the image at `0x00028000` and jumps to it;
-4. captures USART0 for a few seconds, prints the unique lines and asserts
+1. checks the image build stamp against `HEAD`;
+2. waits up to 3 minutes for a responsive FEL (`xfel version` succeeds);
+3. requires the UART to be quiet for a short window, so a still-running loader is reported
+   as a busy board instead of looking like a reset loop later;
+4. drains the UART input buffer before loading;
+5. writes the image at `0x00028000` and jumps to it;
+6. captures USART0 for a few seconds, prints the unique lines and asserts
    `Hello`, `CLK:`, `DRAM simple test OK`, `S=0x`; it warns if more than one `Hello`
    appears (stale buffer or a reset loop);
-5. asks the human to confirm the PD22 LED blinks.
+7. asks the human to confirm the PD22 LED blinks.
 
 The raw capture is kept at `/tmp/rawboot-hil-<label>.log`.
 
@@ -104,6 +115,10 @@ S=0x10000
   and not connected to the OTG/FEL port. Re-enter FEL and power-cycle.
 - `xfel` says `Can't connect to device`: the device node is not writable by the user. Check
   the udev rule and `ls -l /dev/bus/usb/<bus>/<dev>`.
+- Preflight says `UART is not quiet`: a loader from a previous run is still printing, even
+  if `xfel version` answers. Power-cycle into FEL (do not `xfel reset`) and rerun.
+- `image commit ... does not match HEAD`: the image predates a branch switch or commit.
+  Rebuild with `cargo xtask image` on the branch under test.
 - The UART is silent: check USART0 PE2/PE3, 115200 8N1, and that the CH340 is `/dev/ttyUSB0`.
 - The log starts with repeated `Hello`/`S=` lines: the tty buffer still holds a previous
   run, or the board is in a reset loop. The script drains the buffer and now fails the run
