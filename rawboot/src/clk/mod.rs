@@ -3,6 +3,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use crate::{
     ccu,
     io::{read32, sdelay, write32},
+    print,
 };
 
 const CLK_WAIT_TIMEOUT: u32 = 2_000_000;
@@ -165,7 +166,7 @@ fn set_module(addr: u32) {
     }
 }
 
-pub fn init() {
+pub fn sunxi_clk_init() {
     set_pll_cpux_axi();
     set_pll_periph0();
     set_ahb();
@@ -180,7 +181,7 @@ pub fn init() {
     set_module(ccu::BASE + ccu::PLL_AUDIO1_CTRL_REG);
 }
 
-pub fn get_peri1x_rate() -> u32 {
+pub fn sunxi_clk_get_peri1x_rate() -> u32 {
     let reg32 = read32(ccu::BASE + ccu::PLL_PERI0_CTRL_REG);
 
     if (reg32 & (1 << 31)) != 0 {
@@ -192,14 +193,57 @@ pub fn get_peri1x_rate() -> u32 {
     0u32
 }
 
-pub fn sunxi_clk_dump() -> u32 {
+pub fn sunxi_clk_dump() {
+    let reg32 = read32(ccu::BASE + ccu::CPU_AXI_CFG_REG);
+    let cpu_clk_src = (reg32 >> 24) & 0x7;
+    let clock_str = match cpu_clk_src {
+        0x0 => "OSC24M",
+        0x1 => "CLK32",
+        0x2 => "CLK16M_RC",
+        0x3 => "PLL_CPU",
+        0x4 => "PLL_PERI(1X)",
+        0x5 => "PLL_PERI(2X)",
+        0x6 => "PLL_PERI(800M)",
+        _ => "ERROR",
+    };
+
     let reg32 = read32(ccu::BASE + ccu::PLL_CPU_CTRL_REG);
-    let p0 = (reg32 >> 16) as u8 & 0x03;
+    let p0 = (reg32 >> 16) & 0x03;
     let p1 = match p0 {
         0 => 1,
         1 => 2,
         2 => 4,
         _ => 1,
     };
-    ((((reg32 >> 8) & 0xff) + 1) * 24) / (p1 as u32)
+    print!(
+        "CLK: CPU PLL={} FREQ={}MHz\r\n",
+        clock_str,
+        (((reg32 >> 8) & 0xff) + 1) * 24 / p1
+    );
+
+    let reg32 = read32(ccu::BASE + ccu::PLL_PERI0_CTRL_REG);
+    if (reg32 & (1 << 31)) != 0 {
+        let plln = ((reg32 >> 8) & 0xff) + 1;
+        let pllm = (reg32 & 0x01) + 1;
+        let p0 = ((reg32 >> 16) & 0x03) + 1;
+        let p1 = ((reg32 >> 20) & 0x03) + 1;
+        print!(
+            "CLK: PLL_peri (2X)={}MHz, (1X)={}MHz, (800M)={}MHz\r\n",
+            (24 * plln) / (pllm * p0),
+            ((24 * plln) / (pllm * p0)) >> 1,
+            (24 * plln) / (pllm * p1)
+        );
+    } else {
+        print!("CLK: PLL_peri disabled\r\n");
+    }
+
+    let reg32 = read32(ccu::BASE + ccu::PLL_DDR_CTRL_REG);
+    if (reg32 & (1 << 31)) != 0 {
+        let plln = ((reg32 >> 8) & 0xff) + 1;
+        let p1 = ((reg32 >> 1) & 0x1) + 1;
+        let p0 = (reg32 & 0x01) + 1;
+        print!("CLK: PLL_ddr={}MHz\r\n", (24 * plln) / (p0 * p1));
+    } else {
+        print!("CLK: PLL_ddr disabled\r\n");
+    }
 }

@@ -23,7 +23,7 @@ pub mod uart;
 
 fn main() -> ! {
     // //инициализация порта D ноги 22
-    clk::init();
+    clk::sunxi_clk_init();
     let led = gpio::Gpio {
         port: Port::D,
         pin: 22,
@@ -43,8 +43,7 @@ fn main() -> ! {
     if clk_fail != 0 {
         print!("CLK: init timeout at 0x{:08x}\r\n", clk_fail);
     }
-    let pr = clk::sunxi_clk_dump();
-    print!("CLK={:?} MHz\r\n", pr);
+    clk::sunxi_clk_dump();
     /* ?? */
     let mut reg32 = read32(0x070901f4);
     if (reg32 & 0x1f) != 0 {
