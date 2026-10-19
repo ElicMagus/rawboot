@@ -556,7 +556,7 @@ impl sdhci_t {
         val |= (1 << 31) | (1 << 24) | 11; /* 50MHz */
         write32(addr, val);
 
-        self.pclk = clk::get_peri1x_rate() / 12;
+        self.pclk = clk::sunxi_clk_get_peri1x_rate() / 12;
 
         /* sdhc0 clock gate pass */
         addr = 0x0200184c;
