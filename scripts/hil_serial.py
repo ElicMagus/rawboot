@@ -58,9 +58,11 @@ def main() -> int:
             print(line)
     if hello > 1:
         print(
-            "warning: multiple Hello lines; possible reset loop or stale UART buffer",
+            "FAIL: multiple Hello lines; the board is reset-looping or the capture is "
+            "stale - power-cycle into FEL (do not xfel reset) and rerun",
             file=sys.stderr,
         )
+        return 1
 
     required = ["Hello", "CLK:", "DRAM simple test OK", "S=0x"]
     missing = [item for item in required if item not in text]
