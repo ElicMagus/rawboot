@@ -24,6 +24,9 @@ const UART_USR_RFNE: u32 = 1 << 3;
 const UART_LCR_DLAB: u32 = 1 << 7;
 const UART_LCR_8N1: u32 = 3;
 const UART_FCR_FIFO_ENABLE: u32 = 0x1;
+const UART_BYTE_MASK: u32 = 0xff;
+
+const USART_BGR_RESET_SHIFT: u8 = 16;
 
 const UART_CLK_HZ: u32 = 1_500_000;
 
@@ -67,7 +70,7 @@ pub fn sunxi_usart_init(usart: &SunxiUsart, baudrate: u32) {
     /* Deassert USART reset */
     let addr = ccu::BASE + ccu::USART_BGR_REG;
     let mut val = read32(addr);
-    val |= 1 << (16 + usart.id);
+    val |= 1 << (USART_BGR_RESET_SHIFT + usart.id);
     write32(addr, val);
 
     let mut div: u32 = UART_CLK_HZ / baudrate;
@@ -102,7 +105,7 @@ pub fn sunxi_usart_get(usart: &SunxiUsart, out: &mut [u8]) {
 
     for c in out.iter_mut() {
         while (read32(base + UART_USR) & UART_USR_RFNE) == 0 {}
-        *c = (read32(base + UART_RBR) & 0xff) as u8;
+        *c = (read32(base + UART_RBR) & UART_BYTE_MASK) as u8;
     }
 }
 

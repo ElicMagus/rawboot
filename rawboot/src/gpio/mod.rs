@@ -15,14 +15,20 @@ const GPIO_PORTF_BASE: u32 = 0x0200_00f0;
 const GPIO_PORTG_BASE: u32 = 0x0200_0120;
 
 const GPIO_CFG_PINS_PER_REG: u32 = 8;
+const GPIO_CFG_PIN_SHIFT: u32 = 3;
 const GPIO_CFG_BITS_PER_PIN: u32 = 4;
+const GPIO_CFG_FIELD_SHIFT: u32 = 2;
 const GPIO_CFG_MASK: u32 = (1 << GPIO_CFG_BITS_PER_PIN) - 1;
 const GPIO_PIN_NUM_MASK: u32 = GPIO_CFG_PINS_PER_REG - 1;
 
 const GPIO_PULL_PINS_PER_REG: u32 = 16;
+const GPIO_PULL_PIN_SHIFT: u32 = 4;
 const GPIO_PULL_BITS_PER_PIN: u32 = 2;
+const GPIO_PULL_FIELD_SHIFT: u32 = 1;
 const GPIO_PULL_PIN_MASK: u32 = GPIO_PULL_PINS_PER_REG - 1;
-const GPIO_DRV_BITS_MAX: u32 = 3;
+
+const GPIO_DRV_PIN_MASK: u32 = GPIO_PULL_PINS_PER_REG - 1;
+const GPIO_DRV_BITS_MAX: u32 = (1 << GPIO_PULL_BITS_PER_PIN) - 1;
 
 pub const PIO_NUM_IO_BITS: u32 = 5;
 
@@ -65,13 +71,8 @@ pub struct GpioMux {
 }
 
 #[inline(always)]
-fn port_num(pin: GpioPin) -> u32 {
-    pin >> PIO_NUM_IO_BITS
-}
-
-#[inline(always)]
 fn port_base_get(pin: GpioPin) -> u32 {
-    match port_num(pin) {
+    match pin >> PIO_NUM_IO_BITS {
         PORTB => GPIO_PORTB_BASE,
         PORTC => GPIO_PORTC_BASE,
         PORTD => GPIO_PORTD_BASE,
@@ -89,59 +90,59 @@ fn pin_num(pin: GpioPin) -> u32 {
 
 pub fn sunxi_gpio_init(pin: GpioPin, cfg: u32) {
     let port_addr = port_base_get(pin);
-    let pin_num = pin_num(pin);
-    let addr = port_addr + GPIO_CFG0 + ((pin_num >> 3) << 2);
+    let num = pin_num(pin);
+    let addr = port_addr + GPIO_CFG0 + ((num >> GPIO_CFG_PIN_SHIFT) << GPIO_CFG_FIELD_SHIFT);
     let mut val = read32(addr);
 
-    val &= !(GPIO_CFG_MASK << ((pin_num & GPIO_PIN_NUM_MASK) << 2));
+    val &= !(GPIO_CFG_MASK << ((num & GPIO_PIN_NUM_MASK) << GPIO_CFG_FIELD_SHIFT));
     if cfg != 0 {
-        val |= (cfg & GPIO_CFG_MASK) << ((pin_num & GPIO_PIN_NUM_MASK) << 2);
+        val |= (cfg & GPIO_CFG_MASK) << ((num & GPIO_PIN_NUM_MASK) << GPIO_CFG_FIELD_SHIFT);
     }
     write32(addr, val);
 }
 
 pub fn sunxi_gpio_write(pin: GpioPin, value: i32) {
     let port_addr = port_base_get(pin);
-    let pin_num = pin_num(pin);
+    let num = pin_num(pin);
     let mut val = read32(port_addr + GPIO_DAT);
 
-    val &= !(1 << pin_num);
-    val |= ((value != 0) as u32) << pin_num;
+    val &= !(1 << num);
+    val |= ((value != 0) as u32) << num;
     write32(port_addr + GPIO_DAT, val);
 }
 
 pub fn sunxi_gpio_read(pin: GpioPin) -> i32 {
     let port_addr = port_base_get(pin);
-    let pin_num = pin_num(pin);
+    let num = pin_num(pin);
     let val = read32(port_addr + GPIO_DAT);
 
-    ((val & (1 << pin_num)) != 0) as i32
+    ((val & (1 << num)) != 0) as i32
 }
 
 pub fn sunxi_gpio_set_pull(pin: GpioPin, pull: GpioPull) {
     let port_addr = port_base_get(pin);
-    let pin_num = pin_num(pin);
+    let num = pin_num(pin);
     let v = match pull {
         GpioPull::Up => 0x1,
         GpioPull::Down => 0x2,
         GpioPull::None => 0x0,
     };
-    let addr = port_addr + GPIO_PUL0 + ((pin_num >> 4) << 2);
+    let addr = port_addr + GPIO_PUL0 + ((num >> GPIO_PULL_PIN_SHIFT) << GPIO_PULL_FIELD_SHIFT);
     let mut val = read32(addr);
 
-    val &= !(v << ((pin_num & GPIO_PULL_PIN_MASK) << 1));
-    val |= v << ((pin_num & GPIO_PULL_PIN_MASK) << 1);
+    val &= !(v << ((num & GPIO_PULL_PIN_MASK) << GPIO_PULL_FIELD_SHIFT));
+    val |= v << ((num & GPIO_PULL_PIN_MASK) << GPIO_PULL_FIELD_SHIFT);
     write32(addr, val);
 }
 
 pub fn sunxi_gpio_set_drive_lvl(pin: GpioPin, lvl: u8) {
     let port_addr = port_base_get(pin);
-    let pin_num = pin_num(pin);
+    let num = pin_num(pin);
     let lvl = (lvl as u32) & GPIO_DRV_BITS_MAX;
-    let addr = port_addr + GPIO_DRV0 + ((pin_num >> 4) << 2);
+    let addr = port_addr + GPIO_DRV0 + ((num >> GPIO_PULL_PIN_SHIFT) << GPIO_PULL_FIELD_SHIFT);
     let mut val = read32(addr);
 
-    val &= !(lvl << ((pin_num & GPIO_PULL_PIN_MASK) << 1));
-    val |= lvl << ((pin_num & GPIO_PULL_PIN_MASK) << 1);
+    val &= !(lvl << ((num & GPIO_DRV_PIN_MASK) << GPIO_PULL_FIELD_SHIFT));
+    val |= lvl << ((num & GPIO_DRV_PIN_MASK) << GPIO_PULL_FIELD_SHIFT);
     write32(addr, val);
 }
