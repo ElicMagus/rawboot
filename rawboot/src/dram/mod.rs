@@ -22,7 +22,7 @@ const RES240_CTRL_REG: u32 = 0x0300_0168;
 const RESCAL_STATUS_REG: u32 = 0x0300_016C;
 const SYS_LDO_CTRL_REG: u32 = 0x0300_0150;
 
-const SUNXI_DRAM_CTL0_BASE: u32 = 0x0310_3000;
+const MCTL_PHY_BASE: u32 = 0x0310_3000;
 const PIR: u32 = 0x00; /*PHY initialization register */
 const PWRCTL: u32 = 0x04; /**/
 const MRCTRL: u32 = 0x08; /**/
@@ -280,14 +280,14 @@ impl DramPara {
         //         print!("Enable Auto SR");
         //     } else {
         // #endif
-        let addr = SUNXI_DRAM_CTL0_BASE + 0x0a0;
+        let addr = MCTL_PHY_BASE + 0x0a0;
         write32(addr, read32(addr) & 0xffff0000);
-        let addr = SUNXI_DRAM_CTL0_BASE + 0x004;
+        let addr = MCTL_PHY_BASE + 0x004;
         write32(addr, read32(addr) & (!0x1));
         //	}
 
         // Pupose ??
-        let addr = SUNXI_DRAM_CTL0_BASE + 0x100;
+        let addr = MCTL_PHY_BASE + 0x100;
         rc = read32(addr) & !(0xf000);
         if (self.dram_tpr13 & 0x200) == 0 {
             if self.dram_type != 6 {
@@ -297,14 +297,14 @@ impl DramPara {
             write32(addr, rc | 0x5000);
         }
 
-        let addr = SUNXI_DRAM_CTL0_BASE + ZQCR;
-        let addr1 = SUNXI_DRAM_CTL0_BASE + VTFCR;
+        let addr = MCTL_PHY_BASE + ZQCR;
+        let addr1 = MCTL_PHY_BASE + VTFCR;
         write32(addr, read32(addr) | (1 << 31));
         if (self.dram_tpr13 & (1 << 8)) != 0 {
             write32(addr1, read32(addr1) | 0x300);
         }
 
-        let addr = SUNXI_DRAM_CTL0_BASE + 0x108;
+        let addr = MCTL_PHY_BASE + 0x108;
         rc = read32(addr);
         if (self.dram_tpr13 & (1 << 16)) != 0 {
             rc &= 0xffffdfff;
@@ -314,7 +314,7 @@ impl DramPara {
         write32(addr, rc);
 
         // Purpose ??
-        let addr = SUNXI_DRAM_CTL0_BASE + 0x07c;
+        let addr = MCTL_PHY_BASE + 0x07c;
         if self.dram_type == 7 {
             rc = read32(addr) & 0xfff0ffff;
             rc |= 0x0001000;
@@ -338,8 +338,7 @@ impl DramPara {
             _ => 0,
         };
 
-        let reg = read32(SYS_LDO_CTRL_REG);
-        write32(SYS_LDO_CTRL_REG, (reg & 0xffdf00ff) | (vol << 8));
+        clrsetbits_le32(SYS_LDO_CTRL_REG, 0x20ff00, vol << 8);
 
         udelay(1);
 
@@ -361,10 +360,7 @@ impl DramPara {
                     reg = 0;
                 }
             }
-            write32(
-                SYS_LDO_CTRL_REG,
-                (read32(SYS_LDO_CTRL_REG) & 0xffff00ff) | (reg << 8),
-            );
+            clrsetbits_le32(SYS_LDO_CTRL_REG, 0xff00, reg << 8);
         }
     }
 
@@ -467,7 +463,7 @@ impl DramPara {
             clrsetbits_le32(mc_work_mode, 0xffc, 0x6a4);
             udelay(1);
 
-            // Upstream probes a single A11 line; the loop index is the stored value.
+            // The bank probe is a single A11 line; its loop index is the stored value.
             i = 0;
             ret = SDRAM_BASE + (1 << (i + 2 + 9));
             cnt = 0;
@@ -487,11 +483,11 @@ impl DramPara {
                 i += 1;
             }
 
-            // Store bank count in para1.
+            // Store the bank probe result in para1.
             let shft = 16 * current_rank + 12;
             self.dram_para1 = (self.dram_para1 & !(0xfu32 << shft)) | (i << shft);
 
-            // Set page mode for rank0 and for the current rank.
+            // Upstream's rank-0 write and current-rank write target the same register.
             if current_rank == 1 {
                 clrsetbits_le32(mc_work_mode, 0xffc, 0xaa0);
             }
@@ -561,7 +557,7 @@ impl DramPara {
 
         self.mctl_core_init();
 
-        let addr = SUNXI_DRAM_CTL0_BASE + 0x010;
+        let addr = MCTL_PHY_BASE + 0x010;
         if (read32(addr) & (1 << 20)) != 0 {
             //непонятный регистр
             return 0;
@@ -586,10 +582,10 @@ impl DramPara {
         let mut u1: u32;
         let u2: u32;
 
-        if (read32(SUNXI_DRAM_CTL0_BASE + 0x010) & (1 << 22)) != 0 {
-            let addr = SUNXI_DRAM_CTL0_BASE + 0x348;
+        if (read32(MCTL_PHY_BASE + 0x010) & (1 << 22)) != 0 {
+            let addr = MCTL_PHY_BASE + 0x348;
             u1 = (read32(addr) << 6) >> 0x1e;
-            let addr = SUNXI_DRAM_CTL0_BASE + 0x3c8;
+            let addr = MCTL_PHY_BASE + 0x3c8;
             u2 = (read32(addr) << 6) >> 0x1e;
 
             if u1 == 2 {
@@ -649,7 +645,7 @@ impl DramPara {
         write32(0x310200c, val);
 
         // MRCTRL0 nibble 3 undocumented
-        let addr = SUNXI_DRAM_CTL0_BASE + 0x108;
+        let addr = MCTL_PHY_BASE + 0x108;
         val = read32(addr) & 0xfffff0ff;
         val |= 0x300;
         write32(addr, val);
@@ -657,7 +653,7 @@ impl DramPara {
         val = ((!self.dram_odt_en) & 1) << 5;
 
         // DX0GCR0
-        let addr = SUNXI_DRAM_CTL0_BASE + 0x344;
+        let addr = MCTL_PHY_BASE + 0x344;
         if self.dram_clk > 672 {
             write32(addr, read32(addr) & 0xffff09c1);
         } else {
@@ -666,7 +662,7 @@ impl DramPara {
         write32(addr, read32(addr) | val);
 
         // DX1GCR0
-        let addr1 = SUNXI_DRAM_CTL0_BASE + 0x3c4;
+        let addr1 = MCTL_PHY_BASE + 0x3c4;
         if self.dram_clk > 672 {
             write32(addr, read32(addr) | 0x400);
             write32(addr1, read32(addr1) & 0xffff09c1);
@@ -676,7 +672,7 @@ impl DramPara {
         write32(addr1, read32(addr1) | val);
 
         // 0x3103208 undocumented
-        let addr = SUNXI_DRAM_CTL0_BASE + 0x208;
+        let addr = MCTL_PHY_BASE + 0x208;
         write32(addr, read32(addr) | 2);
 
         self.eye_delay_compensation();
@@ -1714,7 +1710,7 @@ impl DramPara {
         sdelay(5);
 
         // mCTL clock enable
-        let addr = SUNXI_DRAM_CTL0_BASE + 0x00C;
+        let addr = MCTL_PHY_BASE + 0x00C;
         write32(addr, 0x8000);
         sdelay(10);
     }
