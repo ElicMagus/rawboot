@@ -99,6 +99,10 @@ fi
 
 LOG=${TMPDIR:-/tmp}/rawboot-hil-${LABEL}.log
 CAPTURE=(python3 scripts/hil_serial.py "$LOG" --seconds "$SECONDS_CAP" --dev "$DEV")
+if [ "${HIL_REQUIRE_SD:-0}" = "1" ]; then
+    echo "SD assertion: card detected and non-zero block read required"
+    CAPTURE+=(--require-sd)
+fi
 if [ -r "$DEV" ]; then
     "${CAPTURE[@]}" &
 else

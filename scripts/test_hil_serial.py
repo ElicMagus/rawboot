@@ -19,6 +19,11 @@ SD/MMC card not found
 S=0x10000
 """
 
+CARD_BOOT = CLEAN_BOOT.replace(
+    "SD/MMC card not found",
+    "SD/MMC card found\nSD: read 1 block(s), first bytes [00, 00, 00, 00]",
+)
+
 
 class TestEvaluate(unittest.TestCase):
     def test_clean_boot_passes(self):
@@ -45,6 +50,22 @@ class TestEvaluate(unittest.TestCase):
     def test_single_hello_with_noise_passes(self):
         ok, _ = hil_serial.evaluate("noise\n" + CLEAN_BOOT)
         self.assertTrue(ok)
+
+    def test_require_sd_rejects_no_card(self):
+        ok, message = hil_serial.evaluate(CLEAN_BOOT, require_sd=True)
+        self.assertFalse(ok)
+        self.assertIn("SD/MMC card found", message)
+
+    def test_require_sd_accepts_detected_card_and_read(self):
+        ok, message = hil_serial.evaluate(CARD_BOOT, require_sd=True)
+        self.assertTrue(ok)
+        self.assertEqual(message, "")
+
+    def test_require_sd_rejects_zero_block_read(self):
+        text = CARD_BOOT.replace("read 1 block", "read 0 block")
+        ok, message = hil_serial.evaluate(text, require_sd=True)
+        self.assertFalse(ok)
+        self.assertIn("SD: read N block(s)", message)
 
 
 class TestBusyMessage(unittest.TestCase):

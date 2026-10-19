@@ -12,8 +12,9 @@ Cargo workspace with five members: `rawboot` (the loader), `rawboot-rt` (the run
 payload/eGON image tooling) and `xtask` (host build tooling).
 Target `armv7a-none-eabi` (soft-float), Rust edition 2024.
 
-`embed/` is an ignored vendored snapshot of the upstream reference and `target/` is build
-output; explore the workspace crates, not those trees.
+`embed/` is an ignored snapshot of the older Rust port kept for pre-port comparison; the
+pinned C upstream is fetched by `scripts/fetch-upstream.sh` into `target/upstream/`.
+Explore the workspace crates, not those trees.
 
 Standard commands:
 
@@ -29,6 +30,8 @@ Standard commands:
 - Format: `cargo fmt` (CI runs `cargo fmt --all -- --check`)
 - Disassemble: `scripts/objdump.sh -d target/armv7a-none-eabi/release/rawboot` (wraps
   `llvm-objdump` from the `llvm-tools` component; there is no `cargo objdump`)
+- Fetch pinned upstream: `scripts/fetch-upstream.sh` (writes the C tree used by the parity
+  research notes to `target/upstream/awboot-<sha>/`)
 - Check everything: `scripts/check.sh` (fmt, build, both clippy passes, host tests, SPDX
   headers, branch-docs rule, and `cargo xtask image`/`payload` smoke builds)
 - Seal an image: `cargo xtask image` (builds the loader and writes the sealed
@@ -38,7 +41,8 @@ Standard commands:
 - HIL: `scripts/hil-check.sh target/rawboot-fel.bin <label>` loads the image over FEL, captures
   USART0 and asserts the boot log; run it after `code-review`, on the code branch, before
   committing docs or merging. The script checks the image build stamp against `HEAD` and
-  requires a quiet UART (board idle in FEL). Runbook: `docs/agents/hil.md`. The loader
+  requires a quiet UART (board idle in FEL). Set `HIL_REQUIRE_SD=1` when the ticket also
+  accepts the card path. Runbook: `docs/agents/hil.md`. The loader
   initialises DRAM itself, so the load is `xfel write 0x00028000 ... && xfel exec 0x00028000`
   with no separate DDR step.
 

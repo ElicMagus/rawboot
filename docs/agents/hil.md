@@ -40,6 +40,10 @@ cargo xtask image
 scripts/hil-check.sh target/rawboot-fel.bin hil
 ```
 
+For a ticket whose acceptance includes the card path, set `HIL_REQUIRE_SD=1`. The script
+then also requires `SD/MMC card found` and a non-zero `SD: read N block(s)` line. Leave it
+unset when no card is inserted.
+
 Run HIL from the code branch under test, before switching to `master` for docs or a merge.
 `cargo xtask image` writes `target/rawboot-fel.bin.build` with the source commit, branch and
 dirty flag; `hil-check.sh` refuses an image whose commit is not `HEAD`, so rebuild after
@@ -70,8 +74,9 @@ The script:
 4. drains the UART input buffer before loading;
 5. writes the image at `0x00028000` and jumps to it;
 6. captures USART0 for a few seconds, prints the unique lines and asserts
-   `Hello`, `CLK:`, `DRAM simple test OK`, `S=0x`; it warns if more than one `Hello`
-   appears (stale buffer or a reset loop);
+   `Hello`, `CLK:`, `DRAM simple test OK`, `S=0x`; with `HIL_REQUIRE_SD=1` it also asserts
+   `SD/MMC card found` and a non-zero `SD: read N block(s)`. It warns if more than one
+   `Hello` appears (stale buffer or a reset loop);
 7. asks the human to confirm the PD22 LED blinks.
 
 The raw capture is kept at `/tmp/rawboot-hil-<label>.log`.
@@ -112,7 +117,8 @@ S=0x4
 - `CLK: PLL_ddr` is read before `dram.init()`, so it shows the pre-DRAM value; the DRAM
   initialisation that follows sets 792 MHz. See `research/clk-port-vs-upstream.md`.
 - `SD/MMC card found` and the `SD: read ...` line prove the SDHCI/IDMAC path. The first
-  bytes are whatever block 0 contains; an empty test card returns zeros.
+  bytes are whatever block 0 contains; an empty test card returns zeros. With
+  `HIL_REQUIRE_SD=1` these two lines become assertions.
 - `SD/MMC card not found` is expected when no card is inserted. It does not invalidate the
   clock or DRAM checks. Full SD/MMC card parity (#20) is covered by
   `research/sdcard-port-vs-upstream.md`.
@@ -129,6 +135,9 @@ S=0x4
   drain it and replace the loader, or power-cycle into FEL (do not `xfel reset`) and rerun.
 - `image commit ... does not match HEAD`: the image predates a branch switch or commit.
   Rebuild with `cargo xtask image` on the branch under test.
+- HIL fails with `missing SD/MMC card found` or `missing a successful SD read`: no card,
+  an unreadable card, or `HIL_REQUIRE_SD=1` without a card. Insert a card and rerun, or
+  unset the flag for a no-card test.
 - The UART is silent: check USART0 PE2/PE3, 115200 8N1, and that the CH340 is `/dev/ttyUSB0`.
 - The log starts with repeated `Hello`/`S=` lines: the tty buffer still holds a previous
   run, or the board is in a reset loop. The script drains the buffer and now fails the run
