@@ -27,6 +27,8 @@ Standard commands:
   `armv7a-none-eabi`; the host tooling is linted with
   `cargo clippy -p rawboot-image -p xtask --target x86_64-unknown-linux-gnu --all-targets -- -D warnings`)
 - Format: `cargo fmt` (CI runs `cargo fmt --all -- --check`)
+- Disassemble: `scripts/objdump.sh -d target/armv7a-none-eabi/release/rawboot` (wraps
+  `llvm-objdump` from the `llvm-tools` component; there is no `cargo objdump`)
 - Check everything: `scripts/check.sh` (fmt, build, both clippy passes, host tests, SPDX
   headers, branch-docs rule, and `cargo xtask image`/`payload` smoke builds)
 - Seal an image: `cargo xtask image` (builds the loader and writes the sealed

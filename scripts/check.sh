@@ -27,6 +27,16 @@ fi
 echo "==> branch docs rule"
 bash scripts/check-branch-docs.sh
 
+echo "==> shellcheck (scripts)"
+if command -v shellcheck >/dev/null 2>&1; then
+  shellcheck scripts/*.sh
+else
+  echo "skip: shellcheck not installed (CI installs it)"
+fi
+
+echo "==> python tests (scripts)"
+python3 -m unittest discover -s scripts -p 'test_*.py'
+
 echo "==> cargo build --release"
 cargo build --release
 

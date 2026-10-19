@@ -15,6 +15,28 @@ except ImportError:
     )
     sys.exit(2)
 
+REQUIRED = ["Hello", "CLK:", "DRAM simple test OK", "S=0x"]
+RESET_LOOP_HINT = (
+    "power-cycle into FEL (do not xfel reset) and rerun"
+)
+
+
+def evaluate(text: str) -> tuple[bool, str]:
+    """Judge one captured boot log.
+
+    Returns (ok, message); message is empty when ok, otherwise the failure reason.
+    A single clean boot passes; a reset loop (more than one ``Hello``) fails even
+    when the required lines are present.
+    """
+    if text.count("Hello") > 1:
+        return False, f"multiple Hello lines; the board is reset-looping or the capture is stale - {RESET_LOOP_HINT}"
+
+    missing = [item for item in REQUIRED if item not in text]
+    if missing:
+        return False, "missing " + ", ".join(missing)
+
+    return True, ""
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -56,18 +78,10 @@ def main() -> int:
         if line and line not in seen:
             seen.add(line)
             print(line)
-    if hello > 1:
-        print(
-            "FAIL: multiple Hello lines; the board is reset-looping or the capture is "
-            "stale - power-cycle into FEL (do not xfel reset) and rerun",
-            file=sys.stderr,
-        )
-        return 1
 
-    required = ["Hello", "CLK:", "DRAM simple test OK", "S=0x"]
-    missing = [item for item in required if item not in text]
-    if missing:
-        print("FAIL: missing " + ", ".join(missing), file=sys.stderr)
+    ok, message = evaluate(text)
+    if not ok:
+        print(f"FAIL: {message}", file=sys.stderr)
         return 1
     print("PASS: UART assertions")
     print("Human check: does the LED on PD22 blink?")
