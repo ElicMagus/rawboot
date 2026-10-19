@@ -49,8 +49,8 @@ fn main() -> ! {
     let addr = 0x0200180Cu32;
     let val = (1 << 16) | (1 << 0);
     write32(addr, val);
-    let dram = dram::DramPara_t::default();
-    dram.init();
+    let mut dram = dram::DramPara::default();
+    dram.init_dram();
 
     let mut sdio = sdhci::sdhci_t::default();
     sdio.init();
