@@ -43,6 +43,7 @@ pub struct SunxiUsart {
     pub gpio_rx: GpioMux,
 }
 
+#[allow(non_upper_case_globals)]
 pub const usart0_dbg: SunxiUsart = SunxiUsart {
     id: 0,
     gpio_tx: GpioMux {

@@ -53,13 +53,13 @@ pub fn write64(addr: u32, value: u64) {
 /// Deliberately not inline: upstream keeps it as an out-of-line function so the
 /// same instructions are reused across the many call sites.
 #[inline(never)]
-pub fn sdelay(mut loops: u32) {
+pub fn sdelay(loops: u32) {
     unsafe {
         core::arch::asm!(
             "1:",
             "subs {loops}, {loops}, #1",
             "bne 1b",
-            loops = inout(reg) loops,
+            loops = inout(reg) loops => _,
             options(nomem, nostack),
         );
     }

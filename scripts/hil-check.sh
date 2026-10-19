@@ -87,6 +87,10 @@ fi
 # as a busy board rather than as a reset loop after loading.
 echo "preflight: checking that UART is quiet (board idle in FEL)..."
 PREFLIGHT=(python3 scripts/hil_serial.py --preflight --dev "$DEV")
+if [ "${HIL_SKIP_PREFLIGHT:-0}" = "1" ]; then
+    echo "warning: HIL_SKIP_PREFLIGHT=1: draining UART and replacing any running loader" >&2
+    PREFLIGHT+=(--allow-busy)
+fi
 if [ -r "$DEV" ]; then
     "${PREFLIGHT[@]}"
 else

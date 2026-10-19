@@ -46,9 +46,15 @@ def busy_message(data: bytes) -> str | None:
     """
     if not data:
         return None
+    text = data.decode("utf-8", "replace")
+    if "Hello" in text or "S=0x" in text:
+        detail = "a loader is already running"
+    else:
+        detail = "the UART line is noisy (floating line or bad ground)"
     return (
-        f"UART is not quiet ({len(data)} bytes); a loader is already running. "
-        "Power-cycle into FEL (do not xfel reset) and rerun."
+        f"UART is not quiet ({len(data)} bytes); {detail}. "
+        "Power-cycle into FEL (do not xfel reset) and rerun, or set "
+        "HIL_SKIP_PREFLIGHT=1 to drain and replace the running loader."
     )
 
 
@@ -59,6 +65,11 @@ def main() -> int:
     parser.add_argument("--drain", type=float, default=1.0)
     parser.add_argument("--quiet", type=float, default=0.5)
     parser.add_argument("--preflight", action="store_true", help="require a quiet UART and exit")
+    parser.add_argument(
+        "--allow-busy",
+        action="store_true",
+        help="warn instead of failing when preflight sees UART traffic",
+    )
     parser.add_argument("--dev", default="/dev/ttyUSB0")
     parser.add_argument("--baud", type=int, default=115200)
     args = parser.parse_args()
@@ -88,6 +99,10 @@ def main() -> int:
                 break
         message = busy_message(data)
         if message:
+            if args.allow_busy:
+                print(f"warning: {message}", file=sys.stderr)
+                print("continuing: the image will replace the running loader.")
+                return 0
             print(f"error: {message}", file=sys.stderr)
             return 3
         print("UART quiet: board is idle in FEL.")
