@@ -28,7 +28,7 @@ Standard commands:
   `cargo clippy -p rawboot-image -p xtask --target x86_64-unknown-linux-gnu --all-targets -- -D warnings`)
 - Format: `cargo fmt` (CI runs `cargo fmt --all -- --check`)
 - Check everything: `scripts/check.sh` (fmt, build, both clippy passes, host tests, SPDX
-  headers, and `cargo xtask image`/`payload` smoke builds)
+  headers, branch-docs rule, and `cargo xtask image`/`payload` smoke builds)
 - Seal an image: `cargo xtask image` (builds the loader and writes the sealed
   `target/rawboot-fel.bin`; the `xtask` alias pins the host triple in `.cargo/config.toml`)
 - Build the payload image: `cargo xtask payload` (builds the `payload` crate and writes

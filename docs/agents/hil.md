@@ -47,7 +47,8 @@ The script:
    look like a reset loop);
 3. writes the image at `0x00028000` and jumps to it;
 4. captures USART0 for a few seconds, prints the unique lines and asserts
-   `Hello`, `CLK:`, `DRAM simple test OK`, `S=0x`;
+   `Hello`, `CLK:`, `DRAM simple test OK`, `S=0x`; it warns if more than one `Hello`
+   appears (stale buffer or a reset loop);
 5. asks the human to confirm the PD22 LED blinks.
 
 The raw capture is kept at `/tmp/rawboot-hil-<label>.log`.
@@ -99,6 +100,7 @@ S=0x10000
   the udev rule and `ls -l /dev/bus/usb/<bus>/<dev>`.
 - The UART is silent: check USART0 PE2/PE3, 115200 8N1, and that the CH340 is `/dev/ttyUSB0`.
 - The log starts with repeated `Hello`/`S=` lines: that is the tty buffer from a previous
-  run. The script drains it; a manual capture must drain too.
+  run, or a reset loop. The script drains the buffer and warns on multiple `Hello` lines;
+  if the warning persists, power-cycle the board and check the supply/USB cable.
 - The loader prints `CLK: init timeout at ...`: a clock PLL did not lock; capture the full
   line and the register address for diagnosis.
