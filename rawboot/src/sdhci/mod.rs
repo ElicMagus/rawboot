@@ -176,12 +176,12 @@ pub struct sdhci_t {
     pub removable: bool,
     pub isspi: bool,
 
-    gpio_d0: gpio::Gpio,
-    gpio_d1: gpio::Gpio,
-    gpio_d2: gpio::Gpio,
-    gpio_d3: gpio::Gpio,
-    gpio_cmd: gpio::Gpio,
-    gpio_clk: gpio::Gpio,
+    gpio_d0: gpio::GpioMux,
+    gpio_d1: gpio::GpioMux,
+    gpio_d2: gpio::GpioMux,
+    gpio_d3: gpio::GpioMux,
+    gpio_cmd: gpio::GpioMux,
+    gpio_clk: gpio::GpioMux,
 
     sdcard: *mut u32, //адрес по которому хранится структура для SD карты
 }
@@ -198,41 +198,29 @@ impl Default for sdhci_t {
             clock: 25 * 1000 * 1000,
             removable: false,
             isspi: false,
-            gpio_d0: gpio::Gpio {
-                port: gpio::Port::F,
-                pin: 1,
-                func: gpio::FUNC::MUX2,
-                pull_mode: gpio::Pull::UP,
+            gpio_d0: gpio::GpioMux {
+                pin: gpio::gpio_pin(gpio::PORTF, 1),
+                mux: gpio::GPIO_PERIPH_MUX2,
             },
-            gpio_d1: gpio::Gpio {
-                port: gpio::Port::F,
-                pin: 0,
-                func: gpio::FUNC::MUX2,
-                pull_mode: gpio::Pull::UP,
+            gpio_d1: gpio::GpioMux {
+                pin: gpio::gpio_pin(gpio::PORTF, 0),
+                mux: gpio::GPIO_PERIPH_MUX2,
             },
-            gpio_d2: gpio::Gpio {
-                port: gpio::Port::F,
-                pin: 5,
-                func: gpio::FUNC::MUX2,
-                pull_mode: gpio::Pull::UP,
+            gpio_d2: gpio::GpioMux {
+                pin: gpio::gpio_pin(gpio::PORTF, 5),
+                mux: gpio::GPIO_PERIPH_MUX2,
             },
-            gpio_d3: gpio::Gpio {
-                port: gpio::Port::F,
-                pin: 4,
-                func: gpio::FUNC::MUX2,
-                pull_mode: gpio::Pull::UP,
+            gpio_d3: gpio::GpioMux {
+                pin: gpio::gpio_pin(gpio::PORTF, 4),
+                mux: gpio::GPIO_PERIPH_MUX2,
             },
-            gpio_cmd: gpio::Gpio {
-                port: gpio::Port::F,
-                pin: 3,
-                func: gpio::FUNC::MUX2,
-                pull_mode: gpio::Pull::UP,
+            gpio_cmd: gpio::GpioMux {
+                pin: gpio::gpio_pin(gpio::PORTF, 3),
+                mux: gpio::GPIO_PERIPH_MUX2,
             },
-            gpio_clk: gpio::Gpio {
-                port: gpio::Port::F,
-                pin: 2,
-                func: gpio::FUNC::MUX2,
-                pull_mode: gpio::Pull::UP,
+            gpio_clk: gpio::GpioMux {
+                pin: gpio::gpio_pin(gpio::PORTF, 2),
+                mux: gpio::GPIO_PERIPH_MUX2,
             },
             sdcard: 0 as *mut u32,
         }
@@ -533,12 +521,18 @@ impl sdhci_t {
     pub fn init(&mut self) {
         let mut addr = 0u32;
         let mut val = 0u32;
-        self.gpio_clk.init();
-        self.gpio_cmd.init();
-        self.gpio_d0.init();
-        self.gpio_d1.init();
-        self.gpio_d2.init();
-        self.gpio_d3.init();
+        gpio::sunxi_gpio_init(self.gpio_clk.pin, self.gpio_clk.mux);
+        gpio::sunxi_gpio_set_pull(self.gpio_clk.pin, gpio::GpioPull::Up);
+        gpio::sunxi_gpio_init(self.gpio_cmd.pin, self.gpio_cmd.mux);
+        gpio::sunxi_gpio_set_pull(self.gpio_cmd.pin, gpio::GpioPull::Up);
+        gpio::sunxi_gpio_init(self.gpio_d0.pin, self.gpio_d0.mux);
+        gpio::sunxi_gpio_set_pull(self.gpio_d0.pin, gpio::GpioPull::Up);
+        gpio::sunxi_gpio_init(self.gpio_d1.pin, self.gpio_d1.mux);
+        gpio::sunxi_gpio_set_pull(self.gpio_d1.pin, gpio::GpioPull::Up);
+        gpio::sunxi_gpio_init(self.gpio_d2.pin, self.gpio_d2.mux);
+        gpio::sunxi_gpio_set_pull(self.gpio_d2.pin, gpio::GpioPull::Up);
+        gpio::sunxi_gpio_init(self.gpio_d3.pin, self.gpio_d3.mux);
+        gpio::sunxi_gpio_set_pull(self.gpio_d3.pin, gpio::GpioPull::Up);
 
         //my
         addr = self.addr + SMHC::INTMASK;
