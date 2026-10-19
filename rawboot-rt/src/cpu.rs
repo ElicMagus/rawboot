@@ -56,7 +56,17 @@ pub fn get_arch_counter() -> u64 {
 
 #[unsafe(no_mangle)]
 pub fn get_sys_ticks() -> u32 {
+    time_ms()
+}
+
+#[unsafe(no_mangle)]
+pub fn time_ms() -> u32 {
     (get_arch_counter() / 24000) as u32
+}
+
+#[unsafe(no_mangle)]
+pub fn time_us() -> u64 {
+    get_arch_counter() / 24
 }
 
 #[unsafe(no_mangle)]

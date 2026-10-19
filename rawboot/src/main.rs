@@ -52,8 +52,8 @@ fn main() -> ! {
     let mut dram = dram::DramPara::default();
     dram.init_dram();
 
-    let mut sdio = sdhci::sdhci_t::default();
-    sdio.init();
+    let mut sdio = sdhci::Sdhci::default();
+    sdhci::sunxi_sdhci_init(&mut sdio);
     let mut card = sdcard::Sdcard {
         version: 0,
         ocr: 0,
@@ -75,11 +75,21 @@ fn main() -> ! {
         online: false,
     };
 
-    sdcard.init(sdio);
+    sdcard.init();
+
+    if sdcard.online {
+        let mut block = [0u8; 512];
+        let read = sdcard.blk_read(block.as_mut_ptr(), 0, 1);
+        print!(
+            "SD: read {} block(s), first bytes {:02x?}\r\n",
+            read,
+            &block[..4]
+        );
+    }
 
     //мигаем
     loop {
-        let status = read32(sdio.addr + 56); //tmp
+        let status = read32(sdcard.hci.reg + sdhci::reg::RINT);
         print!("S=0x{:x}\n", status);
         gpio::sunxi_gpio_write(led, 1);
         udelay(50000);
