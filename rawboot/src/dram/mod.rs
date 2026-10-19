@@ -6,8 +6,17 @@ use crate::{
     io::{read32, sdelay, write32},
     print,
 };
+use rawboot_rt::cpu::udelay;
 
-pub const RAM_BASE: u32 = 0x40000000;
+#[inline(always)]
+fn clrsetbits_le32(addr: u32, clear: u32, set: u32) {
+    write32(addr, (read32(addr) & !clear) | set);
+}
+
+pub const SDRAM_BASE: u32 = 0x40000000;
+const MCTL_COM_BASE: u32 = 0x0310_2000;
+const MCTL_COM_WORK_MODE0: u32 = 0x00;
+const MCTL_COM_WORK_MODE1: u32 = 0x04;
 const RESCAL_CTRL_REG: u32 = 0x0300_0160;
 const RES240_CTRL_REG: u32 = 0x0300_0168;
 const RESCAL_STATUS_REG: u32 = 0x0300_016C;
@@ -80,7 +89,6 @@ const ACBDLR: u32 = 0x210; /* AC bit delay line registers [31]*/
 // } dx[4];
 // u8 res11[0x388];	/* 0x500 */
 const UPD2: u32 = 0x888; /* 0x888 */
-const SUNXI_DRAM_COM_BASE: u32 = 0x0310_2000;
 
 const CR: u32 = 0x000; /*control register */
 const CR_R1: u32 = 0x004; /*control register for 2nd rank */
@@ -128,8 +136,8 @@ static cfg7: [u8; 22] = [
 ];
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct DramPara_t {
+#[derive(Clone, Debug)]
+pub struct DramPara {
     //normal configuration
     dram_clk: u32,
     dram_type: u32, //dram_type			DDR2: 2				DDR3: 3		LPDDR2: 6	LPDDR3: 7	DDR3L: 31
@@ -161,9 +169,9 @@ pub struct DramPara_t {
     dram_tpr13: u32,
 }
 
-impl Default for DramPara_t {
+impl Default for DramPara {
     fn default() -> Self {
-        DramPara_t {
+        DramPara {
             dram_clk: 792,
             dram_type: 3,
             dram_zq: 0x7b7bfb,
@@ -192,8 +200,8 @@ impl Default for DramPara_t {
     }
 }
 
-impl DramPara_t {
-    pub fn init(mut self) -> u32 {
+impl DramPara {
+    pub fn init_dram(&mut self) -> u32 {
         let mut rc: u32;
         let mem_size: u32;
         // Test ZQ status
@@ -214,7 +222,7 @@ impl DramPara_t {
         }
 
         // Set voltage
-        self.vol_set();
+        self.dram_voltage_set();
 
         // Set SDRAM controller auto config
         if (self.dram_tpr13 & 0x1) == 0 {
@@ -253,7 +261,7 @@ impl DramPara_t {
         if (rc as i32) < 0 {
             rc = (rc & 0x7fff0000u32) >> 16;
         } else {
-            rc = self.get_size();
+            rc = self.dramc_get_dram_size();
             // print!("DRAM SIZE = {:?}M\r\n", rc);
             self.dram_para2 = (self.dram_para2 & 0xffffu32) | rc << 16;
         }
@@ -313,52 +321,32 @@ impl DramPara_t {
             write32(addr, rc);
         }
 
-        self.enable_all_master();
+        self.dram_enable_all_master();
         if (self.dram_tpr13 & (1 << 28)) != 0 {
             rc = read32(0x70005d4);
-            if ((rc & (1 << 16)) != 0 || self.simple_wr_test(mem_size, 4096) != 0) {
+            if ((rc & (1 << 16)) != 0 || self.dramc_simple_wr_test(mem_size, 4096) != 0) {
                 return 0;
             }
         }
         mem_size
     }
 
-    fn vol_set(self) {
-        let mut reg = 0;
-        let mut vol = 0;
+    fn dram_voltage_set(&self) {
+        let vol = match self.dram_type {
+            2 => 47,
+            3 => 25,
+            _ => 0,
+        };
 
-        match self.dram_type {
-            2 => {
-                vol = 47;
-            }
+        let reg = read32(SYS_LDO_CTRL_REG);
+        write32(SYS_LDO_CTRL_REG, (reg & 0xffdf00ff) | (vol << 8));
 
-            3 => {
-                vol = 25;
-            }
-
-            _ => {
-                vol = 0;
-            }
-        }
-
-        vol = 25; // XXX
-
-        reg = read32(SYS_LDO_CTRL_REG); //SYS_LDO_CTRL_REG
-        reg = (reg & 0xffdf00ff) | vol << 8;
-        /*
-            reg = read32(0x3000150);
-            reg &= ~(0xff00);
-            reg |= vol << 8;
-            reg &= ~(0x200000);
-        */
-        write32(SYS_LDO_CTRL_REG, reg);
-
-        sdelay(1);
+        udelay(1);
 
         self.sid_read_ldo_b_cal();
     }
 
-    fn sid_read_ldo_b_cal(self) {
+    fn sid_read_ldo_b_cal(&self) {
         let mut reg: u32;
 
         reg = (read32(0x0300621c) << 0x10) >> 0x18; //непонятный регистр
@@ -380,7 +368,7 @@ impl DramPara_t {
         }
     }
 
-    fn auto_scan_dram_config(mut self) -> u32 {
+    fn auto_scan_dram_config(&mut self) -> u32 {
         if ((self.dram_tpr13 & (1 << 14)) == 0) && (self.auto_scan_dram_rank_width() == 0) {
             // print!("[ERROR DEBUG] auto scan dram rank & width failed !\r\n");
             return 0;
@@ -395,196 +383,160 @@ impl DramPara_t {
         return 1;
     }
 
-    // Autoscan sizes a dram device by cycling through address lines and figuring
-    // out if it is connected to a real address line, or if the address is a mirror.
-    // First the column and bank bit allocations are set to low values (2 and 9 address
-    // lines. Then a maximum allocation (16 lines) is set for rows and this is tested.
-    // Next the BA2 line is checked. This seems to be placed above the column, BA0-1 and
-    // row addresses. Finally, the column address is allocated 13 lines and these are
-    // tested. The results are placed in dram_para1 and dram_para2.
-    //
-    fn auto_scan_dram_size(mut self) -> u32 {
-        let mut rval: u32 = 0;
-        let mut i = 0;
-        let mut j: u32 = 0;
-        let mut rank = 0;
-        let mut maxrank = 0;
-        let mut offs = 0;
-        let mut mc_work_mode = 0;
-        let mut chk = 0;
-        let mut ptr = 0;
-        let mut shft = 0;
-        // #ifdef CONFIG_DEBUG_DDR_DRIVER
-        let mut banks = 0;
-        // #endif
+    // Determine each rank's row/bank/page configuration by probing address
+    // lines until they alias back onto the test pattern. Rank 1 is compared at
+    // a separate address (SDRAM_BASE + 128 MiB). The findings are stored in
+    // dram_para1 (one 16-bit half per rank) and dram_para2.
+    fn auto_scan_dram_size(&mut self) -> u32 {
+        let mut i: u32;
+        let mut j: u32;
+        let mut current_rank: u32 = 0;
+        let mut rank_count: u32 = 1;
+        let mut reg_val: u32;
+        let mut ret: u32;
+        let mut cnt: u32;
+        let mut mc_work_mode: u32;
+        let mut rank1_addr: u32 = SDRAM_BASE;
 
         if self.mctl_core_init() == 0 {
-            // print!("[ERROR DEBUG] DRAM initialisation error : 0!\r\n");
             return 0;
         }
 
-        maxrank = if (self.dram_para2 & 0xf000) != 0 {
-            2
-        } else {
-            1
-        };
-        mc_work_mode = 0x3102000;
-        offs = 0;
-
-        // write test pattern
-        i = 0;
-        ptr = RAM_BASE;
-        while i < 64 {
-            write32(ptr, if i & 1 != 0 { ptr } else { !ptr });
-            i += 1;
-            ptr += 4;
+        if ((self.dram_para2 >> 12) & 0xf) == 0x1 {
+            rank_count = 2;
         }
-        rank = 0;
 
-        while rank < maxrank {
-            // Set row mode
-            rval = read32(mc_work_mode);
-            rval &= 0xfffff0f3;
-            rval |= 0x000006f0;
-            write32(mc_work_mode, rval);
-            while read32(mc_work_mode) != rval {}
+        while current_rank < rank_count {
+            mc_work_mode = MCTL_COM_BASE + MCTL_COM_WORK_MODE0 + 4 * current_rank;
 
-            // Scan per address line, until address wraps (i.e. see shadow)
-            for i in 11..17 {
-                chk = RAM_BASE + (1 << (i + 11));
-                ptr = RAM_BASE;
-
-                for j in 0..64 {
-                    if read32(chk) != (if j & 1 != 0 { ptr } else { !ptr }) {
-                        break;
-                    } else {
-                        ptr += 4;
-                        chk += 4;
-                    }
-                }
+            if current_rank == 1 {
+                clrsetbits_le32(MCTL_COM_BASE + MCTL_COM_WORK_MODE0, 0xf0c, 0x6f0);
+                clrsetbits_le32(MCTL_COM_BASE + MCTL_COM_WORK_MODE1, 0xf0c, 0x6f0);
+                rank1_addr = SDRAM_BASE + (1 << 27);
             }
 
-            if i > 16 {
+            // Write the test pattern once per rank.
+            for i in 0..64 {
+                write32(
+                    SDRAM_BASE + 4 * i,
+                    if i % 2 != 0 {
+                        SDRAM_BASE + 4 * i
+                    } else {
+                        !(SDRAM_BASE + 4 * i)
+                    },
+                );
+            }
+
+            // Set row mode.
+            clrsetbits_le32(mc_work_mode, 0xf0c, 0x6f0);
+            udelay(2);
+
+            i = 11;
+            while i < 17 {
+                ret = SDRAM_BASE + (1 << (i + 2 + 9)); // row-bank-column
+                cnt = 0;
+                for j in 0..64 {
+                    reg_val = if j % 2 != 0 {
+                        rank1_addr + 4 * j
+                    } else {
+                        !(rank1_addr + 4 * j)
+                    };
+                    if reg_val == read32(ret + j * 4) {
+                        cnt += 1;
+                    } else {
+                        break;
+                    }
+                }
+                if cnt == 64 {
+                    break;
+                }
+                i += 1;
+            }
+            if i >= 16 {
                 i = 16;
             }
 
-            // print!("[AUTO DEBUG] rank {:?} row = {:?}\r\n", rank, i);
+            // Store rows in para1.
+            let shft = 16 * current_rank + 4;
+            self.dram_para1 = (self.dram_para1 & !(0xffu32 << shft)) | (i << shft);
 
-            // Store rows in para 1
-            shft = 4 + offs;
-            rval = self.dram_para1;
-            rval &= !(0xff << shft);
-            rval |= i << shft;
-            self.dram_para1 = rval;
-
-            if rank == 1 {
-                // Set bank mode for rank0
-                rval = read32(0x3102000);
-                rval &= 0xfffff003;
-                rval |= 0x000006a4;
-                write32(0x3102000, rval);
+            // Set bank mode for rank0 and for the current rank.
+            if current_rank == 1 {
+                clrsetbits_le32(MCTL_COM_BASE + MCTL_COM_WORK_MODE0, 0xffc, 0x6a4);
             }
+            clrsetbits_le32(mc_work_mode, 0xffc, 0x6a4);
+            udelay(1);
 
-            // Set bank mode for current rank
-            rval = read32(mc_work_mode);
-            rval &= 0xfffff003;
-            rval |= 0x000006a4;
-            write32(mc_work_mode, rval);
-            while read32(mc_work_mode) != rval {}
-
-            // Test if bit A23 is BA2 or mirror XXX A22?
-            chk = RAM_BASE + (1 << 22);
-            ptr = RAM_BASE;
-            j = 0;
-            for _i in 0..64 {
-                if read32(chk) != (if j & 1 != 0 { ptr } else { !ptr }) {
-                    j = 1;
+            // Upstream probes a single A11 line; the loop index is the stored value.
+            i = 0;
+            ret = SDRAM_BASE + (1 << (i + 2 + 9));
+            cnt = 0;
+            for j in 0..64 {
+                reg_val = if j % 2 != 0 {
+                    rank1_addr + 4 * j
+                } else {
+                    !(rank1_addr + 4 * j)
+                };
+                if reg_val == read32(ret + j * 4) {
+                    cnt += 1;
+                } else {
                     break;
                 }
-                ptr += 4;
-                chk += 4;
+            }
+            if cnt != 64 {
+                i += 1;
             }
 
-            // #ifdef CONFIG_DEBUG_DDR_DRIVER
-            banks = (j + 1) << 2; // 4 or 8
-            // #endif
-            // print!("[AUTO DEBUG] rank {:?} bank = {:?}\r\n", rank, banks);
+            // Store bank count in para1.
+            let shft = 16 * current_rank + 12;
+            self.dram_para1 = (self.dram_para1 & !(0xfu32 << shft)) | (i << shft);
 
-            // Store banks in para 1
-            shft = 12 + offs;
-            rval = self.dram_para1;
-            rval &= !(0xf << shft);
-            rval |= j << shft;
-            self.dram_para1 = rval;
-
-            if rank == 1 {
-                // Set page mode for rank0
-                rval = read32(0x3102000);
-                rval &= 0xfffff003;
-                rval |= 0x00000aa0;
-                write32(0x3102000, rval);
+            // Set page mode for rank0 and for the current rank.
+            if current_rank == 1 {
+                clrsetbits_le32(mc_work_mode, 0xffc, 0xaa0);
             }
+            clrsetbits_le32(mc_work_mode, 0xffc, 0xaa0);
+            udelay(2);
 
-            // Set page mode for current rank
-            rval = read32(mc_work_mode);
-            rval &= 0xfffff003;
-            rval |= 0x00000aa0;
-            write32(mc_work_mode, rval);
-            while read32(mc_work_mode) != rval {}
-
-            // Scan per address line, until address wraps (i.e. see shadow)
-            for i in 9..14 {
-                chk = RAM_BASE + (1 << i);
-                ptr = RAM_BASE;
+            // Scan the column address lines.
+            i = 9;
+            while i < 14 {
+                ret = SDRAM_BASE + (1 << i);
+                cnt = 0;
                 for j in 0..64 {
-                    if read32(chk) != (if j & 1 != 0 { ptr } else { !ptr }) {
-                        break;
+                    reg_val = if j % 2 != 0 {
+                        SDRAM_BASE + 4 * j
                     } else {
-                        ptr += 4;
-                        chk += 4;
+                        !(SDRAM_BASE + 4 * j)
+                    };
+                    if reg_val == read32(ret + j * 4) {
+                        cnt += 1;
+                    } else {
+                        break;
                     }
                 }
+                if cnt == 64 {
+                    break;
+                }
+                i += 1;
             }
-            if i > 13 {
+            if i >= 13 {
                 i = 13;
             }
 
             let pgsize = if i == 9 { 0 } else { 1 << (i - 10) };
-            // print!("[AUTO DEBUG] rank {:?} page size = {:?} KB\r\n",rank, pgsize);
 
-            // Store page size
-            shft = offs;
-            rval = self.dram_para1;
-            rval &= !(0xf << shft);
-            rval |= pgsize << shft;
-            self.dram_para1 = rval;
+            // Store page size in para1.
+            let shft = 16 * current_rank;
+            self.dram_para1 = (self.dram_para1 & !(0xfu32 << shft)) | (pgsize << shft);
 
-            // Move to next rank
-            rank += 1;
-            if rank != maxrank {
-                if rank == 1 {
-                    rval = read32(0x3202000); // MC_WORK_MODE
-                    rval &= 0xfffff003;
-                    rval |= 0x000006f0;
-                    write32(0x3202000, rval);
-
-                    rval = read32(0x3202004); // MC_WORK_MODE2
-                    rval &= 0xfffff003;
-                    rval |= 0x000006f0;
-                    write32(0x3202004, rval);
-                }
-                offs += 16; // store rank1 config in upper half of para1
-                mc_work_mode += 4; // move to MC_WORK_MODE2
-            }
+            current_rank += 1;
         }
-        if maxrank == 2 {
-            self.dram_para2 &= 0xfffff0ff;
-            // note: rval is equal to self.dram_para1 here
-            if (rval & 0xffff) == ((rval >> 16) & 0xffff) {
-                // print!("rank1 config same as rank0\r\n");
-            } else {
-                self.dram_para2 |= 0x00000100;
-                // print!("rank1 config different from rank0\r\n");
+
+        if rank_count == 2 {
+            self.dram_para2 &= 0xffff_f0ff;
+            if (self.dram_para1 & 0xffff) != (self.dram_para1 >> 16) {
+                self.dram_para2 |= 1 << 8;
             }
         }
         return 1;
@@ -595,7 +547,7 @@ impl DramPara_t {
     // full or half DQ width. it then resets the parameters to the original values.
     // dram_para2 is updated with the rank & width findings.
     //
-    fn auto_scan_dram_rank_width(mut self) -> u32 {
+    fn auto_scan_dram_rank_width(&mut self) -> u32 {
         let s1: u32 = self.dram_tpr13;
         let s2: u32 = self.dram_para1;
         let mut v: u32;
@@ -630,7 +582,7 @@ impl DramPara_t {
     // If there was an error, figure out whether it was half DQ, single rank,
     // or both. Set bit 12 and 0 in dram_para2 with the results.
     //
-    fn dqs_gate_detect(mut self) -> u32 {
+    fn dqs_gate_detect(&mut self) -> u32 {
         let mut u1: u32;
         let u2: u32;
 
@@ -672,12 +624,12 @@ impl DramPara_t {
         return 1;
     }
 
-    fn mctl_core_init(self) -> u32 {
+    fn mctl_core_init(&mut self) -> u32 {
         self.mctl_sys_init();
         self.mctl_vrefzq_init();
         self.mctl_com_init();
         self.mctl_phy_ac_remapping();
-        self.auto_set_timing_para();
+        self.mctl_set_timing_params();
         let res = self.mctl_channel_init(0);
         res
     }
@@ -685,7 +637,7 @@ impl DramPara_t {
     // Init the controller channel. The key part is placing commands in the main
     // command register (PIR, 0x3103000) and checking command status (PGSR0, 0x3103010).
     //
-    fn mctl_channel_init(mut self, ch_index: u32) -> u32 {
+    fn mctl_channel_init(&self, ch_index: u32) -> u32 {
         let mut val: u32 = 0;
         let mut dqs_gating_mode: u32 = 0;
 
@@ -941,7 +893,7 @@ impl DramPara_t {
         return 1;
     }
 
-    fn eye_delay_compensation(self) // s1
+    fn eye_delay_compensation(&self) // s1
     {
         let mut val = 0;
         let mut ptr = 0;
@@ -1040,7 +992,7 @@ impl DramPara_t {
     // timing settings for the specific type of sdram used. Read together with
     // an sdram datasheet for context on the various variables.
     //
-    fn auto_set_timing_para(mut self) // s5
+    fn mctl_set_timing_params(&mut self) // s5
     {
         let mut freq: u32 = 0; // s4
         let mut vtype: u32 = 0; // s8
@@ -1086,14 +1038,12 @@ impl DramPara_t {
             trfc = ((self.dram_tpr2 >> 12) & 0x1ff) as u16; // [20:12]
             trefi = ((self.dram_tpr2 >> 0) & 0xfff) as u16; // [11:0 ]
         } else {
-            let mut frq2 = freq >> 1; // s0
-
             if vtype == 3 {
                 // DDR3
-                trfc = self.auto_cal_timing(350, frq2) as u16;
-                trefi = (self.auto_cal_timing(7800, frq2) / 32 + 1) as u16; // XXX
-                twr = self.auto_cal_timing(8, frq2 as u32) as u8;
-                trcd = self.auto_cal_timing(15, frq2 as u32) as u8;
+                trfc = self.ns_to_t(350) as u16;
+                trefi = (self.ns_to_t(7800) / 32 + 1) as u16; // XXX
+                twr = self.ns_to_t(8) as u8;
+                trcd = self.ns_to_t(15) as u8;
                 twtr = twr + 2; // + 2 ? XXX
                 if twr < 2 {
                     twtr = 2;
@@ -1103,57 +1053,57 @@ impl DramPara_t {
                     twr = 2;
                 }
                 if freq <= 800 {
-                    tfaw = self.auto_cal_timing(50, frq2 as u32) as u8;
-                    trrd = self.auto_cal_timing(10, frq2 as u32) as u8;
+                    tfaw = self.ns_to_t(50) as u8;
+                    trrd = self.ns_to_t(10) as u8;
                     if trrd < 2 {
                         trrd = 2;
                     }
-                    trc = self.auto_cal_timing(53, frq2 as u32) as u8;
-                    tras = self.auto_cal_timing(38, frq2 as u32) as u8;
+                    trc = self.ns_to_t(53) as u8;
+                    tras = self.ns_to_t(38) as u8;
                     txp = trrd; // 10
                     trp = trcd; // 15
                 } else {
-                    tfaw = self.auto_cal_timing(35, frq2 as u32) as u8;
-                    trrd = self.auto_cal_timing(10, frq2 as u32) as u8;
+                    tfaw = self.ns_to_t(35) as u8;
+                    trrd = self.ns_to_t(10) as u8;
                     if trrd < 2 {
                         trrd = 2;
                     }
-                    trcd = self.auto_cal_timing(14, frq2) as u8;
-                    trc = self.auto_cal_timing(48, frq2) as u8;
-                    tras = self.auto_cal_timing(34, frq2) as u8;
+                    trcd = self.ns_to_t(14) as u8;
+                    trc = self.ns_to_t(48) as u8;
+                    tras = self.ns_to_t(34) as u8;
                     txp = trrd; // 10
                     trp = trcd; // 14
                 }
             // #if 1
             } else if vtype == 2 {
                 // DDR2
-                tfaw = self.auto_cal_timing(50, frq2) as u8;
-                trrd = self.auto_cal_timing(10, frq2) as u8;
-                trcd = self.auto_cal_timing(20, frq2) as u8;
-                trc = self.auto_cal_timing(65, frq2) as u8;
-                twtr = self.auto_cal_timing(8, frq2) as u8;
-                trp = self.auto_cal_timing(15, frq2) as u8;
-                tras = self.auto_cal_timing(45, frq2) as u8;
-                trefi = (self.auto_cal_timing(7800, frq2) / 32) as u16;
-                trfc = self.auto_cal_timing(328, frq2) as u16;
+                tfaw = self.ns_to_t(50) as u8;
+                trrd = self.ns_to_t(10) as u8;
+                trcd = self.ns_to_t(20) as u8;
+                trc = self.ns_to_t(65) as u8;
+                twtr = self.ns_to_t(8) as u8;
+                trp = self.ns_to_t(15) as u8;
+                tras = self.ns_to_t(45) as u8;
+                trefi = (self.ns_to_t(7800) / 32) as u16;
+                trfc = self.ns_to_t(328) as u16;
                 txp = 2;
                 twr = trp; // 15
             } else if vtype == 6 {
                 // LPDDR2
-                tfaw = self.auto_cal_timing(50, frq2) as u8;
+                tfaw = self.ns_to_t(50) as u8;
                 if tfaw < 4 {
                     tfaw = 4;
                 }
-                trrd = self.auto_cal_timing(10, frq2) as u8;
+                trrd = self.ns_to_t(10) as u8;
                 if trrd == 0 {
                     trrd = 1;
                 }
-                trcd = self.auto_cal_timing(24, frq2) as u8;
+                trcd = self.ns_to_t(24) as u8;
                 if trcd < 2 {
                     trcd = 2;
                 }
-                trc = self.auto_cal_timing(70, frq2) as u8;
-                txp = self.auto_cal_timing(8, frq2) as u8;
+                trc = self.ns_to_t(70) as u8;
+                txp = self.ns_to_t(8) as u8;
                 if txp == 0 {
                     txp = 1;
                     twtr = 2;
@@ -1164,41 +1114,41 @@ impl DramPara_t {
                         twtr = 2;
                     }
                 }
-                twr = self.auto_cal_timing(15, frq2) as u8;
+                twr = self.ns_to_t(15) as u8;
                 if twr < 2 {
                     twr = 2;
                 }
-                trp = self.auto_cal_timing(17, frq2) as u8;
-                tras = self.auto_cal_timing(42, frq2) as u8;
-                trefi = (self.auto_cal_timing(3900, frq2) / 32) as u16;
-                trfc = self.auto_cal_timing(210, frq2) as u16;
+                trp = self.ns_to_t(17) as u8;
+                tras = self.ns_to_t(42) as u8;
+                trefi = (self.ns_to_t(3900) / 32) as u16;
+                trfc = self.ns_to_t(210) as u16;
             } else if vtype == 7 {
                 // LPDDR3
-                tfaw = self.auto_cal_timing(50, frq2) as u8;
+                tfaw = self.ns_to_t(50) as u8;
                 if tfaw < 4 {
                     tfaw = 4;
                 }
-                trrd = self.auto_cal_timing(10, frq2) as u8;
+                trrd = self.ns_to_t(10) as u8;
                 if trrd == 0 {
                     trrd = 1;
                 }
-                trcd = self.auto_cal_timing(24, frq2) as u8;
+                trcd = self.ns_to_t(24) as u8;
                 if trcd < 2 {
                     trcd = 2;
                 }
-                trc = self.auto_cal_timing(70, frq2) as u8;
-                twtr = self.auto_cal_timing(8, frq2) as u8;
+                trc = self.ns_to_t(70) as u8;
+                twtr = self.ns_to_t(8) as u8;
                 if twtr < 2 {
                     twtr = 2;
                 }
-                twr = self.auto_cal_timing(15, frq2) as u8;
+                twr = self.ns_to_t(15) as u8;
                 if twr < 2 {
                     twr = 2;
                 }
-                trp = self.auto_cal_timing(17, frq2) as u8;
-                tras = self.auto_cal_timing(42, frq2) as u8;
-                trefi = (self.auto_cal_timing(3900, frq2) / 32) as u16;
-                trfc = self.auto_cal_timing(210, frq2) as u16;
+                trp = self.ns_to_t(17) as u8;
+                tras = self.ns_to_t(42) as u8;
+                trefi = (self.ns_to_t(3900) / 32) as u16;
+                trfc = self.ns_to_t(210) as u16;
                 txp = twtr;
             // #endif
             } else {
@@ -1445,25 +1395,11 @@ impl DramPara_t {
         }
         trtp = 4;
 
-        // Update mode block when permitted
-        if (self.dram_mr0 & 0xffff0000) == 0 {
-            self.dram_mr0 = mr0;
-        }
-        if (self.dram_mr1 & 0xffff0000) == 0 {
-            self.dram_mr1 = mr1;
-        }
-        if (self.dram_mr2 & 0xffff0000) == 0 {
-            self.dram_mr2 = mr2;
-        }
-        if (self.dram_mr3 & 0xffff0000) == 0 {
-            self.dram_mr3 = mr3;
-        }
-
         // Set mode registers
-        write32(0x3103030, self.dram_mr0);
-        write32(0x3103034, self.dram_mr1);
-        write32(0x3103038, self.dram_mr2);
-        write32(0x310303c, self.dram_mr3);
+        write32(0x3103030, mr0);
+        write32(0x3103034, mr1);
+        write32(0x3103038, mr2);
+        write32(0x310303c, mr3);
         write32(0x310302c, (self.dram_odt_en >> 4) & 0x3); // ??
 
         // Set dram timing DRAMTMG0 - DRAMTMG5
@@ -1514,8 +1450,9 @@ impl DramPara_t {
         write32(0x3103094, reg_val);
     }
 
-    fn auto_cal_timing(mut self, time: u32, freq: u32) -> u32 {
-        let t: u32 = time * freq;
+    fn ns_to_t(&self, nanoseconds: u32) -> u32 {
+        let ctrl_freq = self.dram_clk / 2;
+        let t = ctrl_freq * nanoseconds;
         let rem = if t % 1000 != 0 { 1 } else { 0 };
         return t / 1000 + rem;
     }
@@ -1524,7 +1461,7 @@ impl DramPara_t {
     // It is unclear which lines are being remapped. It seems to pick
     // table cfg7 for the Nezha board.
     //
-    fn mctl_phy_ac_remapping(mut self) {
+    fn mctl_phy_ac_remapping(&self) {
         let mut cfg0 = [0u8; 22];
 
         let mut fuse: u32 = 0;
@@ -1624,7 +1561,7 @@ impl DramPara_t {
     // from the dram_para1 and dram_para2 fields to the PHY configuration registers
     // (0x3102000, 0x3102004).
     //
-    fn mctl_com_init(mut self) {
+    fn mctl_com_init(&self) {
         let mut val: u32 = 0;
         let mut end: u32 = 0;
         let mut ptr: u32 = 0;
@@ -1715,7 +1652,7 @@ impl DramPara_t {
 
     // Set the Vref mode for the controller
     //
-    fn mctl_vrefzq_init(self) {
+    fn mctl_vrefzq_init(&self) {
         let mut val: u32 = 0;
 
         if (self.dram_tpr13 & (1 << 17)) == 0 {
@@ -1733,7 +1670,7 @@ impl DramPara_t {
     // Main purpose of sys_init seems to be to initalise the clocks for
     // the sdram controller.
     //
-    fn mctl_sys_init(mut self) {
+    fn mctl_sys_init(&mut self) {
         let mut val: u32 = 0;
 
         // s1 = 0x02001000
@@ -1750,7 +1687,7 @@ impl DramPara_t {
         sdelay(10);
 
         // set ddr pll clock
-        val = self.ccm_set_pll_ddr_clk(0);
+        val = self.ccu_set_pll_ddr_clk(0);
         self.dram_clk = val >> 1;
         sdelay(100);
         self.dram_disable_all_master();
@@ -1785,7 +1722,7 @@ impl DramPara_t {
     // Purpose of this routine seems to be to initialize the PLL driving
     // the MBUS and sdram.
     //
-    fn ccm_set_pll_ddr_clk(self, index: i32) -> u32 {
+    fn ccu_set_pll_ddr_clk(&self, index: i32) -> u32 {
         let mut val: u32 = 0;
         let mut clk: u32 = 0;
         let mut n: u32 = 0;
@@ -1829,7 +1766,7 @@ impl DramPara_t {
         return n * 24;
     }
 
-    fn get_size(self) -> u32 {
+    fn dramc_get_dram_size(&self) -> u32 {
         let mut rval: u32;
         let mut temp = 0;
         let mut size0 = 0;
@@ -1865,21 +1802,21 @@ impl DramPara_t {
         return size0 + size1; // add size of each rank
     }
 
-    fn enable_all_master(self) {
+    fn dram_enable_all_master(&self) {
         write32(0x3102020, u32::MAX); //-1
         write32(0x3102024, 0xff);
         write32(0x3102028, 0xffff);
         sdelay(10);
     }
 
-    fn dram_disable_all_master(self) {
+    fn dram_disable_all_master(&self) {
         write32(0x3102020, 1);
         write32(0x3102024, 0);
         write32(0x3102028, 0);
         sdelay(10);
     }
 
-    fn simple_wr_test(mut self, mem_size_mb: u32, len: u32) -> u32 {
+    fn dramc_simple_wr_test(&self, mem_size_mb: u32, len: u32) -> u32 {
         let offs = (mem_size_mb >> 1) << 18; // half of memory size
         let patt1 = 0x01234567;
         let patt2 = 0xfedcba98;
@@ -1888,7 +1825,7 @@ impl DramPara_t {
         let mut v2 = 0;
         let mut i = 0;
 
-        addr = RAM_BASE;
+        addr = SDRAM_BASE;
         i = 0;
         while i != len {
             write32(addr, patt1 + i);
@@ -1896,7 +1833,7 @@ impl DramPara_t {
             addr += 4;
             i += 4;
         }
-        addr = RAM_BASE;
+        addr = SDRAM_BASE;
         i = 0;
         while i != len {
             v1 = read32(addr + i);
