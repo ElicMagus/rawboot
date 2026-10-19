@@ -55,12 +55,18 @@ this and waits for Enter; piped or `HIL_NO_PROMPT=1` runs skip the prompt.
 still answer while a loader from a previous run prints on USART0. The script's UART-quiet
 preflight is the authority.
 
+If a loader from a previous run is still printing, `HIL_SKIP_PREFLIGHT=1` drains USART0 and
+replaces it with the image under test. The preflight warning is expected then: the old `S=`
+lines are stale output, not a reset loop. Use this instead of repeated power-cycles when
+`xfel` still answers; use a power-cycle when it does not.
+
 The script:
 
 1. checks the image build stamp against `HEAD`;
 2. waits up to 3 minutes for a responsive FEL (`xfel version` succeeds);
 3. requires the UART to be quiet for a short window, so a still-running loader is reported
-   as a busy board instead of looking like a reset loop later;
+   as a busy board instead of looking like a reset loop later (`HIL_SKIP_PREFLIGHT=1`
+   downgrades this check to a warning);
 4. drains the UART input buffer before loading;
 5. writes the image at `0x00028000` and jumps to it;
 6. captures USART0 for a few seconds, prints the unique lines and asserts
@@ -87,7 +93,7 @@ and capture at 115200 8N1.
 
 ## Expected log
 
-The current `master` prints:
+The current `master` prints (with a card inserted):
 
 ```
 Hello
@@ -98,16 +104,18 @@ trefi:7.8ms
 DRAMC read ODT  off.
 DRAM ODT value: 0x42.
 DRAM simple test OK.
-get state
-SD/MMC card not found
-S=0x10000
+SD/MMC card found
+SD: read 1 block(s), first bytes [00, 00, 00, 00]
+S=0x4
 ```
 
 - `CLK: PLL_ddr` is read before `dram.init()`, so it shows the pre-DRAM value; the DRAM
   initialisation that follows sets 792 MHz. See `research/clk-port-vs-upstream.md`.
+- `SD/MMC card found` and the `SD: read ...` line prove the SDHCI/IDMAC path. The first
+  bytes are whatever block 0 contains; an empty test card returns zeros.
 - `SD/MMC card not found` is expected when no card is inserted. It does not invalidate the
-  clock or DRAM checks; SD bring-up is tracked in #19/#20.
-- `S=0x10000` repeats while the LED toggles. The script stops after a few seconds.
+  clock or DRAM checks. Full SD/MMC card parity is tracked in #20.
+- `S=0x...` repeats while the LED toggles. The script stops after a few seconds.
 
 ## Troubleshooting
 
@@ -115,8 +123,9 @@ S=0x10000
   and not connected to the OTG/FEL port. Re-enter FEL and power-cycle.
 - `xfel` says `Can't connect to device`: the device node is not writable by the user. Check
   the udev rule and `ls -l /dev/bus/usb/<bus>/<dev>`.
-- Preflight says `UART is not quiet`: a loader from a previous run is still printing, even
-  if `xfel version` answers. Power-cycle into FEL (do not `xfel reset`) and rerun.
+- Preflight says `UART is not quiet`: a loader from a previous run is still printing (or the
+  line is floating), even if `xfel version` answers. Rerun with `HIL_SKIP_PREFLIGHT=1` to
+  drain it and replace the loader, or power-cycle into FEL (do not `xfel reset`) and rerun.
 - `image commit ... does not match HEAD`: the image predates a branch switch or commit.
   Rebuild with `cargo xtask image` on the branch under test.
 - The UART is silent: check USART0 PE2/PE3, 115200 8N1, and that the CH340 is `/dev/ttyUSB0`.

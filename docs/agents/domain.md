@@ -10,6 +10,12 @@ How the engineering skills should consume this repo's domain documentation when 
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill creates them lazily when terms or decisions actually get resolved.
 
+## Upstream parity sources
+
+For parity work, fetch the pinned upstream C tree instead of guessing URLs:
+`scripts/fetch-upstream.sh` (defaults to the SHA used by the parity research notes) writes it to
+`target/upstream/awboot-<sha>/`. Cite upstream by file and line; cite our code by symbol.
+
 ## File structure
 
 Single-context repo:
