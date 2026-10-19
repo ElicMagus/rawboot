@@ -14,7 +14,10 @@ use crate::{
     gpio::{self, GpioMux},
     io::{read32, write32},
     print,
-    sdcard::{MMC, MMC_Data, MMC_RSP},
+    sdcard::{
+        MMC_DATA_READ, MMC_DATA_WRITE, MMC_READ_MULTIPLE_BLOCK, MMC_RSP_136, MMC_RSP_BUSY,
+        MMC_RSP_CRC, MMC_RSP_PRESENT, MMC_STOP_TRANSMISSION, MMC_WRITE_MULTIPLE_BLOCK,
+    },
 };
 
 pub(crate) mod reg {
@@ -473,7 +476,7 @@ fn prepare_dma(sdhci: &mut Sdhci, data: &SdhciData) -> bool {
     );
     let mut idie = read32(sdhci.reg + reg::IDIE);
     idie &= !(SMHC_IDMAC_TRANSMIT_INTERRUPT | SMHC_IDMAC_RECEIVE_INTERRUPT);
-    if data.flag & MMC_Data::WRITE as u32 != 0 {
+    if data.flag & MMC_DATA_WRITE != 0 {
         idie |= SMHC_IDMAC_TRANSMIT_INTERRUPT;
     } else {
         idie |= SMHC_IDMAC_RECEIVE_INTERRUPT;
@@ -937,7 +940,7 @@ pub fn sdhci_transfer(sdhci: &mut Sdhci, cmd: &mut SdhciCmd, dat: Option<&SdhciD
     let mut status;
     let timeout;
 
-    if cmd.idx == MMC::STOP_TRANSMISSION as u32 {
+    if cmd.idx == MMC_STOP_TRANSMISSION {
         timeout = time_ms();
         loop {
             status = read32(sdhci.reg + reg::STATUS);
@@ -954,12 +957,12 @@ pub fn sdhci_transfer(sdhci: &mut Sdhci, cmd: &mut SdhciCmd, dat: Option<&SdhciD
         return true;
     }
 
-    if cmd.resptype & MMC_RSP::PRESENT != 0 {
+    if cmd.resptype & MMC_RSP_PRESENT != 0 {
         cmdval |= SMHC_CMD_RESP_EXPIRE;
-        if cmd.resptype & MMC_RSP::_136 != 0 {
+        if cmd.resptype & MMC_RSP_136 != 0 {
             cmdval |= SMHC_CMD_LONG_RESPONSE;
         }
-        if cmd.resptype & MMC_RSP::CRC != 0 {
+        if cmd.resptype & MMC_RSP_CRC != 0 {
             cmdval |= SMHC_CMD_CHECK_RESPONSE_CRC;
         }
     }
@@ -975,14 +978,14 @@ pub fn sdhci_transfer(sdhci: &mut Sdhci, cmd: &mut SdhciCmd, dat: Option<&SdhciD
         cmdval |= SMHC_CMD_DATA_EXPIRE | SMHC_CMD_WAIT_PRE_OVER;
         set_read_timeout(sdhci, DTO_MAX);
 
-        if dat.flag & MMC_Data::WRITE as u32 != 0 {
+        if dat.flag & MMC_DATA_WRITE != 0 {
             cmdval |= SMHC_CMD_WRITE;
             write32(
                 sdhci.reg + reg::IDST,
                 read32(sdhci.reg + reg::IDST) | SMHC_IDMAC_TRANSMIT_INTERRUPT,
             );
         }
-        if dat.flag & MMC_Data::READ as u32 != 0 {
+        if dat.flag & MMC_DATA_READ != 0 {
             write32(
                 sdhci.reg + reg::IDST,
                 read32(sdhci.reg + reg::IDST) | SMHC_IDMAC_RECEIVE_INTERRUPT,
@@ -990,7 +993,7 @@ pub fn sdhci_transfer(sdhci: &mut Sdhci, cmd: &mut SdhciCmd, dat: Option<&SdhciD
         }
     }
 
-    if cmd.idx == MMC::WRITE_MULTIPLE_BLOCK as u32 || cmd.idx == MMC::READ_MULTIPLE_BLOCK as u32 {
+    if cmd.idx == MMC_WRITE_MULTIPLE_BLOCK || cmd.idx == MMC_READ_MULTIPLE_BLOCK {
         cmdval |= SMHC_CMD_SEND_AUTO_STOP;
     }
 
@@ -1016,8 +1019,8 @@ pub fn sdhci_transfer(sdhci: &mut Sdhci, cmd: &mut SdhciCmd, dat: Option<&SdhciD
                 read32(sdhci.reg + reg::GCTRL) | SMHC_GCTRL_ACCESS_BY_AHB,
             );
             write32(sdhci.reg + reg::CMD, cmdval | cmd.idx | SMHC_CMD_START);
-            if (dat.flag & MMC_Data::READ as u32 != 0 && !read_bytes(sdhci, dat))
-                || (dat.flag & MMC_Data::WRITE as u32 != 0 && !write_bytes(sdhci, dat))
+            if (dat.flag & MMC_DATA_READ != 0 && !read_bytes(sdhci, dat))
+                || (dat.flag & MMC_DATA_WRITE != 0 && !write_bytes(sdhci, dat))
             {
                 return false;
             }
@@ -1062,7 +1065,7 @@ pub fn sdhci_transfer(sdhci: &mut Sdhci, cmd: &mut SdhciCmd, dat: Option<&SdhciD
         }
     }
 
-    if cmd.resptype & MMC_RSP::BUSY != 0 {
+    if cmd.resptype & MMC_RSP_BUSY != 0 {
         timeout = time_ms();
         loop {
             status = read32(sdhci.reg + reg::STATUS);
@@ -1078,7 +1081,7 @@ pub fn sdhci_transfer(sdhci: &mut Sdhci, cmd: &mut SdhciCmd, dat: Option<&SdhciD
         }
     }
 
-    if cmd.resptype & MMC_RSP::_136 != 0 {
+    if cmd.resptype & MMC_RSP_136 != 0 {
         cmd.response[0] = read32(sdhci.reg + reg::RESP3);
         cmd.response[1] = read32(sdhci.reg + reg::RESP2);
         cmd.response[2] = read32(sdhci.reg + reg::RESP1);
