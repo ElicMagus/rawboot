@@ -281,15 +281,20 @@ contract actually needs a top address [14]; today it does not.
 ### 4.7 Hardware confirmation
 
 `scripts/hil-check.sh` on T113-S3 loads `target/rawboot-fel.bin` over FEL and asserts the boot
-log. After #18 a clean boot printed the expected sequence, including:
+log. The #18 image produced a single clean boot (`hello=1`) and the HIL script reported `PASS`:
 
 ```
+Hello
+CLK: CPU PLL=PLL_CPU FREQ=1008MHz
+CLK: PLL_peri (2X)=1200MHz, (1X)=600MHz, (800M)=800MHz
+CLK: PLL_ddr=432MHz
 trefi:7.8ms
 DRAMC read ODT  off.
 DRAM ODT value: 0x42.
 DRAM simple test OK.
 get state
 SD/MMC card not found
+S=0x10000
 ```
 
 `DRAM simple test OK` and the following SD line mean the new scanner completed and the loader
