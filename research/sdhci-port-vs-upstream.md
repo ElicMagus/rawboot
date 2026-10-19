@@ -148,7 +148,8 @@ Clock selectors and bus widths use the upstream numeric values:
 
 ## 6. `sdcard` impact
 
-Issue #20 owns full `sdmmc.c` parity. #19 changes only what the new host API forces:
+Issue #19 changed only what the new host API forced; issue #20 then aligned the full card
+protocol with `sdmmc.c` (see `research/sdcard-port-vs-upstream.md`). The #19 changes were:
 
 - `Sdhci` is now non-`Copy` and is owned by `Sdcard_data`; the card and HCI are passed as
   `&mut`/`&` instead of by value, so responses, RCA, CSD and clock/width state survive
@@ -161,12 +162,11 @@ Issue #20 owns full `sdmmc.c` parity. #19 changes only what the new host API for
   first CMD8 on a cold boot timed out.
 - The CMD55 retry loop is bounded, so a missing card fails detection instead of spinning
   forever printing `cmd55 timeout`.
-- `Sdcard_data::init` retries detection up to 10 times with a 100 ms pause, matching
-  `sdmmc_init`; this removes the cold-start flakiness where the first CMD8 arrived before the
-  card was ready.
+- Detection retries with a 100 ms pause, matching `sdmmc_init`; this removes the
+  cold-start flakiness where the first CMD8 arrived before the card was ready.
 
-CID/CSD/EXT_CSD parsing and command sequencing are still the old port; #20 will align them
-with `sdmmc.c`.
+CID/CSD/EXT_CSD parsing and command sequencing remained the old port until #20; see
+`research/sdcard-port-vs-upstream.md` for the completed card-protocol parity.
 
 ---
 

@@ -114,7 +114,8 @@ S=0x4
 - `SD/MMC card found` and the `SD: read ...` line prove the SDHCI/IDMAC path. The first
   bytes are whatever block 0 contains; an empty test card returns zeros.
 - `SD/MMC card not found` is expected when no card is inserted. It does not invalidate the
-  clock or DRAM checks. Full SD/MMC card parity is tracked in #20.
+  clock or DRAM checks. Full SD/MMC card parity (#20) is covered by
+  `research/sdcard-port-vs-upstream.md`.
 - `S=0x...` repeats while the LED toggles. The script stops after a few seconds.
 
 ## Troubleshooting
