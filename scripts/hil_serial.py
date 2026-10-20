@@ -97,6 +97,7 @@ def evaluate(
     expected_payload: PayloadExpectation | None = None,
     expected_fel_args: int | None = None,
     expected_boot_cfg: int | None = None,
+    allow_busy: bool = False,
 ) -> tuple[bool, str]:
     """Judge one captured boot log.
 
@@ -112,8 +113,12 @@ def evaluate(
     checks the argument pointer printed in the ``FEL: payload`` line.
     ``expected_boot_cfg`` checks the length and address in the SD ``ARGS:``
     line, and that the handoff reports the same ``args`` pointer.
+    ``allow_busy`` drops the reset-loop check: the capture was taken while a
+    loader from a previous run was being replaced (``HIL_SKIP_PREFLIGHT=1``), so
+    its stale ``Hello`` lines and fragments must be ignored. Every other
+    assertion still applies.
     """
-    if text.count("Hello") > 1:
+    if not allow_busy and text.count("Hello") > 1:
         return False, f"multiple Hello lines; the board is reset-looping or the capture is stale - {RESET_LOOP_HINT}"
 
     if expected_payload is not None:
@@ -226,7 +231,9 @@ def main() -> int:
     parser.add_argument(
         "--allow-busy",
         action="store_true",
-        help="warn instead of failing when preflight sees UART traffic",
+        help="warn instead of failing when preflight sees UART traffic; during "
+        "capture, ignore stale Hello lines from the replaced loader instead of "
+        "reporting a reset loop",
     )
     parser.add_argument(
         "--require-sd",
@@ -340,6 +347,7 @@ def main() -> int:
         expected_payload=expected_payload,
         expected_fel_args=args.fel_args,
         expected_boot_cfg=args.boot_cfg,
+        allow_busy=args.allow_busy,
     )
     if not ok:
         print(f"FAIL: {message}", file=sys.stderr)
