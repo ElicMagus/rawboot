@@ -28,6 +28,9 @@ const MIB: u32 = 1 << 20;
 /// Bytes reserved for the payload's initial stack.
 const HANDOFF_STACK_SIZE: u32 = 64 * 1024;
 
+/// Bytes reserved for the optional `boot.cfg` string, including its NUL terminator.
+const BOOT_ARGS_WINDOW: u32 = 4 * 1024;
+
 /// The `BootInfo` magic: `RBBI` in little-endian order.
 pub(crate) const BOOT_INFO_MAGIC: u32 = u32::from_le_bytes(*b"RBBI");
 /// The current `BootInfo` layout version.
@@ -210,22 +213,44 @@ fn finish(result: Result<Handoff, BootError>) -> BootError {
     }
 }
 
+/// Top of the DRAM stack the loader uses once DRAM is initialised.
+///
+/// It is the same top the payload receives, so the switch cannot collide with an earlier handoff.
+pub(crate) fn dram_stack_top(dram_size_mib: u32) -> Option<u32> {
+    DramLayout::new(dram_size_mib).map(|layout| layout.stack_top)
+}
+
 fn prepare_sd(sd: &mut Sdcard_data, dram_size_mib: u32) -> Result<Handoff, BootError> {
     let layout = DramLayout::new(dram_size_mib).ok_or(BootError::RamTooSmall)?;
 
-    // The whole image is staged at the bottom of DRAM. It is copied to `load_addr` afterwards;
-    // `ptr::copy` (not `copy_nonoverlapping`) makes the copy safe when the ranges overlap.
-    let (image_ptr, image_len) = {
-        // SAFETY: DRAM is initialised and the slice ends below the reserved BootInfo/stack area.
+    // The whole image is staged at the bottom of DRAM and `boot.cfg` at the top of the free area.
+    // The image is copied to `load_addr` afterwards; `ptr::copy` (not `copy_nonoverlapping`) makes
+    // the copy safe when the ranges overlap.
+    let (image_ptr, image_len, args) = {
+        // SAFETY: DRAM is initialised and the two slices are disjoint: the staging slice ends where
+        // the argument window begins, both below the reserved BootInfo/stack area.
         let staging =
             unsafe { slice::from_raw_parts_mut(SDRAM_BASE as *mut u8, layout.staging_len) };
-        let len = fat::read_payload(sd, staging).map_err(BootError::Fat)?;
-        (staging.as_ptr(), len)
+        let args_buf =
+            unsafe { slice::from_raw_parts_mut(layout.args as *mut u8, layout.args_len) };
+
+        let files = fat::read_boot_files(sd, staging, args_buf).map_err(BootError::Fat)?;
+        let args = match files.args_len {
+            Some(len) => {
+                print!("ARGS: boot.cfg {len} bytes at 0x{:08x}\r\n", layout.args);
+                layout.args
+            }
+            None => {
+                print!("ARGS: no boot.cfg\r\n");
+                0
+            }
+        };
+        (staging.as_ptr(), files.payload_len, args)
     };
 
-    // SAFETY: `fat::read_payload` filled the first `image_len` bytes of the staging area.
+    // SAFETY: `fat::read_boot_files` filled the first `image_len` bytes of the staging area.
     let image = unsafe { slice::from_raw_parts(image_ptr, image_len) };
-    prepare(image, BOOT_MEDIUM_SD, 0, &layout)
+    prepare(image, BOOT_MEDIUM_SD, args, &layout)
 }
 
 fn prepare_fel(mailbox: FelMailbox, dram_size_mib: u32) -> Result<Handoff, BootError> {
@@ -288,11 +313,11 @@ fn prepare(
             ram_size: layout.ram_size,
         });
     }
-    if load_end > layout.boot_info {
+    if load_end > layout.args {
         return Err(BootError::OverlapsReserved {
             load_addr: header.load_addr,
             size: header.size,
-            reserved_start: layout.boot_info,
+            reserved_start: layout.args,
         });
     }
     if header.entry & 1 != 0 {
@@ -341,13 +366,15 @@ fn prepare(
     }
 
     print!(
-        "BOOT: handoff to 0x{:08x}: {} bytes at 0x{:08x}, checksum 0x{:08x}, BootInfo 0x{:08x}, SP 0x{:08x}\r\n",
+        "BOOT: handoff to 0x{:08x}: {} bytes at 0x{:08x}, checksum 0x{:08x}, BootInfo 0x{:08x}, \
+         SP 0x{:08x}, args 0x{:08x}\r\n",
         header.entry,
         header.size,
         header.load_addr,
         header.checksum,
         layout.boot_info,
-        layout.stack_top
+        layout.stack_top,
+        args
     );
 
     Ok(Handoff {
@@ -361,7 +388,11 @@ fn prepare(
 struct DramLayout {
     ram_size: u32,
     ram_end: u32,
-    /// First byte after the staging area; the `BootInfo` slot starts here.
+    /// First byte of the argument window; the payload must end at or below it.
+    args: u32,
+    /// Length of the argument window, including the NUL terminator.
+    args_len: usize,
+    /// The `BootInfo` slot, above the argument window.
     boot_info: u32,
     /// Top of the reserved stack, which grows down.
     stack_top: u32,
@@ -375,16 +406,19 @@ impl DramLayout {
         let stack_top = ram_end & !0xf;
         let stack_base = stack_top.checked_sub(HANDOFF_STACK_SIZE)?;
         let boot_info = stack_base.checked_sub(BOOT_INFO_SIZE)? & !0xf;
-        if boot_info < SDRAM_BASE {
+        let args = boot_info.checked_sub(BOOT_ARGS_WINDOW)? & !0xf;
+        if args < SDRAM_BASE {
             return None;
         }
 
         Some(Self {
             ram_size,
             ram_end,
+            args,
+            args_len: (boot_info - args) as usize,
             boot_info,
             stack_top,
-            staging_len: (boot_info - SDRAM_BASE) as usize,
+            staging_len: (args - SDRAM_BASE) as usize,
         })
     }
 }

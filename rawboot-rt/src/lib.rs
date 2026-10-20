@@ -109,11 +109,13 @@ const _: () = {
 
 #[inline(always)]
 fn set_sp_base() {
+    unsafe extern "C" {
+        static _estack: u8;
+    }
     unsafe {
-        let start: u32 = 0x38000;
         asm!(
-            "mov sp,  {}",
-            in(reg) start,
+            "mov sp, {}",
+            in(reg) &raw const _estack as usize,
         );
     }
 }

@@ -32,6 +32,12 @@ FEL_FOUND = "FEL: payload"
 FEL_LINE = re.compile(
     r"FEL: payload image (0x[0-9a-fA-F]+), (\d+) bytes, args (0x[0-9a-fA-F]+)"
 )
+BOOT_CFG_LINE = re.compile(
+    r"^ARGS: boot\.cfg (\d+) bytes at (0x[0-9a-fA-F]+)", re.MULTILINE
+)
+HANDOFF_ARGS = re.compile(
+    r"BOOT: handoff to .*, args (0x[0-9a-fA-F]+)"
+)
 RESET_LOOP_HINT = (
     "power-cycle into FEL (do not xfel reset) and rerun"
 )
@@ -90,6 +96,7 @@ def evaluate(
     require_fel: bool = False,
     expected_payload: PayloadExpectation | None = None,
     expected_fel_args: int | None = None,
+    expected_boot_cfg: int | None = None,
 ) -> tuple[bool, str]:
     """Judge one captured boot log.
 
@@ -103,6 +110,8 @@ def evaluate(
     ``expected_payload`` additionally requires the handoff to name the same
     entry, load address, size and checksum as that image. ``expected_fel_args``
     checks the argument pointer printed in the ``FEL: payload`` line.
+    ``expected_boot_cfg`` checks the length and address in the SD ``ARGS:``
+    line, and that the handoff reports the same ``args`` pointer.
     """
     if text.count("Hello") > 1:
         return False, f"multiple Hello lines; the board is reset-looping or the capture is stale - {RESET_LOOP_HINT}"
@@ -111,6 +120,8 @@ def evaluate(
         require_handoff = True
     if expected_fel_args is not None:
         require_fel = True
+    if expected_boot_cfg is not None:
+        require_handoff = True
 
     required = list(REQUIRED)
     if require_sd:
@@ -159,6 +170,27 @@ def evaluate(
                 "host image has "
                 f"entry 0x{expected_payload.entry:08x}, {expected_payload.size} bytes at "
                 f"0x{expected_payload.load_addr:08x}, checksum 0x{expected_payload.checksum:08x}"
+            )
+
+    if expected_boot_cfg is not None:
+        match = BOOT_CFG_LINE.search(text)
+        if match is None:
+            return False, "cannot parse the boot.cfg line (length, address)"
+        length = int(match.group(1))
+        address = int(match.group(2), 16)
+        if length != expected_boot_cfg:
+            return False, (
+                f"boot.cfg length mismatch: loader reported {length} bytes, "
+                f"expected {expected_boot_cfg}"
+            )
+        args = HANDOFF_ARGS.search(text)
+        if args is None:
+            return False, "cannot parse the handoff args pointer"
+        actual = int(args.group(1), 16)
+        if actual != address:
+            return False, (
+                f"handoff args mismatch: loader reported 0x{actual:08x}, "
+                f"boot.cfg is at 0x{address:08x}"
             )
 
     return True, ""
@@ -221,6 +253,13 @@ def main() -> int:
         "--payload",
         metavar="PATH",
         help="payload image whose header the handoff line must match (implies --require-handoff)",
+    )
+    parser.add_argument(
+        "--boot-cfg",
+        metavar="BYTES",
+        type=int,
+        help="require boot.cfg to be BYTES long and the handoff to point at it "
+        "(implies --require-handoff)",
     )
     parser.add_argument("--dev", default="/dev/ttyUSB0")
     parser.add_argument("--baud", type=int, default=115200)
@@ -300,6 +339,7 @@ def main() -> int:
         require_fel=args.require_fel,
         expected_payload=expected_payload,
         expected_fel_args=args.fel_args,
+        expected_boot_cfg=args.boot_cfg,
     )
     if not ok:
         print(f"FAIL: {message}", file=sys.stderr)
@@ -311,6 +351,10 @@ def main() -> int:
             f"{args.payload} (entry 0x{expected_payload.entry:08x}, "
             f"{expected_payload.size} bytes at 0x{expected_payload.load_addr:08x}, "
             f"checksum 0x{expected_payload.checksum:08x})"
+        )
+    if args.boot_cfg is not None:
+        print(
+            f"PASS: boot.cfg ({args.boot_cfg} bytes) is handed off as BootInfo.args"
         )
     if HANDOFF in text:
         print(
