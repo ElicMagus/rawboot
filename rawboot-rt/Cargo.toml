@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# The eGON header layout is defined once, in the image tooling, and embedded here. The runtime
+# only needs the layout, not the heap-allocating `seal`, so `alloc` stays off.
+rawboot-image = { path = "../rawboot-image", default-features = false }
 
 [lib]
 test = false

@@ -10,6 +10,9 @@
 //! [`parse`] then validates the checksum. [`build`] is the build tooling's seam: it wraps a raw
 //! binary in the header, computing the checksum, so `xtask` emits images the loader accepts.
 
+use crate::bytes::{read_u32_le, write_u32_le};
+use crate::checksum::image_checksum;
+
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
@@ -50,26 +53,26 @@ impl ImageHeader {
     /// The header's little-endian byte representation, ready to prefix to a payload.
     pub const fn to_bytes(self) -> [u8; IMAGE_HEADER_SIZE] {
         let mut out = [0u8; IMAGE_HEADER_SIZE];
-        write_u32(&mut out, offset::MAGIC, self.magic);
-        write_u32(&mut out, offset::VERSION, self.version);
-        write_u32(&mut out, offset::FLAGS, self.flags);
-        write_u32(&mut out, offset::ENTRY, self.entry);
-        write_u32(&mut out, offset::LOAD_ADDR, self.load_addr);
-        write_u32(&mut out, offset::SIZE, self.size);
-        write_u32(&mut out, offset::CHECKSUM, self.checksum);
+        write_u32_le(&mut out, offset::MAGIC, self.magic);
+        write_u32_le(&mut out, offset::VERSION, self.version);
+        write_u32_le(&mut out, offset::FLAGS, self.flags);
+        write_u32_le(&mut out, offset::ENTRY, self.entry);
+        write_u32_le(&mut out, offset::LOAD_ADDR, self.load_addr);
+        write_u32_le(&mut out, offset::SIZE, self.size);
+        write_u32_le(&mut out, offset::CHECKSUM, self.checksum);
         out
     }
 
     /// Read a header from the first [`IMAGE_HEADER_SIZE`] bytes of `bytes`, without validating it.
     const fn from_bytes(bytes: &[u8]) -> Self {
         Self {
-            magic: read_u32(bytes, offset::MAGIC),
-            version: read_u32(bytes, offset::VERSION),
-            flags: read_u32(bytes, offset::FLAGS),
-            entry: read_u32(bytes, offset::ENTRY),
-            load_addr: read_u32(bytes, offset::LOAD_ADDR),
-            size: read_u32(bytes, offset::SIZE),
-            checksum: read_u32(bytes, offset::CHECKSUM),
+            magic: read_u32_le(bytes, offset::MAGIC),
+            version: read_u32_le(bytes, offset::VERSION),
+            flags: read_u32_le(bytes, offset::FLAGS),
+            entry: read_u32_le(bytes, offset::ENTRY),
+            load_addr: read_u32_le(bytes, offset::LOAD_ADDR),
+            size: read_u32_le(bytes, offset::SIZE),
+            checksum: read_u32_le(bytes, offset::CHECKSUM),
         }
     }
 }
@@ -183,12 +186,6 @@ pub fn parse(image: &[u8]) -> Result<Payload<'_>, ImageError> {
     Ok(Payload { header, data })
 }
 
-/// The payload checksum: the wrapping sum of `data` as little-endian 32-bit words, with a
-/// trailing partial word zero-padded.
-pub fn image_checksum(data: &[u8]) -> u32 {
-    crate::checksum::sum_le_u32(data)
-}
-
 /// Wrap a raw payload binary in an [`ImageHeader`], producing an image [`parse`] accepts.
 ///
 /// The header's `size` and `checksum` are derived from `data`; `magic` and `version` are the
@@ -213,23 +210,6 @@ pub fn build(data: &[u8], options: ImageOptions) -> Result<Vec<u8>, ImageError> 
     image.extend_from_slice(&header.to_bytes());
     image.extend_from_slice(data);
     Ok(image)
-}
-
-const fn read_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes([
-        bytes[offset],
-        bytes[offset + 1],
-        bytes[offset + 2],
-        bytes[offset + 3],
-    ])
-}
-
-const fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-    let encoded = value.to_le_bytes();
-    bytes[offset] = encoded[0];
-    bytes[offset + 1] = encoded[1];
-    bytes[offset + 2] = encoded[2];
-    bytes[offset + 3] = encoded[3];
 }
 
 const _: () = {

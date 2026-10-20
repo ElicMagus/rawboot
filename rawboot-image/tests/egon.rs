@@ -1,73 +1,48 @@
 // SPDX-License-Identifier: Unlicense
 
-//! Byte-in/byte-out tests for eGON sealing, driven by independently computed vectors.
+//! Byte-in/byte-out tests for eGON sealing.
+//!
+//! The fixture is the shared [`EgonHeader::PLACEHOLDER`] the runtime also lays down, so these
+//! tests pin the sealing transform against independently computed checksum vectors.
 
-use rawboot_image::{
-    BROM_PAGE_SIZE, EGON_CHECKSUM_OFFSET, EGON_LENGTH_OFFSET, PADDING_BLOCK, PADDING_FLASH,
-    SealError, SealOptions, seal,
-};
+use rawboot_image::{EgonHeader, Padding, PageSize, SealError, SealOptions, read_u32_le, seal};
 
 /// The 48-byte eGON header as laid down by `rawboot-rt`, with placeholder checksum/length.
 fn egon_header() -> Vec<u8> {
-    let mut h = Vec::new();
-    h.extend_from_slice(&0xEA00_000Au32.to_le_bytes());
-    h.extend_from_slice(b"eGON.BT0");
-    h.extend_from_slice(&0x1234_5678u32.to_le_bytes());
-    h.extend_from_slice(&32768u32.to_le_bytes());
-    h.extend_from_slice(&0x30u32.to_le_bytes());
-    h.extend_from_slice(&0x3030_3033u32.to_le_bytes());
-    h.extend_from_slice(&0x0002_0000u32.to_le_bytes());
-    h.extend_from_slice(&0x0002_0000u32.to_le_bytes());
-    h.extend_from_slice(&0u32.to_le_bytes());
-    h.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x34, 0x2e, 0x30, 0x00]);
-    assert_eq!(h.len(), 48);
-    h
+    EgonHeader::PLACEHOLDER.to_bytes().to_vec()
 }
-
-fn read_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap())
-}
-
-const BLOCK: SealOptions = SealOptions {
-    padding: PADDING_BLOCK,
-    page_size: BROM_PAGE_SIZE,
-};
-const FLASH: SealOptions = SealOptions {
-    padding: PADDING_FLASH,
-    page_size: BROM_PAGE_SIZE,
-};
 
 #[test]
 fn block_padding_aligns_length_and_checksums() {
-    let sealed = seal(&egon_header(), BLOCK).unwrap();
+    let sealed = seal(&egon_header(), SealOptions::BLOCK).unwrap();
 
     assert_eq!(sealed.len(), 512);
-    assert_eq!(read_u32(&sealed, EGON_LENGTH_OFFSET), 512);
-    assert_eq!(read_u32(&sealed, EGON_CHECKSUM_OFFSET), 0xF812_566D);
+    assert_eq!(read_u32_le(&sealed, EgonHeader::LENGTH_OFFSET), 512);
+    assert_eq!(
+        read_u32_le(&sealed, EgonHeader::CHECKSUM_OFFSET),
+        0xF812_566D
+    );
     assert!(sealed[48..].iter().all(|&b| b == 0));
 }
 
 #[test]
 fn flash_padding_aligns_length_and_checksums() {
-    let sealed = seal(&egon_header(), FLASH).unwrap();
+    let sealed = seal(&egon_header(), SealOptions::FLASH).unwrap();
 
     assert_eq!(sealed.len(), 8192);
-    assert_eq!(read_u32(&sealed, EGON_LENGTH_OFFSET), 8192);
-    assert_eq!(read_u32(&sealed, EGON_CHECKSUM_OFFSET), 0xF812_746D);
+    assert_eq!(read_u32_le(&sealed, EgonHeader::LENGTH_OFFSET), 8192);
+    assert_eq!(
+        read_u32_le(&sealed, EgonHeader::CHECKSUM_OFFSET),
+        0xF812_746D
+    );
     assert!(sealed[48..].iter().all(|&b| b == 0));
 }
 
 #[test]
 fn large_pages_scatter_each_2kib_page_into_a_full_slot() {
     let pattern: Vec<u8> = (0..3000u32).map(|i| i as u8).collect();
-    let sealed = seal(
-        &pattern,
-        SealOptions {
-            padding: PADDING_FLASH,
-            page_size: 4096,
-        },
-    )
-    .unwrap();
+    let options = SealOptions::new(Padding::Flash, PageSize::new(4096).unwrap());
+    let sealed = seal(&pattern, options).unwrap();
 
     assert_eq!(sealed.len(), 16384);
     for page in 0..4usize {
@@ -93,33 +68,25 @@ fn large_pages_scatter_each_2kib_page_into_a_full_slot() {
 
 #[test]
 fn rejects_image_smaller_than_header() {
-    assert_eq!(seal(&[0u8; 47], BLOCK), Err(SealError::TooShort));
+    assert_eq!(
+        seal(&[0u8; 47], SealOptions::BLOCK),
+        Err(SealError::TooShort)
+    );
 }
 
 #[test]
-fn rejects_padding_that_is_neither_block_nor_flash() {
-    assert_eq!(
-        seal(
-            &egon_header(),
-            SealOptions {
-                padding: 1024,
-                page_size: BROM_PAGE_SIZE,
-            },
-        ),
-        Err(SealError::BadPadding),
-    );
+fn padding_reports_its_byte_count() {
+    assert_eq!(Padding::Block.bytes(), 512);
+    assert_eq!(Padding::Flash.bytes(), 8192);
 }
 
 #[test]
 fn rejects_page_size_that_is_not_a_multiple_of_2kib() {
-    assert_eq!(
-        seal(
-            &egon_header(),
-            SealOptions {
-                padding: PADDING_BLOCK,
-                page_size: 1000,
-            },
-        ),
-        Err(SealError::BadPageSize),
-    );
+    assert_eq!(PageSize::new(1000), Err(SealError::BadPageSize));
+}
+
+#[test]
+fn rejects_page_size_smaller_than_the_brom_page() {
+    assert_eq!(PageSize::new(1024), Err(SealError::BadPageSize));
+    assert_eq!(PageSize::new(0), Err(SealError::BadPageSize));
 }
