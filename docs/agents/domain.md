@@ -16,6 +16,9 @@ For parity work, fetch the pinned upstream C tree instead of guessing URLs:
 `scripts/fetch-upstream.sh` (defaults to the SHA used by the parity research notes) writes it to
 `target/upstream/awboot-<sha>/`. Cite upstream by file and line; cite our code by symbol.
 
+Start from `research/parity-checklist.md`: it maps each in-scope loader module to its upstream
+source, local code and function-by-function divergence checklist.
+
 ## File structure
 
 Single-context repo:
