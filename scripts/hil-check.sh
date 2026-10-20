@@ -107,6 +107,15 @@ if [ "${HIL_REQUIRE_HANDOFF:-0}" = "1" ]; then
     echo "handoff assertion: payload must be entered"
     CAPTURE+=(--require-handoff)
 fi
+if [ "${HIL_REQUIRE_PAYLOAD:-0}" = "1" ]; then
+    PAYLOAD_IMG=${HIL_PAYLOAD_IMG:-target/rawboot-payload.img}
+    if [ ! -f "$PAYLOAD_IMG" ]; then
+        echo "error: payload image not found: $PAYLOAD_IMG (run cargo xtask payload)" >&2
+        exit 2
+    fi
+    echo "payload assertion: handoff must match $PAYLOAD_IMG"
+    CAPTURE+=(--payload "$PAYLOAD_IMG")
+fi
 if [ -r "$DEV" ]; then
     "${CAPTURE[@]}" &
 else
@@ -121,5 +130,23 @@ echo "load: $XFEL write 0x00028000 $IMAGE && $XFEL exec 0x00028000"
 
 status=0
 wait "$capture_pid" || status=$?
+if [ "$status" -eq 0 ] && [ "${HIL_REQUIRE_LED:-0}" = "1" ]; then
+    if [ -t 0 ]; then
+        printf 'Does PD22 show the payload short-long blink (not the loader 50 ms toggle)? [y/N] '
+        read -r led_answer
+        case "$led_answer" in
+            [yY] | [yY][eE][sS]) echo "LED confirmed." ;;
+            *)
+                echo "error: LED pattern not confirmed" >&2
+                status=4
+                ;;
+        esac
+    elif [ "${HIL_LED_CONFIRMED:-0}" = "1" ]; then
+        echo "LED confirmed via HIL_LED_CONFIRMED=1."
+    else
+        echo "error: HIL_REQUIRE_LED=1 needs a TTY or HIL_LED_CONFIRMED=1" >&2
+        status=4
+    fi
+fi
 echo "raw uart log: $LOG"
 exit "$status"
