@@ -137,6 +137,14 @@ if [ "${HIL_REQUIRE_PAYLOAD:-0}" = "1" ] || [ "$FEL_PAYLOAD" = "1" ]; then
     echo "payload assertion: handoff must match $PAYLOAD_IMG"
     CAPTURE+=(--payload "$PAYLOAD_IMG")
 fi
+if [ -n "${HIL_BOOT_CFG_LEN:-}" ]; then
+    if ! [[ "$HIL_BOOT_CFG_LEN" =~ ^[0-9]+$ ]]; then
+        echo "error: HIL_BOOT_CFG_LEN must be a byte count, got $HIL_BOOT_CFG_LEN" >&2
+        exit 2
+    fi
+    echo "boot.cfg assertion: the SD path must hand off $HIL_BOOT_CFG_LEN bytes"
+    CAPTURE+=(--boot-cfg "$HIL_BOOT_CFG_LEN")
+fi
 
 FEL_PAYLOAD_SIZE=0
 if [ "$FEL_PAYLOAD" = "1" ]; then

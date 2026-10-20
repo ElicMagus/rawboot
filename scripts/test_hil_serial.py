@@ -54,6 +54,20 @@ FEL_BOOT = CLEAN_BOOT.replace(
 
 FEL_ARGS_BOOT = FEL_BOOT.replace("args 0x00000000", "args 0x00038000")
 
+BOOT_CFG_LEN = 11
+BOOT_CFG_ADDR = 0x47FFEFD0
+BOOT_CFG_BOOT = (
+    HANDOFF_BOOT.replace(
+        "FAT: mounted Fat32 at LBA 0 (987758592 bytes)\n",
+        "FAT: mounted Fat32 at LBA 0 (987758592 bytes)\n"
+        f"ARGS: boot.cfg {BOOT_CFG_LEN} bytes at 0x{BOOT_CFG_ADDR:08x}\n",
+    )
+    .replace(
+        "BootInfo 0x47feffe0, SP 0x48000000",
+        f"BootInfo 0x47feffe0, SP 0x48000000, args 0x{BOOT_CFG_ADDR:08x}",
+    )
+)
+
 
 def payload_image(data: bytes = PAYLOAD_DATA) -> bytes:
     header = struct.pack(
@@ -156,6 +170,39 @@ class TestEvaluate(unittest.TestCase):
         ok, message = hil_serial.evaluate(HANDOFF_BOOT, expected_fel_args=0x00038000)
         self.assertFalse(ok)
         self.assertIn("FEL: payload", message)
+
+    def test_boot_cfg_length_and_handoff_pointer_can_be_checked(self):
+        ok, message = hil_serial.evaluate(
+            BOOT_CFG_BOOT, require_sd=True, expected_boot_cfg=BOOT_CFG_LEN
+        )
+        self.assertTrue(ok)
+        self.assertEqual(message, "")
+
+    def test_boot_cfg_length_mismatch_fails(self):
+        ok, message = hil_serial.evaluate(
+            BOOT_CFG_BOOT, expected_boot_cfg=BOOT_CFG_LEN + 1
+        )
+        self.assertFalse(ok)
+        self.assertIn("boot.cfg length mismatch", message)
+
+    def test_boot_cfg_pointer_mismatch_fails(self):
+        text = BOOT_CFG_BOOT.replace(
+            f"args 0x{BOOT_CFG_ADDR:08x}", "args 0x47ffefd1"
+        )
+        ok, message = hil_serial.evaluate(text, expected_boot_cfg=BOOT_CFG_LEN)
+        self.assertFalse(ok)
+        self.assertIn("handoff args mismatch", message)
+
+    def test_expected_boot_cfg_requires_the_args_line(self):
+        ok, message = hil_serial.evaluate(HANDOFF_BOOT, expected_boot_cfg=BOOT_CFG_LEN)
+        self.assertFalse(ok)
+        self.assertIn("cannot parse the boot.cfg line", message)
+
+    def test_expected_boot_cfg_requires_a_handoff(self):
+        text = BOOT_CFG_BOOT.replace(HANDOFF_LINE_TEXT, "")
+        ok, message = hil_serial.evaluate(text, expected_boot_cfg=BOOT_CFG_LEN)
+        self.assertFalse(ok)
+        self.assertIn("BOOT: handoff", message)
 
     def test_loader_loop_or_handoff_is_required(self):
         text = CLEAN_BOOT.replace("S=0x10000\n", "")
