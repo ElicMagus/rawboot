@@ -1,4 +1,3 @@
-STACK_SIZE = 0x1000;
 MEMORY
 {  
   RAM : ORIGIN = 0x00028000, LENGTH = 64k
@@ -54,7 +53,7 @@ SECTIONS
     {
         . = ALIGN(8);
         _sstack = .;
-        . = . + STACK_SIZE;
+        . = ORIGIN(RAM) + LENGTH(RAM);
         . = ALIGN(8);
         _estack = .;
     } > RAM 
