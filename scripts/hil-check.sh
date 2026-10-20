@@ -105,9 +105,11 @@ fi
 # as a busy board rather than as a reset loop after loading.
 echo "preflight: checking that UART is quiet (board idle in FEL)..."
 PREFLIGHT=(python3 scripts/hil_serial.py --preflight --dev "$DEV")
+ALLOW_BUSY=0
 if [ "${HIL_SKIP_PREFLIGHT:-0}" = "1" ]; then
     echo "warning: HIL_SKIP_PREFLIGHT=1: draining UART and replacing any running loader" >&2
     PREFLIGHT+=(--allow-busy)
+    ALLOW_BUSY=1
 fi
 if [ -r "$DEV" ]; then
     "${PREFLIGHT[@]}"
@@ -117,6 +119,9 @@ fi
 
 LOG=${TMPDIR:-/tmp}/rawboot-hil-${LABEL}.log
 CAPTURE=(python3 scripts/hil_serial.py "$LOG" --seconds "$SECONDS_CAP" --dev "$DEV")
+if [ "$ALLOW_BUSY" = "1" ]; then
+    CAPTURE+=(--allow-busy)
+fi
 if [ "${HIL_REQUIRE_SD:-0}" = "1" ]; then
     echo "SD assertion: card detected and non-zero block read required"
     CAPTURE+=(--require-sd)

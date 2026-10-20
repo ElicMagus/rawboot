@@ -31,6 +31,10 @@ SD/MMC card not found
 S=0x10000
 """
 
+# Output left by a loader replaced through `HIL_SKIP_PREFLIGHT=1`: extra `Hello`
+# lines and interleaved fragments ahead of one clean boot pass.
+STALE_BOOT = "Hello\nHello\nCLK: CPU PLL=PLL_CPU FREQ=Hello\n" + CLEAN_BOOT
+
 CARD_BOOT = CLEAN_BOOT.replace(
     "SD/MMC card not found",
     "SD/MMC card found\nSD: read 1 block(s), first bytes [00, 00, 00, 00]",
@@ -117,6 +121,33 @@ class TestEvaluate(unittest.TestCase):
     def test_single_hello_with_noise_passes(self):
         ok, _ = hil_serial.evaluate("noise\n" + CLEAN_BOOT)
         self.assertTrue(ok)
+
+    def test_stale_hello_output_fails_as_a_reset_loop(self):
+        ok, message = hil_serial.evaluate(STALE_BOOT)
+        self.assertFalse(ok)
+        self.assertIn("Hello", message)
+
+    def test_allow_busy_ignores_stale_hello_lines(self):
+        ok, message = hil_serial.evaluate(STALE_BOOT, allow_busy=True)
+        self.assertTrue(ok)
+        self.assertEqual(message, "")
+
+    def test_allow_busy_still_requires_the_boot_lines(self):
+        text = STALE_BOOT.replace("DRAM simple test OK.", "")
+        ok, message = hil_serial.evaluate(text, allow_busy=True)
+        self.assertFalse(ok)
+        self.assertIn("DRAM simple test OK", message)
+
+    def test_allow_busy_still_requires_the_loader_loop_or_handoff(self):
+        text = STALE_BOOT.replace("S=0x10000\n", "")
+        ok, message = hil_serial.evaluate(text, allow_busy=True)
+        self.assertFalse(ok)
+        self.assertIn("S=0x or BOOT: handoff", message)
+
+    def test_allow_busy_still_requires_a_handoff_when_asked(self):
+        ok, message = hil_serial.evaluate(STALE_BOOT, require_handoff=True, allow_busy=True)
+        self.assertFalse(ok)
+        self.assertIn("BOOT: handoff", message)
 
     def test_require_sd_rejects_no_card(self):
         ok, message = hil_serial.evaluate(CLEAN_BOOT, require_sd=True)
