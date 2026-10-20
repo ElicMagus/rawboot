@@ -250,8 +250,13 @@ fn prepare(sd: &mut Sdcard_data, dram_size_mib: u32) -> Result<Handoff, BootErro
     }
 
     print!(
-        "BOOT: handoff to 0x{:08x}: {} bytes at 0x{:08x}, BootInfo 0x{:08x}, SP 0x{:08x}\r\n",
-        header.entry, header.size, header.load_addr, layout.boot_info, layout.stack_top
+        "BOOT: handoff to 0x{:08x}: {} bytes at 0x{:08x}, checksum 0x{:08x}, BootInfo 0x{:08x}, SP 0x{:08x}\r\n",
+        header.entry,
+        header.size,
+        header.load_addr,
+        header.checksum,
+        layout.boot_info,
+        layout.stack_top
     );
 
     Ok(Handoff {

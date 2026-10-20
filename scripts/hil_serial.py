@@ -3,9 +3,12 @@
 """Capture USART0, assert the rawboot boot log, and print a compact summary."""
 
 import argparse
+import pathlib
 import re
+import struct
 import sys
 import time
+from dataclasses import dataclass
 
 try:
     import serial
@@ -19,15 +22,68 @@ except ImportError:
 REQUIRED = ["Hello", "CLK:", "DRAM simple test OK"]
 LOADER_RUNNING = "S=0x"
 HANDOFF = "BOOT: handoff to "
+HANDOFF_LINE = re.compile(
+    r"BOOT: handoff to (0x[0-9a-fA-F]+): (\d+) bytes at (0x[0-9a-fA-F]+), "
+    r"checksum (0x[0-9a-fA-F]+),"
+)
 SD_FOUND = "SD/MMC card found"
 SD_READ = re.compile(r"^SD: read [1-9][0-9]* block\(s\)", re.MULTILINE)
 RESET_LOOP_HINT = (
     "power-cycle into FEL (do not xfel reset) and rerun"
 )
 
+# These mirror `rawboot-image/src/payload.rs`; update both together.
+IMAGE_MAGIC = b"RBIF"
+IMAGE_VERSION = 1
+IMAGE_HEADER_SIZE = 28
+MAX_IMAGE_SIZE = 128 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class PayloadExpectation:
+    """The handoff fields a payload image declares in its header."""
+
+    entry: int
+    load_addr: int
+    size: int
+    checksum: int
+
+
+def image_checksum(data: bytes) -> int:
+    """The payload checksum: wrapping sum of little-endian 32-bit words."""
+    padded = data + b"\0" * (-len(data) % 4)
+    return sum(struct.unpack(f"<{len(padded) // 4}I", padded)) & 0xFFFF_FFFF
+
+
+def payload_expectation(path: str) -> PayloadExpectation:
+    """Read the payload image header and verify it against the image body."""
+    image = pathlib.Path(path).read_bytes()
+    if len(image) < IMAGE_HEADER_SIZE:
+        raise ValueError(f"{path}: shorter than the {IMAGE_HEADER_SIZE}-byte payload header")
+    if image[:4] != IMAGE_MAGIC:
+        raise ValueError(f"{path}: bad payload magic")
+    version, _flags, entry, load_addr, size, checksum = struct.unpack_from(
+        "<6I", image, 4
+    )
+    if version != IMAGE_VERSION:
+        raise ValueError(f"{path}: unsupported payload image version {version}")
+    if size > MAX_IMAGE_SIZE:
+        raise ValueError(f"{path}: payload size {size} exceeds the limit")
+    if len(image) < IMAGE_HEADER_SIZE + size:
+        raise ValueError(f"{path}: payload body truncated")
+    actual = image_checksum(image[IMAGE_HEADER_SIZE : IMAGE_HEADER_SIZE + size])
+    if actual != checksum:
+        raise ValueError(
+            f"{path}: payload checksum 0x{actual:08x} does not match header 0x{checksum:08x}"
+        )
+    return PayloadExpectation(entry, load_addr, size, checksum)
+
 
 def evaluate(
-    text: str, require_sd: bool = False, require_handoff: bool = False
+    text: str,
+    require_sd: bool = False,
+    require_handoff: bool = False,
+    expected_payload: PayloadExpectation | None = None,
 ) -> tuple[bool, str]:
     """Judge one captured boot log.
 
@@ -37,9 +93,14 @@ def evaluate(
     (``S=0x``) or in a payload handoff (``BOOT: handoff to``); one of the two is
     required. With ``require_sd`` the log must also show a detected card and a
     non-zero block read; with ``require_handoff`` the loader loop is not enough.
+    ``expected_payload`` additionally requires the handoff to name the same
+    entry, load address, size and checksum as that image.
     """
     if text.count("Hello") > 1:
         return False, f"multiple Hello lines; the board is reset-looping or the capture is stale - {RESET_LOOP_HINT}"
+
+    if expected_payload is not None:
+        require_handoff = True
 
     required = list(REQUIRED)
     if require_sd:
@@ -56,6 +117,26 @@ def evaluate(
 
     if require_sd and not SD_READ.search(text):
         return False, "missing a successful SD read (SD: read N block(s), N > 0)"
+
+    if expected_payload is not None:
+        match = HANDOFF_LINE.search(text)
+        if match is None:
+            return False, "cannot parse the payload handoff line (entry, size, load address, checksum)"
+        actual = PayloadExpectation(
+            entry=int(match.group(1), 16),
+            size=int(match.group(2)),
+            load_addr=int(match.group(3), 16),
+            checksum=int(match.group(4), 16),
+        )
+        if actual != expected_payload:
+            return False, (
+                "payload mismatch: loader reported "
+                f"entry 0x{actual.entry:08x}, {actual.size} bytes at "
+                f"0x{actual.load_addr:08x}, checksum 0x{actual.checksum:08x}; "
+                "host image has "
+                f"entry 0x{expected_payload.entry:08x}, {expected_payload.size} bytes at "
+                f"0x{expected_payload.load_addr:08x}, checksum 0x{expected_payload.checksum:08x}"
+            )
 
     return True, ""
 
@@ -102,11 +183,24 @@ def main() -> int:
         action="store_true",
         help="require the payload handoff line instead of the loader loop",
     )
+    parser.add_argument(
+        "--payload",
+        metavar="PATH",
+        help="payload image whose header the handoff line must match (implies --require-handoff)",
+    )
     parser.add_argument("--dev", default="/dev/ttyUSB0")
     parser.add_argument("--baud", type=int, default=115200)
     args = parser.parse_args()
     if args.log is None and not args.preflight:
         parser.error("log is required unless --preflight is given")
+
+    expected_payload = None
+    if args.payload:
+        try:
+            expected_payload = payload_expectation(args.payload)
+        except (OSError, ValueError) as err:
+            print(f"error: {err}", file=sys.stderr)
+            return 2
 
     try:
         port = serial.Serial(args.dev, args.baud, timeout=0.05)
@@ -166,12 +260,22 @@ def main() -> int:
             print(line)
 
     ok, message = evaluate(
-        text, require_sd=args.require_sd, require_handoff=args.require_handoff
+        text,
+        require_sd=args.require_sd,
+        require_handoff=args.require_handoff,
+        expected_payload=expected_payload,
     )
     if not ok:
         print(f"FAIL: {message}", file=sys.stderr)
         return 1
     print("PASS: UART assertions")
+    if expected_payload is not None:
+        print(
+            "PASS: payload matches "
+            f"{args.payload} (entry 0x{expected_payload.entry:08x}, "
+            f"{expected_payload.size} bytes at 0x{expected_payload.load_addr:08x}, "
+            f"checksum 0x{expected_payload.checksum:08x})"
+        )
     if HANDOFF in text:
         print(
             "Human check: does PD22 show the payload's short-long blink "

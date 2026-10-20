@@ -3,12 +3,24 @@
 """Host tests for the HIL log parser in hil_serial.py."""
 
 import os
+import struct
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import hil_serial  # noqa: E402
+
+PAYLOAD_DATA = b"blink payload"
+PAYLOAD_CHECKSUM = hil_serial.image_checksum(PAYLOAD_DATA)
+PAYLOAD_ENTRY = 0x42000000
+PAYLOAD_LOAD_ADDR = 0x42000000
+HANDOFF_LINE_TEXT = (
+    f"BOOT: handoff to 0x{PAYLOAD_ENTRY:08x}: {len(PAYLOAD_DATA)} bytes at "
+    f"0x{PAYLOAD_LOAD_ADDR:08x}, checksum 0x{PAYLOAD_CHECKSUM:08x}, "
+    "BootInfo 0x47feffe0, SP 0x48000000"
+)
 
 CLEAN_BOOT = """Hello
 CLK: CPU PLL=PLL_CPU FREQ=1008MHz
@@ -29,10 +41,31 @@ HANDOFF_BOOT = CLEAN_BOOT.replace(
     "SD/MMC card found\nSD: read 1 block(s), first bytes [eb, 58, 90, 4d]",
 ).replace(
     "S=0x10000\n",
-    "FAT: mounted Fat32 at LBA 0 (987758592 bytes)\n"
-    "BOOT: handoff to 0x42000000: 16 bytes at 0x42000000, "
-    "BootInfo 0x47feffe0, SP 0x48000000\n",
+    "FAT: mounted Fat32 at LBA 0 (987758592 bytes)\n" + HANDOFF_LINE_TEXT + "\n",
 )
+
+
+def payload_image(data: bytes = PAYLOAD_DATA) -> bytes:
+    header = struct.pack(
+        "<4s6I",
+        b"RBIF",
+        1,
+        0,
+        PAYLOAD_ENTRY,
+        PAYLOAD_LOAD_ADDR,
+        len(data),
+        hil_serial.image_checksum(data),
+    )
+    return header + data
+
+
+def expected_payload() -> hil_serial.PayloadExpectation:
+    return hil_serial.PayloadExpectation(
+        entry=PAYLOAD_ENTRY,
+        load_addr=PAYLOAD_LOAD_ADDR,
+        size=len(PAYLOAD_DATA),
+        checksum=PAYLOAD_CHECKSUM,
+    )
 
 
 class TestEvaluate(unittest.TestCase):
@@ -98,15 +131,90 @@ class TestEvaluate(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(message, "")
 
+    def test_expected_payload_accepts_a_matching_handoff(self):
+        ok, message = hil_serial.evaluate(
+            HANDOFF_BOOT, require_sd=True, expected_payload=expected_payload()
+        )
+        self.assertTrue(ok)
+        self.assertEqual(message, "")
+
+    def test_expected_payload_rejects_a_different_checksum(self):
+        expected = hil_serial.PayloadExpectation(
+            entry=PAYLOAD_ENTRY,
+            load_addr=PAYLOAD_LOAD_ADDR,
+            size=len(PAYLOAD_DATA),
+            checksum=PAYLOAD_CHECKSUM ^ 1,
+        )
+        ok, message = hil_serial.evaluate(HANDOFF_BOOT, expected_payload=expected)
+        self.assertFalse(ok)
+        self.assertIn("payload mismatch", message)
+        self.assertIn("checksum", message)
+
+    def test_expected_payload_requires_a_handoff(self):
+        ok, message = hil_serial.evaluate(CARD_BOOT, expected_payload=expected_payload())
+        self.assertFalse(ok)
+        self.assertIn("BOOT: handoff", message)
+
+    def test_expected_payload_requires_a_parseable_handoff_line(self):
+        text = HANDOFF_BOOT.replace(", checksum 0x", " checksum 0x")
+        ok, message = hil_serial.evaluate(text, expected_payload=expected_payload())
+        self.assertFalse(ok)
+        self.assertIn("cannot parse", message)
+
     def test_boot_error_is_not_a_handoff(self):
         text = HANDOFF_BOOT.replace(
-            "BOOT: handoff to 0x42000000: 16 bytes at 0x42000000, "
-            "BootInfo 0x47feffe0, SP 0x48000000",
+            HANDOFF_LINE_TEXT,
             "BOOT: invalid payload image: bad image magic",
         )
         ok, message = hil_serial.evaluate(text, require_handoff=True)
         self.assertFalse(ok)
         self.assertIn("BOOT: handoff", message)
+
+
+class TestPayloadExpectation(unittest.TestCase):
+    def write_image(self, image: bytes) -> str:
+        with tempfile.NamedTemporaryFile(delete=False) as handle:
+            handle.write(image)
+            path = handle.name
+        self.addCleanup(os.unlink, path)
+        return path
+
+    def test_reads_the_header_and_verifies_the_body(self):
+        expected = hil_serial.payload_expectation(self.write_image(payload_image()))
+        self.assertEqual(expected, expected_payload())
+
+    def test_rejects_bad_magic(self):
+        image = bytearray(payload_image())
+        image[0] ^= 0xFF
+        with self.assertRaisesRegex(ValueError, "magic"):
+            hil_serial.payload_expectation(self.write_image(bytes(image)))
+
+    def test_rejects_a_short_header(self):
+        with self.assertRaisesRegex(ValueError, "shorter"):
+            hil_serial.payload_expectation(self.write_image(b"RBIF"))
+
+    def test_rejects_bad_version(self):
+        image = bytearray(payload_image())
+        struct.pack_into("<I", image, 4, 99)
+        with self.assertRaisesRegex(ValueError, "version"):
+            hil_serial.payload_expectation(self.write_image(bytes(image)))
+
+    def test_rejects_a_truncated_body(self):
+        image = payload_image()[:-1]
+        with self.assertRaisesRegex(ValueError, "truncated"):
+            hil_serial.payload_expectation(self.write_image(image))
+
+    def test_rejects_an_oversized_payload(self):
+        image = bytearray(payload_image())
+        struct.pack_into("<I", image, 20, hil_serial.MAX_IMAGE_SIZE + 1)
+        with self.assertRaisesRegex(ValueError, "exceeds"):
+            hil_serial.payload_expectation(self.write_image(bytes(image)))
+
+    def test_rejects_a_corrupted_body(self):
+        image = bytearray(payload_image())
+        image[-1] ^= 0xFF
+        with self.assertRaisesRegex(ValueError, "checksum"):
+            hil_serial.payload_expectation(self.write_image(bytes(image)))
 
 
 class TestBusyMessage(unittest.TestCase):
