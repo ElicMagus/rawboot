@@ -19,8 +19,9 @@ Explore the workspace crates, not those trees.
 
 Standard commands:
 
-- Build: `cargo build --release` (`xtask` is a host tool, kept out of the bare-metal
-  `default-members`, so it is not part of this build)
+- Build: `cargo build --release` (`xtask` and its host-only image tooling are kept out of the
+  bare-metal `default-members`; `rawboot-image` is still built as the loader's no-alloc
+  dependency)
 - Test (host, tooling): `cargo test -p rawboot-image -p xtask --target x86_64-unknown-linux-gnu`
   (the workspace default target is `armv7a-none-eabi`, so host tests need an explicit
   `--target` and the package scope keeps the bare-metal members out of the host build)
@@ -44,8 +45,8 @@ Standard commands:
 - HIL: `scripts/hil-check.sh target/rawboot-fel.bin <label>` loads the image over FEL, captures
   USART0 and asserts the boot log; run it after `code-review`, on the code branch, before
   committing docs or merging. The script checks the image build stamp against `HEAD` and
-  requires a quiet UART (board idle in FEL). Set `HIL_REQUIRE_SD=1` when the ticket also
-  accepts the card path. Runbook: `docs/agents/hil.md`. The loader
+  requires a quiet UART (board idle in FEL). Set `HIL_REQUIRE_SD=1` when the ticket accepts the
+  card path and `HIL_REQUIRE_HANDOFF=1` when it must prove that the loader entered the payload. Runbook: `docs/agents/hil.md`. The loader
   initialises DRAM itself, so the load is `xfel write 0x00028000 ... && xfel exec 0x00028000`
   with no separate DDR step.
 

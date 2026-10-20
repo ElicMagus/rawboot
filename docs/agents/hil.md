@@ -9,8 +9,8 @@ sequence, the UART capture, and how to read the result. The script from this rep
 - SoC: Allwinner T113-S3, DDR3, 128 MiB.
 - Debug UART: **USART0**, pins **PE2/PE3**, **115200 8N1**. On the host it is the CH340
   (`/dev/ttyUSB0`, override with `UART_DEV`).
-- LED: **PD22**. The loader toggles it in its main loop; the script cannot see it, so the run
-  ends with a human check.
+- LED: **PD22**. The loader toggles it in its main loop; after a handoff the payload owns it.
+  The script cannot see the LED, so the run ends with a human check.
 - FEL: USB OTG in FEL mode. The board enumerates as `1f3a:efe8` (some adapters report
   `1f3c:*`). Enter FEL by holding the FEL/BOOT button while applying power or reset.
 
@@ -42,7 +42,9 @@ scripts/hil-check.sh target/rawboot-fel.bin hil
 
 For a ticket whose acceptance includes the card path, set `HIL_REQUIRE_SD=1`. The script
 then also requires `SD/MMC card found` and a non-zero `SD: read N block(s)` line. Leave it
-unset when no card is inserted.
+unset when no card is inserted. For a ticket that must prove the handoff, also set
+`HIL_REQUIRE_HANDOFF=1`: the log must then contain a `BOOT: handoff to ...` line and the
+loader's `S=0x` loop is no longer accepted.
 
 Run HIL from the code branch under test, before switching to `master` for docs or a merge.
 `cargo xtask image` writes `target/rawboot-fel.bin.build` with the source commit, branch and
@@ -73,10 +75,11 @@ The script:
    downgrades this check to a warning);
 4. drains the UART input buffer before loading;
 5. writes the image at `0x00028000` and jumps to it;
-6. captures USART0 for a few seconds, prints the unique lines and asserts
-   `Hello`, `CLK:`, `DRAM simple test OK`, `S=0x`; with `HIL_REQUIRE_SD=1` it also asserts
-   `SD/MMC card found` and a non-zero `SD: read N block(s)`. It warns if more than one
-   `Hello` appears (stale buffer or a reset loop);
+6. captures USART0 for a few seconds, prints the unique lines and asserts `Hello`, `CLK:`,
+   `DRAM simple test OK`, and either the loader loop (`S=0x`) or a payload handoff
+   (`BOOT: handoff to ...`); with `HIL_REQUIRE_SD=1` it also asserts `SD/MMC card found` and a
+   non-zero `SD: read N block(s)`, and with `HIL_REQUIRE_HANDOFF=1` it requires the handoff
+   line. It warns if more than one `Hello` appears (stale buffer or a reset loop);
 7. asks the human to confirm the PD22 LED blinks.
 
 The raw capture is kept at `/tmp/rawboot-hil-<label>.log`.
@@ -98,7 +101,7 @@ and capture at 115200 8N1.
 
 ## Expected log
 
-The current `master` prints (with a card inserted):
+The current `master` prints (with a card inserted, no valid `payload.bin`):
 
 ```
 Hello
@@ -114,15 +117,29 @@ SD: read 1 block(s), first bytes [00, 00, 00, 00]
 S=0x4
 ```
 
+With a valid `payload.bin` the loader prints the mount and handoff lines instead of entering
+its loop:
+
+```
+FAT: mounted Fat32 at LBA 0 (987758592 bytes)
+BOOT: handoff to 0x42000000: 16 bytes at 0x42000000, BootInfo 0x47feffe0, SP 0x48000000
+```
+
+After the handoff the UART is silent unless the payload prints, so the capture ends after the
+`BOOT: handoff to` line. The addresses depend on the image header and the detected DRAM size.
+
 - `CLK: PLL_ddr` is read before `dram.init()`, so it shows the pre-DRAM value; the DRAM
   initialisation that follows sets 792 MHz. See `research/clk-port-vs-upstream.md`.
 - `SD/MMC card found` and the `SD: read ...` line prove the SDHCI/IDMAC path. The first
   bytes are whatever block 0 contains; an empty test card returns zeros. With
   `HIL_REQUIRE_SD=1` these two lines become assertions.
+- `BOOT: handoff to ...` is printed after the payload is placed, its checksum verified at the
+  destination, and `BootInfo` written. `HIL_REQUIRE_HANDOFF=1` makes it mandatory.
 - `SD/MMC card not found` is expected when no card is inserted. It does not invalidate the
   clock or DRAM checks. Full SD/MMC card parity (#20) is covered by
   `research/sdcard-port-vs-upstream.md`.
-- `S=0x...` repeats while the LED toggles. The script stops after a few seconds.
+- `S=0x...` repeats while the loader's own LED loop runs. The script stops after a few seconds.
+  A card with a valid `payload.bin` hands off instead and prints `BOOT: handoff to ...`.
 
 ## Troubleshooting
 
@@ -138,6 +155,9 @@ S=0x4
 - HIL fails with `missing SD/MMC card found` or `missing a successful SD read`: no card,
   an unreadable card, or `HIL_REQUIRE_SD=1` without a card. Insert a card and rerun, or
   unset the flag for a no-card test.
+- HIL fails with `missing a payload handoff`: `HIL_REQUIRE_HANDOFF=1` was set but the loader
+  stayed in its `S=0x` loop. Check that `payload.bin` is present and valid, and that the card
+  path succeeded.
 - The UART is silent: check USART0 PE2/PE3, 115200 8N1, and that the CH340 is `/dev/ttyUSB0`.
 - The log starts with repeated `Hello`/`S=` lines: the tty buffer still holds a previous
   run, or the board is in a reset loop. The script drains the buffer and now fails the run
