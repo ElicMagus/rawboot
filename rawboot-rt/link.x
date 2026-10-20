@@ -58,6 +58,8 @@ SECTIONS
         _estack = .;
     } > RAM 
 
+  ASSERT(_estack - _sstack >= 0x1c00, "SRAM stack too small for pre-DRAM bring-up")
+
   /DISCARD/ :
   {
     *(.ARM.exidx .ARM.exidx.*);

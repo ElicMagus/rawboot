@@ -217,11 +217,7 @@ fn finish(result: Result<Handoff, BootError>) -> BootError {
 ///
 /// It is the same top the payload receives, so the switch cannot collide with an earlier handoff.
 pub(crate) fn dram_stack_top(dram_size_mib: u32) -> Option<u32> {
-    if dram_size_mib == 0 {
-        return None;
-    }
-    let ram_size = dram_size_mib.checked_mul(MIB)?;
-    Some(SDRAM_BASE.checked_add(ram_size)? & !0xf)
+    DramLayout::new(dram_size_mib).map(|layout| layout.stack_top)
 }
 
 fn prepare_sd(sd: &mut Sdcard_data, dram_size_mib: u32) -> Result<Handoff, BootError> {

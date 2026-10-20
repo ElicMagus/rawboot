@@ -53,12 +53,14 @@ fn main() -> ! {
     let dram_size = dram.init_dram();
 
     let Some(stack_top) = boot::dram_stack_top(dram_size) else {
-        print!("BOOT: invalid DRAM size {dram_size} MiB\r\n");
+        print!("BOOT: {}\r\n", boot::BootError::RamTooSmall);
         loop {
             wfe();
         }
     };
 
+    // SAFETY: DRAM is initialised and `stack_top` is its top. The callee never returns, so the
+    // abandoned SRAM frame is not used again, and the new stack has room for the FAT path.
     unsafe {
         core::arch::asm!(
             "mov sp, {stack}",
@@ -72,7 +74,7 @@ fn main() -> ! {
 }
 
 #[inline(never)]
-fn boot_with_dram_stack(dram_size: u32) -> ! {
+extern "C" fn boot_with_dram_stack(dram_size: u32) -> ! {
     let led = gpio::gpio_pin(gpio::PORTD, 22);
     let mut sd_rint = None;
     if let Some(mailbox) = boot::fel_mailbox() {
