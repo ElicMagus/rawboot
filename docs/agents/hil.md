@@ -134,8 +134,11 @@ preflight is the authority.
 
 If a loader from a previous run is still printing, `HIL_SKIP_PREFLIGHT=1` drains USART0 and
 replaces it with the image under test. The preflight warning is expected then: the old `S=`
-lines are stale output, not a reset loop. Use this instead of repeated power-cycles when
-`xfel` still answers; use a power-cycle when it does not.
+lines are stale output, not a reset loop. The capture drops the reset-loop check for the same
+reason, so the stale `Hello` lines and fragments it catches while the old loader is replaced no
+longer fail the run; every other assertion still applies, so a genuinely absent boot line is
+still reported. Use this instead of repeated power-cycles when `xfel` still answers; use a
+power-cycle when it does not.
 
 The script:
 
@@ -153,7 +156,9 @@ The script:
    non-zero `SD: read N block(s)`, with `HIL_FEL_PAYLOAD=1` it requires the `FEL: payload` line,
    with `HIL_REQUIRE_HANDOFF=1` it requires the handoff line, and with `HIL_REQUIRE_PAYLOAD=1`
    (or `HIL_FEL_PAYLOAD=1`) it requires the handoff to match the host payload image.
-   It warns if more than one `Hello` appears (stale buffer or a reset loop);
+   It fails when more than one `Hello` appears (a reset loop or a stale capture); with
+   `HIL_SKIP_PREFLIGHT=1` that check is dropped so output left by the replaced loader is
+   ignored;
 7. with `HIL_REQUIRE_LED=1`, asks the human to confirm PD22 shows the payload's short-long
    cadence (120 ms on, 180 ms off, 600 ms on, 900 ms off, repeating), not the loader's steady
    50 ms toggle; on an interactive TTY (unless `HIL_NO_PROMPT=1`) it reads the answer,
@@ -303,6 +308,7 @@ and checksum depend on the image header and the detected DRAM size.
 - The UART is silent: check USART0 PE2/PE3, 115200 8N1, and that the CH340 is `/dev/ttyUSB0`.
 - The log starts with repeated `Hello`/`S=` lines: the tty buffer still holds a previous
   run, or the board is in a reset loop. The script drains the buffer and now fails the run
-  on multiple `Hello` lines; power-cycle the board (do not `xfel reset`) and rerun.
+  on multiple `Hello` lines; power-cycle the board (do not `xfel reset`) and rerun, or set
+  `HIL_SKIP_PREFLIGHT=1` to drain and replace the running loader and ignore those stale lines.
 - The loader prints `CLK: init timeout at ...`: a clock PLL did not lock; capture the full
   line and the register address for diagnosis.
