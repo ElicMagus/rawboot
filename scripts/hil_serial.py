@@ -16,7 +16,9 @@ except ImportError:
     )
     sys.exit(2)
 
-REQUIRED = ["Hello", "CLK:", "DRAM simple test OK", "S=0x"]
+REQUIRED = ["Hello", "CLK:", "DRAM simple test OK"]
+LOADER_RUNNING = "S=0x"
+HANDOFF = "BOOT: handoff to "
 SD_FOUND = "SD/MMC card found"
 SD_READ = re.compile(r"^SD: read [1-9][0-9]* block\(s\)", re.MULTILINE)
 RESET_LOOP_HINT = (
@@ -24,13 +26,17 @@ RESET_LOOP_HINT = (
 )
 
 
-def evaluate(text: str, require_sd: bool = False) -> tuple[bool, str]:
+def evaluate(
+    text: str, require_sd: bool = False, require_handoff: bool = False
+) -> tuple[bool, str]:
     """Judge one captured boot log.
 
     Returns (ok, message); message is empty when ok, otherwise the failure reason.
     A single clean boot passes; a reset loop (more than one ``Hello``) fails even
-    when the required lines are present. With ``require_sd`` the log must also
-    show a detected card and a non-zero block read.
+    when the required lines are present. The loader ends either in its LED loop
+    (``S=0x``) or in a payload handoff (``BOOT: handoff to``); one of the two is
+    required. With ``require_sd`` the log must also show a detected card and a
+    non-zero block read; with ``require_handoff`` the loader loop is not enough.
     """
     if text.count("Hello") > 1:
         return False, f"multiple Hello lines; the board is reset-looping or the capture is stale - {RESET_LOOP_HINT}"
@@ -41,6 +47,12 @@ def evaluate(text: str, require_sd: bool = False) -> tuple[bool, str]:
     missing = [item for item in required if item not in text]
     if missing:
         return False, "missing " + ", ".join(missing)
+
+    if require_handoff and HANDOFF not in text:
+        return False, "missing a payload handoff (BOOT: handoff to ...)"
+
+    if not require_handoff and HANDOFF not in text and LOADER_RUNNING not in text:
+        return False, "missing S=0x or BOOT: handoff (loader loop or payload handoff)"
 
     if require_sd and not SD_READ.search(text):
         return False, "missing a successful SD read (SD: read N block(s), N > 0)"
@@ -84,6 +96,11 @@ def main() -> int:
         "--require-sd",
         action="store_true",
         help="also require a detected card and a non-zero block read",
+    )
+    parser.add_argument(
+        "--require-handoff",
+        action="store_true",
+        help="require the payload handoff line instead of the loader loop",
     )
     parser.add_argument("--dev", default="/dev/ttyUSB0")
     parser.add_argument("--baud", type=int, default=115200)
@@ -148,7 +165,9 @@ def main() -> int:
             seen.add(line)
             print(line)
 
-    ok, message = evaluate(text, require_sd=args.require_sd)
+    ok, message = evaluate(
+        text, require_sd=args.require_sd, require_handoff=args.require_handoff
+    )
     if not ok:
         print(f"FAIL: {message}", file=sys.stderr)
         return 1

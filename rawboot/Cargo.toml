@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+rawboot-image = { path = "../rawboot-image", default-features = false }
 rawboot-rt = { path = "../rawboot-rt" }
 core_io = "0.1"
 fatfs = { version = "0.3.6", default-features = false, features = ["core_io"] }

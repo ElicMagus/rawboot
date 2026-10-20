@@ -6,9 +6,9 @@
 //! payload bytes that follow the header, and `checksum` is the wrapping sum of those bytes as
 //! little-endian 32-bit words (a trailing partial word is zero-padded).
 //!
-//! [`parse`] is the loader's seam: it reads and validates the header. [`build`] is the build
-//! tooling's seam: it wraps a raw binary in the header, computing the checksum, so `xtask` emits
-//! images the loader accepts.
+//! [`parse_header`] lets the loader read `load_addr` and `size` before placing the payload;
+//! [`parse`] then validates the checksum. [`build`] is the build tooling's seam: it wraps a raw
+//! binary in the header, computing the checksum, so `xtask` emits images the loader accepts.
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
@@ -140,8 +140,13 @@ impl core::fmt::Display for ImageError {
 
 impl core::error::Error for ImageError {}
 
-/// Parse a payload image, validating its header and checksum.
-pub fn parse(image: &[u8]) -> Result<Payload<'_>, ImageError> {
+/// Read and validate the header at the front of `image`, without verifying the payload checksum.
+///
+/// This is the loader's first step: it needs `load_addr` and `size` before it can place the
+/// payload, and it verifies the checksum at the destination afterwards. The header's magic,
+/// version and declared length are still checked here, so [`parse`] and [`parse_header`] reject
+/// the same malformed headers.
+pub fn parse_header(image: &[u8]) -> Result<ImageHeader, ImageError> {
     if image.len() < IMAGE_HEADER_SIZE {
         return Err(ImageError::Truncated);
     }
@@ -163,6 +168,13 @@ pub fn parse(image: &[u8]) -> Result<Payload<'_>, ImageError> {
         return Err(ImageError::Truncated);
     }
 
+    Ok(header)
+}
+
+/// Parse a payload image, validating its header and checksum.
+pub fn parse(image: &[u8]) -> Result<Payload<'_>, ImageError> {
+    let header = parse_header(image)?;
+    let end = IMAGE_HEADER_SIZE + header.size as usize;
     let data = &image[IMAGE_HEADER_SIZE..end];
     if image_checksum(data) != header.checksum {
         return Err(ImageError::BadChecksum);

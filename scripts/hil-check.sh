@@ -103,6 +103,10 @@ if [ "${HIL_REQUIRE_SD:-0}" = "1" ]; then
     echo "SD assertion: card detected and non-zero block read required"
     CAPTURE+=(--require-sd)
 fi
+if [ "${HIL_REQUIRE_HANDOFF:-0}" = "1" ]; then
+    echo "handoff assertion: payload must be entered"
+    CAPTURE+=(--require-handoff)
+fi
 if [ -r "$DEV" ]; then
     "${CAPTURE[@]}" &
 else

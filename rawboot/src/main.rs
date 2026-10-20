@@ -10,6 +10,7 @@ entry!(main);
 use rawboot_rt::cpu::{udelay, wfe};
 
 use crate::io::{read32, write32};
+mod boot;
 pub mod ccu;
 pub mod clk;
 pub mod dram;
@@ -20,12 +21,6 @@ pub mod print;
 pub mod sdcard;
 pub mod sdhci;
 pub mod uart;
-
-const MIB: usize = 1 << 20;
-
-/// DRAM address the payload is read into. It matches the image header's default
-/// `load_addr`; issue #8 replaces this with the header's own value at handoff.
-const PAYLOAD_BUFFER_ADDR: u32 = 0x4200_0000;
 
 fn main() -> ! {
     // LED on port D pin 22, as upstream board_init_led()
@@ -91,22 +86,8 @@ fn main() -> ! {
             &block[..4]
         );
 
-        let capacity = (dram_size as usize) * MIB;
-        let capacity = capacity.saturating_sub((PAYLOAD_BUFFER_ADDR - dram::SDRAM_BASE) as usize);
-
-        // SAFETY: DRAM is initialised and the slice spans only the part of it
-        // above the payload buffer address.
-        let payload =
-            unsafe { core::slice::from_raw_parts_mut(PAYLOAD_BUFFER_ADDR as *mut u8, capacity) };
-        match fat::read_payload(&mut sdcard, payload) {
-            Ok(size) => print!(
-                "FAT: {} read, {} bytes, first bytes {:02x?}\r\n",
-                fat::PAYLOAD_FILE,
-                size,
-                &payload[..size.min(4)]
-            ),
-            Err(err) => print!("FAT: {err}\r\n"),
-        }
+        let err = boot::boot(&mut sdcard, dram_size);
+        print!("BOOT: {err}\r\n");
     }
 
     //мигаем
