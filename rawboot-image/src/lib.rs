@@ -2,7 +2,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! Host-testable image tooling for rawboot.
+//! Host-testable image and boot-contract tooling for rawboot.
 //!
 //! Two independent transforms over image bytes, each tested byte-in/byte-out on the host:
 //!
@@ -15,6 +15,8 @@
 //!   validates it. This is the build tooling's seam. It takes and returns an owned buffer, so it
 //!   lives behind the default `alloc` feature; a `no_std` loader can depend on this crate with
 //!   `default-features = false` and still use [`payload::parse`].
+//! - [`fel::FelMailbox`] is the host-written FEL request that tells the loader where the payload
+//!   image and its argument string are staged in SRAM.
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -23,12 +25,17 @@ mod checksum;
 
 #[cfg(feature = "alloc")]
 pub mod egon;
+pub mod fel;
 pub mod payload;
 
 #[cfg(feature = "alloc")]
 pub use egon::{
     BROM_PAGE_SIZE, EGON_CHECKSUM_OFFSET, EGON_CHECKSUM_SEED, EGON_HEADER_SIZE, EGON_LENGTH_OFFSET,
     PADDING_BLOCK, PADDING_FLASH, SealError, SealOptions, seal,
+};
+pub use fel::{
+    FEL_ARGS_BASE, FEL_ARGS_MAX_SIZE, FEL_MAILBOX_BASE, FEL_MAILBOX_MAGIC, FEL_MAILBOX_WORDS,
+    FEL_PAYLOAD_BASE, FEL_PAYLOAD_MAX_SIZE, FelMailbox,
 };
 #[cfg(feature = "alloc")]
 pub use payload::build;

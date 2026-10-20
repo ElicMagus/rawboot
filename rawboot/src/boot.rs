@@ -2,20 +2,24 @@
 
 //! Payload placement, the `BootInfo` handoff descriptor, and the jump itself.
 //!
-//! The loader stages the payload image in DRAM, validates it, copies the payload to the
-//! `load_addr` from its header, and verifies the checksum at the destination. It then builds
-//! [`BootInfo`] in a reserved area below the handoff stack and enters the payload according to
-//! ADR-0006: ARM state, Supervisor mode, MMU and caches off, IRQ/FIQ masked, `r0` pointing at
-//! `BootInfo` and `r1` zero.
+//! The loader stages the payload image in DRAM (SD path) or SRAM (FEL path), validates it, copies
+//! the payload to the `load_addr` from its header, and verifies the checksum at the destination. It
+//! then builds [`BootInfo`] in a reserved area below the handoff stack and enters the payload
+//! according to ADR-0006: ARM state, Supervisor mode, MMU and caches off, IRQ/FIQ masked, `r0`
+//! pointing at `BootInfo` and `r1` zero.
 
 use core::fmt;
 use core::ptr;
 use core::slice;
 
-use rawboot_image::{IMAGE_HEADER_SIZE, ImageError, image_checksum, parse_header};
+use rawboot_image::{
+    FEL_ARGS_BASE, FEL_MAILBOX_BASE, FEL_MAILBOX_WORDS, FEL_PAYLOAD_BASE, FelMailbox,
+    IMAGE_HEADER_SIZE, ImageError, image_checksum, parse_header,
+};
 
 use crate::dram::SDRAM_BASE;
 use crate::fat::{self, FatError};
+use crate::io::{read32, write32};
 use crate::print;
 use crate::sdcard::Sdcard_data;
 
@@ -30,6 +34,8 @@ pub(crate) const BOOT_INFO_MAGIC: u32 = u32::from_le_bytes(*b"RBBI");
 pub(crate) const BOOT_INFO_VERSION: u32 = 1;
 /// The payload was read from an SD/MMC card.
 pub(crate) const BOOT_MEDIUM_SD: u32 = 1;
+/// The payload was uploaded over FEL and read from SRAM.
+pub(crate) const BOOT_MEDIUM_FEL: u32 = 2;
 
 /// The versioned handoff descriptor, placed in DRAM and passed to the payload in `r0`.
 #[repr(C)]
@@ -39,7 +45,7 @@ pub(crate) struct BootInfo {
     pub magic: u32,
     /// [`BOOT_INFO_VERSION`].
     pub version: u32,
-    /// Where the payload came from, e.g. [`BOOT_MEDIUM_SD`].
+    /// Where the payload came from: [`BOOT_MEDIUM_SD`] or [`BOOT_MEDIUM_FEL`].
     pub boot_medium: u32,
     /// Size of the initialised DRAM in bytes.
     pub ram_size: u32,
@@ -49,7 +55,7 @@ pub(crate) struct BootInfo {
     pub image_size: u32,
     /// Address the payload starts executing at.
     pub entry: u32,
-    /// Arguments string pointer; zero until `boot.cfg` is implemented.
+    /// NUL-terminated arguments string pointer, or zero when the source provides none.
     pub args: u32,
 }
 
@@ -111,6 +117,10 @@ pub(crate) enum BootError {
     EntryNotArm { entry: u32 },
     /// The image declares an empty payload.
     EmptyPayload,
+    /// The FEL mailbox names an image outside the SRAM staging window.
+    FelImageOutsideSram { addr: u32, size: u32 },
+    /// The FEL mailbox argument string is outside its window or not NUL-terminated.
+    ArgumentsInvalid { args: u32 },
 }
 
 impl fmt::Display for BootError {
@@ -149,21 +159,58 @@ impl fmt::Display for BootError {
                 "entry 0x{entry:08x} is not word-aligned; the payload must start in ARM state"
             ),
             Self::EmptyPayload => f.write_str("payload image is empty"),
+            Self::FelImageOutsideSram { addr, size } => write!(
+                f,
+                "FEL payload image 0x{addr:08x}+0x{size:x} is outside the SRAM staging window \
+                 0x{FEL_PAYLOAD_BASE:08x}..0x{FEL_MAILBOX_BASE:08x}"
+            ),
+            Self::ArgumentsInvalid { args } => write!(
+                f,
+                "FEL argument string 0x{args:08x} is outside 0x{FEL_ARGS_BASE:08x}..0x{FEL_PAYLOAD_BASE:08x} \
+                 or not NUL-terminated"
+            ),
         }
     }
 }
 
-/// Reads, validates, places the payload and transfers control to it.
+/// Reads the FEL payload mailbox, or returns `None` when the host did not write one.
+///
+/// A present mailbox is consumed immediately, so a warm reset that preserves SRAM cannot silently
+/// boot a stale FEL image instead of falling back to the SD path.
+pub(crate) fn fel_mailbox() -> Option<FelMailbox> {
+    let mut words = [0u32; FEL_MAILBOX_WORDS];
+    for (index, word) in words.iter_mut().enumerate() {
+        *word = read32(FEL_MAILBOX_BASE + index as u32 * 4);
+    }
+    let mailbox = FelMailbox::from_words(words);
+    if mailbox.is_some() {
+        write32(FEL_MAILBOX_BASE, 0);
+    }
+    mailbox
+}
+
+/// Reads the payload from the SD card, validates it, places it and transfers control to it.
 ///
 /// Returns only on failure: a successful handoff never comes back.
-pub(crate) fn boot(sd: &mut Sdcard_data, dram_size_mib: u32) -> BootError {
-    match prepare(sd, dram_size_mib) {
+pub(crate) fn boot_sd(sd: &mut Sdcard_data, dram_size_mib: u32) -> BootError {
+    finish(prepare_sd(sd, dram_size_mib))
+}
+
+/// Validates the payload image uploaded over FEL, places it and transfers control to it.
+///
+/// Returns only on failure: a successful handoff never comes back.
+pub(crate) fn boot_fel(mailbox: FelMailbox, dram_size_mib: u32) -> BootError {
+    finish(prepare_fel(mailbox, dram_size_mib))
+}
+
+fn finish(result: Result<Handoff, BootError>) -> BootError {
+    match result {
         Ok(handoff) => handoff.enter(),
         Err(err) => err,
     }
 }
 
-fn prepare(sd: &mut Sdcard_data, dram_size_mib: u32) -> Result<Handoff, BootError> {
+fn prepare_sd(sd: &mut Sdcard_data, dram_size_mib: u32) -> Result<Handoff, BootError> {
     let layout = DramLayout::new(dram_size_mib).ok_or(BootError::RamTooSmall)?;
 
     // The whole image is staged at the bottom of DRAM. It is copied to `load_addr` afterwards;
@@ -176,11 +223,55 @@ fn prepare(sd: &mut Sdcard_data, dram_size_mib: u32) -> Result<Handoff, BootErro
         (staging.as_ptr(), len)
     };
 
-    let header = {
-        // SAFETY: `fat::read_payload` filled the first `image_len` bytes of the staging area.
-        let image = unsafe { slice::from_raw_parts(image_ptr, image_len) };
-        parse_header(image).map_err(BootError::Image)?
+    // SAFETY: `fat::read_payload` filled the first `image_len` bytes of the staging area.
+    let image = unsafe { slice::from_raw_parts(image_ptr, image_len) };
+    prepare(image, BOOT_MEDIUM_SD, 0, &layout)
+}
+
+fn prepare_fel(mailbox: FelMailbox, dram_size_mib: u32) -> Result<Handoff, BootError> {
+    let layout = DramLayout::new(dram_size_mib).ok_or(BootError::RamTooSmall)?;
+
+    let image_end = mailbox
+        .image_addr
+        .checked_add(mailbox.image_size)
+        .ok_or(BootError::AddressOverflow)?;
+    if mailbox.image_addr < FEL_PAYLOAD_BASE || image_end > FEL_MAILBOX_BASE {
+        return Err(BootError::FelImageOutsideSram {
+            addr: mailbox.image_addr,
+            size: mailbox.image_size,
+        });
+    }
+    if mailbox.args_addr != 0 && !args_addr_valid(mailbox.args_addr) {
+        return Err(BootError::ArgumentsInvalid {
+            args: mailbox.args_addr,
+        });
+    }
+
+    // SAFETY: the mailbox range was checked against the SRAM staging window above.
+    let image = unsafe {
+        slice::from_raw_parts(mailbox.image_addr as *const u8, mailbox.image_size as usize)
     };
+    prepare(image, BOOT_MEDIUM_FEL, mailbox.args_addr, &layout)
+}
+
+fn args_addr_valid(args: u32) -> bool {
+    if !(FEL_ARGS_BASE..FEL_PAYLOAD_BASE).contains(&args) {
+        return false;
+    }
+
+    // SAFETY: `args` is inside the 4 KiB FEL argument window in SRAM.
+    let bytes =
+        unsafe { slice::from_raw_parts(args as *const u8, (FEL_PAYLOAD_BASE - args) as usize) };
+    bytes.contains(&0)
+}
+
+fn prepare(
+    image: &[u8],
+    boot_medium: u32,
+    args: u32,
+    layout: &DramLayout,
+) -> Result<Handoff, BootError> {
+    let header = parse_header(image).map_err(BootError::Image)?;
 
     if header.size == 0 {
         return Err(BootError::EmptyPayload);
@@ -221,7 +312,7 @@ fn prepare(sd: &mut Sdcard_data, dram_size_mib: u32) -> Result<Handoff, BootErro
     // and outside the reserved area, and `ptr::copy` handles overlap.
     unsafe {
         ptr::copy(
-            image_ptr.add(IMAGE_HEADER_SIZE),
+            image.as_ptr().add(IMAGE_HEADER_SIZE),
             header.load_addr as *mut u8,
             header.size as usize,
         );
@@ -236,12 +327,12 @@ fn prepare(sd: &mut Sdcard_data, dram_size_mib: u32) -> Result<Handoff, BootErro
     let boot_info = BootInfo {
         magic: BOOT_INFO_MAGIC,
         version: BOOT_INFO_VERSION,
-        boot_medium: BOOT_MEDIUM_SD,
+        boot_medium,
         ram_size: layout.ram_size,
         image_load_addr: header.load_addr,
         image_size: header.size,
         entry: header.entry,
-        args: 0,
+        args,
     };
 
     // SAFETY: the destination is the 16-byte-aligned start of the reserved BootInfo slot.

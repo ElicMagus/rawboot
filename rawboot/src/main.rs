@@ -52,48 +52,60 @@ fn main() -> ! {
     let mut dram = dram::DramPara::default();
     let dram_size = dram.init_dram();
 
-    let mut sdio = sdhci::Sdhci::default();
-    sdhci::sunxi_sdhci_init(&mut sdio);
-    let card = sdcard::Sdcard {
-        version: 0,
-        ocr: 0,
-        rca: 0,
-        cid: [0u32; 4],
-        csd: [0u32; 4],
-        extcsd: [0u8; 512],
-        high_capacity: 0,
-        tran_speed: 0,
-        dsr_imp: 0,
-        read_bl_len: 0,
-        write_bl_len: 0,
-        capacity: 0,
-    };
-    let mut sdcard = sdcard::Sdcard_data {
-        card,
-        hci: sdio,
-        buf: [0u8; 512],
-        online: false,
-    };
-
-    sdcard::sdmmc_init(&mut sdcard);
-
-    if sdcard.online {
-        let mut block = [0u8; 512];
-        let read = sdcard::sdmmc_blk_read(&mut sdcard, block.as_mut_ptr(), 0, 1);
+    let mut sd_rint = None;
+    if let Some(mailbox) = boot::fel_mailbox() {
         print!(
-            "SD: read {} block(s), first bytes {:02x?}\r\n",
-            read,
-            &block[..4]
+            "FEL: payload image 0x{:08x}, {} bytes, args 0x{:08x}\r\n",
+            mailbox.image_addr, mailbox.image_size, mailbox.args_addr
         );
-
-        let err = boot::boot(&mut sdcard, dram_size);
+        let err = boot::boot_fel(mailbox, dram_size);
         print!("BOOT: {err}\r\n");
+    } else {
+        let mut sdio = sdhci::Sdhci::default();
+        sdhci::sunxi_sdhci_init(&mut sdio);
+        sd_rint = Some(sdio.reg + sdhci::reg::RINT);
+        let card = sdcard::Sdcard {
+            version: 0,
+            ocr: 0,
+            rca: 0,
+            cid: [0u32; 4],
+            csd: [0u32; 4],
+            extcsd: [0u8; 512],
+            high_capacity: 0,
+            tran_speed: 0,
+            dsr_imp: 0,
+            read_bl_len: 0,
+            write_bl_len: 0,
+            capacity: 0,
+        };
+        let mut sdcard = sdcard::Sdcard_data {
+            card,
+            hci: sdio,
+            buf: [0u8; 512],
+            online: false,
+        };
+
+        sdcard::sdmmc_init(&mut sdcard);
+
+        if sdcard.online {
+            let mut block = [0u8; 512];
+            let read = sdcard::sdmmc_blk_read(&mut sdcard, block.as_mut_ptr(), 0, 1);
+            print!(
+                "SD: read {} block(s), first bytes {:02x?}\r\n",
+                read,
+                &block[..4]
+            );
+
+            let err = boot::boot_sd(&mut sdcard, dram_size);
+            print!("BOOT: {err}\r\n");
+        }
     }
 
     //мигаем
     loop {
-        let status = read32(sdcard.hci.reg + sdhci::reg::RINT);
-        print!("S=0x{:x}\n", status);
+        if let Some(rint) = sd_rint {
+            print!("S=0x{:x}\n", read32(rint));
+        }
         gpio::sunxi_gpio_write(led, 1);
         udelay(50000);
         // write32(sdio.addr + 56, 1 << 16);

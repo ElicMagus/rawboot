@@ -44,6 +44,16 @@ HANDOFF_BOOT = CLEAN_BOOT.replace(
     "FAT: mounted Fat32 at LBA 0 (987758592 bytes)\n" + HANDOFF_LINE_TEXT + "\n",
 )
 
+FEL_BOOT = CLEAN_BOOT.replace(
+    "SD/MMC card not found",
+    "FEL: payload image 0x00039000, 236 bytes, args 0x00000000",
+).replace(
+    "S=0x10000\n",
+    HANDOFF_LINE_TEXT + "\n",
+)
+
+FEL_ARGS_BOOT = FEL_BOOT.replace("args 0x00000000", "args 0x00038000")
+
 
 def payload_image(data: bytes = PAYLOAD_DATA) -> bytes:
     header = struct.pack(
@@ -114,6 +124,38 @@ class TestEvaluate(unittest.TestCase):
         ok, message = hil_serial.evaluate(HANDOFF_BOOT, require_sd=True)
         self.assertTrue(ok)
         self.assertEqual(message, "")
+
+    def test_require_fel_rejects_the_sd_path(self):
+        ok, message = hil_serial.evaluate(HANDOFF_BOOT, require_fel=True)
+        self.assertFalse(ok)
+        self.assertIn("FEL: payload", message)
+
+    def test_require_fel_accepts_the_fel_path(self):
+        ok, message = hil_serial.evaluate(FEL_BOOT, require_fel=True)
+        self.assertTrue(ok)
+        self.assertEqual(message, "")
+
+    def test_fel_payload_is_checked_against_the_host_image(self):
+        ok, message = hil_serial.evaluate(
+            FEL_BOOT, require_fel=True, expected_payload=expected_payload()
+        )
+        self.assertTrue(ok)
+        self.assertEqual(message, "")
+
+    def test_fel_args_pointer_can_be_checked(self):
+        ok, message = hil_serial.evaluate(FEL_ARGS_BOOT, expected_fel_args=0x00038000)
+        self.assertTrue(ok)
+        self.assertEqual(message, "")
+
+    def test_fel_args_mismatch_fails(self):
+        ok, message = hil_serial.evaluate(FEL_ARGS_BOOT, expected_fel_args=0x00038001)
+        self.assertFalse(ok)
+        self.assertIn("FEL args mismatch", message)
+
+    def test_expected_fel_args_requires_the_fel_line(self):
+        ok, message = hil_serial.evaluate(HANDOFF_BOOT, expected_fel_args=0x00038000)
+        self.assertFalse(ok)
+        self.assertIn("FEL: payload", message)
 
     def test_loader_loop_or_handoff_is_required(self):
         text = CLEAN_BOOT.replace("S=0x10000\n", "")
