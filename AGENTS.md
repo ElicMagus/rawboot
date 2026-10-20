@@ -9,7 +9,8 @@ versioned `BootInfo` contract. The payload is our own firmware, not Linux (no FD
 
 Cargo workspace with five members: `rawboot` (the loader), `rawboot-rt` (the runtime),
 `payload` (the stub payload image the loader boots), `rawboot-image` (host-testable
-payload/eGON image tooling) and `xtask` (host build tooling).
+payload/eGON image tooling) and `xtask` (host build tooling). `fatfs`'s `no_std` `core_io`
+dependency is patched to `vendor/core_io`, a minimal stable-compatible shim.
 Target `armv7a-none-eabi` (soft-float), Rust edition 2024.
 
 `embed/` is an ignored snapshot of the older Rust port kept for pre-port comparison; the
@@ -26,7 +27,9 @@ Standard commands:
 - Lint: `cargo clippy -- -D warnings` (the `no_std` crates have no host test
   target, so `--all-targets` cannot build the libtest harness on
   `armv7a-none-eabi`; the host tooling is linted with
-  `cargo clippy -p rawboot-image -p xtask --target x86_64-unknown-linux-gnu --all-targets -- -D warnings`)
+  `cargo clippy -p rawboot-image -p xtask --target x86_64-unknown-linux-gnu --all-targets -- -D warnings`;
+  the `core_io` shim is linted with
+  `cargo clippy --manifest-path vendor/core_io/Cargo.toml --target-dir target/core_io-shim -- -D warnings`)
 - Format: `cargo fmt` (CI runs `cargo fmt --all -- --check`)
 - Disassemble: `scripts/objdump.sh -d target/armv7a-none-eabi/release/rawboot` (wraps
   `llvm-objdump` from the `llvm-tools` component; there is no `cargo objdump`)

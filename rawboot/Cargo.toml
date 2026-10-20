@@ -5,6 +5,10 @@ edition = "2024"
 
 [dependencies]
 rawboot-rt = { path = "../rawboot-rt" }
+core_io = "0.1"
+fatfs = { version = "0.3.6", default-features = false, features = ["core_io"] }
+# The loader has no logger; compile fatfs's trace/debug calls out entirely.
+log = { version = "0.4", features = ["max_level_off", "release_max_level_off"] }
 
 [[bin]]
 name = "rawboot"
