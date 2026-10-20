@@ -189,6 +189,27 @@ class TestPayloadExpectation(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "magic"):
             hil_serial.payload_expectation(self.write_image(bytes(image)))
 
+    def test_rejects_a_short_header(self):
+        with self.assertRaisesRegex(ValueError, "shorter"):
+            hil_serial.payload_expectation(self.write_image(b"RBIF"))
+
+    def test_rejects_bad_version(self):
+        image = bytearray(payload_image())
+        struct.pack_into("<I", image, 4, 99)
+        with self.assertRaisesRegex(ValueError, "version"):
+            hil_serial.payload_expectation(self.write_image(bytes(image)))
+
+    def test_rejects_a_truncated_body(self):
+        image = payload_image()[:-1]
+        with self.assertRaisesRegex(ValueError, "truncated"):
+            hil_serial.payload_expectation(self.write_image(image))
+
+    def test_rejects_an_oversized_payload(self):
+        image = bytearray(payload_image())
+        struct.pack_into("<I", image, 20, hil_serial.MAX_IMAGE_SIZE + 1)
+        with self.assertRaisesRegex(ValueError, "exceeds"):
+            hil_serial.payload_expectation(self.write_image(bytes(image)))
+
     def test_rejects_a_corrupted_body(self):
         image = bytearray(payload_image())
         image[-1] ^= 0xFF

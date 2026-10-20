@@ -32,9 +32,11 @@ RESET_LOOP_HINT = (
     "power-cycle into FEL (do not xfel reset) and rerun"
 )
 
+# These mirror `rawboot-image/src/payload.rs`; update both together.
 IMAGE_MAGIC = b"RBIF"
 IMAGE_VERSION = 1
 IMAGE_HEADER_SIZE = 28
+MAX_IMAGE_SIZE = 128 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,8 @@ def payload_expectation(path: str) -> PayloadExpectation:
     )
     if version != IMAGE_VERSION:
         raise ValueError(f"{path}: unsupported payload image version {version}")
+    if size > MAX_IMAGE_SIZE:
+        raise ValueError(f"{path}: payload size {size} exceeds the limit")
     if len(image) < IMAGE_HEADER_SIZE + size:
         raise ValueError(f"{path}: payload body truncated")
     actual = image_checksum(image[IMAGE_HEADER_SIZE : IMAGE_HEADER_SIZE + size])
