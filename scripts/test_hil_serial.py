@@ -149,6 +149,15 @@ class TestEvaluate(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("BOOT: handoff", message)
 
+    def test_allow_busy_still_checks_sd_assertions(self):
+        text = STALE_BOOT.replace(
+            "SD/MMC card not found",
+            "SD/MMC card found\nSD: read 1 block(s), first bytes [00, 00, 00, 00]",
+        )
+        ok, message = hil_serial.evaluate(text, require_sd=True, allow_busy=True)
+        self.assertTrue(ok)
+        self.assertEqual(message, "")
+
     def test_require_sd_rejects_no_card(self):
         ok, message = hil_serial.evaluate(CLEAN_BOOT, require_sd=True)
         self.assertFalse(ok)
