@@ -45,12 +45,17 @@ For a ticket whose acceptance includes the card path, set `HIL_REQUIRE_SD=1`. Th
 then also requires `SD/MMC card found` and a non-zero `SD: read N block(s)` line. Leave it
 unset when no card is inserted. For a ticket that must prove the handoff, also set
 `HIL_REQUIRE_HANDOFF=1`: the log must then contain a `BOOT: handoff to ...` line and the
-loader's `S=0x` loop is no longer accepted.
+loader's `S=0x` loop is no longer accepted. `HIL_REQUIRE_PAYLOAD=1` additionally compares the
+handoff's entry, load address, size and checksum with `target/rawboot-payload.img`
+(`HIL_PAYLOAD_IMG` overrides the path), so a stale `payload.bin` on the card fails instead of
+passing. `HIL_REQUIRE_LED=1` makes the human LED confirmation part of the result: the script
+prompts on a TTY, or accepts `HIL_LED_CONFIRMED=1` in non-interactive runs.
 
 ### Payload image on the card
 
 The loader reads `payload.bin` from the FAT partition. Build the blink payload, then copy the
-wrapped image to the mounted card (mount the card on the host, not in the board):
+wrapped image to the mounted card. You can write the card on any machine with a card reader;
+for HIL it only has to be in the board, not in this host:
 
 ```sh
 cargo xtask payload
@@ -60,16 +65,18 @@ cp target/rawboot-payload.img /media/$USER/<partition>/payload.bin
 Copy `target/rawboot-payload.img`, not the raw
 `target/armv7a-none-eabi/release/payload.bin`: the former has the image header the loader
 parses. For the full end-to-end acceptance (SD -> FAT -> DRAM -> handoff -> blink), run with
-both assertions:
+all assertions:
 
 ```sh
-HIL_REQUIRE_SD=1 HIL_REQUIRE_HANDOFF=1 scripts/hil-check.sh target/rawboot-fel.bin blink
+HIL_REQUIRE_SD=1 HIL_REQUIRE_HANDOFF=1 HIL_REQUIRE_PAYLOAD=1 HIL_REQUIRE_LED=1 \
+    scripts/hil-check.sh target/rawboot-fel.bin blink
 ```
 
-Run HIL from the code branch under test, before switching to `master` for docs or a merge.
-`cargo xtask image` writes `target/rawboot-fel.bin.build` with the source commit, branch and
-dirty flag; `hil-check.sh` refuses an image whose commit is not `HEAD`, so rebuild after
-switching branches (`HIL_SKIP_PROVENANCE=1` is the escape hatch).
+Run HIL from the code branch under test. Verification instructions and runbook updates may be
+committed before the run; record a PASS only after it succeeds. `cargo xtask image` writes
+`target/rawboot-fel.bin.build` with the source commit, branch and dirty flag; `hil-check.sh`
+refuses an image whose commit is not `HEAD`, so rebuild after switching branches
+(`HIL_SKIP_PROVENANCE=1` is the escape hatch).
 
 Put the board into FEL with a power-cycle (or reset while holding the FEL/BOOT button), not
 with `xfel reset`: `xfel reset` resets through the watchdog, which stays armed, and the
@@ -98,10 +105,13 @@ The script:
 6. captures USART0 for a few seconds, prints the unique lines and asserts `Hello`, `CLK:`,
    `DRAM simple test OK`, and either the loader loop (`S=0x`) or a payload handoff
    (`BOOT: handoff to ...`); with `HIL_REQUIRE_SD=1` it also asserts `SD/MMC card found` and a
-   non-zero `SD: read N block(s)`, and with `HIL_REQUIRE_HANDOFF=1` it requires the handoff
-   line. It warns if more than one `Hello` appears (stale buffer or a reset loop);
-7. asks the human to confirm PD22 shows the payload's short-long cadence (120 ms on, 180 ms
-   off, 600 ms on, 900 ms off, repeating), not the loader's steady 50 ms toggle.
+   non-zero `SD: read N block(s)`, with `HIL_REQUIRE_HANDOFF=1` it requires the handoff line,
+   and with `HIL_REQUIRE_PAYLOAD=1` it requires the handoff to match the host payload image.
+   It warns if more than one `Hello` appears (stale buffer or a reset loop);
+7. with `HIL_REQUIRE_LED=1`, asks the human to confirm PD22 shows the payload's short-long
+   cadence (120 ms on, 180 ms off, 600 ms on, 900 ms off, repeating), not the loader's steady
+   50 ms toggle; on a TTY it reads the answer, otherwise it requires `HIL_LED_CONFIRMED=1`.
+   Without the flag it only prints the human-check prompt.
 
 The raw capture is kept at `/tmp/rawboot-hil-<label>.log`.
 
@@ -143,14 +153,14 @@ its loop:
 
 ```
 FAT: mounted Fat32 at LBA 0 (987758592 bytes)
-BOOT: handoff to 0x42000000: 208 bytes at 0x42000000, BootInfo 0x47feffe0, SP 0x48000000
+BOOT: handoff to 0x42000000: 208 bytes at 0x42000000, checksum 0xa2dbc9d5, BootInfo 0x47feffe0, SP 0x48000000
 ```
 
 After the handoff the UART is silent unless the payload prints, so the capture ends after the
 `BOOT: handoff to` line. The payload then blinks PD22: 120 ms on, 180 ms off, 600 ms on,
 900 ms off, repeating. The loader's own loop toggles every 50 ms, so the cadence tells a
-completed handoff apart from a loader that never left its loop. The addresses and payload
-size depend on the image header and the detected DRAM size.
+completed handoff apart from a loader that never left its loop. The addresses, payload size
+and checksum depend on the image header and the detected DRAM size.
 
 - `CLK: PLL_ddr` is read before `dram.init()`, so it shows the pre-DRAM value; the DRAM
   initialisation that follows sets 792 MHz. See `research/clk-port-vs-upstream.md`.
@@ -158,7 +168,9 @@ size depend on the image header and the detected DRAM size.
   bytes are whatever block 0 contains; an empty test card returns zeros. With
   `HIL_REQUIRE_SD=1` these two lines become assertions.
 - `BOOT: handoff to ...` is printed after the payload is placed, its checksum verified at the
-  destination, and `BootInfo` written. `HIL_REQUIRE_HANDOFF=1` makes it mandatory.
+  destination, and `BootInfo` written. `HIL_REQUIRE_HANDOFF=1` makes it mandatory;
+  `HIL_REQUIRE_PAYLOAD=1` also matches its entry, load address, size and checksum against
+  `target/rawboot-payload.img`.
 - `SD/MMC card not found` is expected when no card is inserted. It does not invalidate the
   clock or DRAM checks. Full SD/MMC card parity (#20) is covered by
   `research/sdcard-port-vs-upstream.md`.
@@ -183,9 +195,16 @@ size depend on the image header and the detected DRAM size.
 - HIL fails with `missing a payload handoff`: `HIL_REQUIRE_HANDOFF=1` was set but the loader
   stayed in its `S=0x` loop. Check that `payload.bin` is present and valid, and that the card
   path succeeded.
+- HIL fails with `payload mismatch`: the card's `payload.bin` is not the image HIL compared with.
+  Rebuild with `cargo xtask payload` and copy `target/rawboot-payload.img` over `payload.bin` on
+  the FAT partition, or pass the image you actually wrote via `HIL_PAYLOAD_IMG`.
 - The log shows `BOOT: handoff to ...` but PD22 keeps the loader's steady 50 ms toggle: the card
   has an old payload. Rebuild with `cargo xtask payload` and copy
   `target/rawboot-payload.img` over `payload.bin` on the FAT partition.
+- HIL fails with `LED pattern not confirmed` or `HIL_REQUIRE_LED=1 needs a TTY`: confirm the
+  short-long cadence and rerun, or set `HIL_LED_CONFIRMED=1` after checking the board.
+- HIL fails with `payload image not found`: run `cargo xtask payload`, or point
+  `HIL_PAYLOAD_IMG` at the image you wrote to the card.
 - The UART is silent: check USART0 PE2/PE3, 115200 8N1, and that the CH340 is `/dev/ttyUSB0`.
 - The log starts with repeated `Hello`/`S=` lines: the tty buffer still holds a previous
   run, or the board is in a reset loop. The script drains the buffer and now fails the run

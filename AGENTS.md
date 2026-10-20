@@ -42,13 +42,10 @@ Standard commands:
   `target/rawboot-fel.bin`; the `xtask` alias pins the host triple in `.cargo/config.toml`)
 - Build the payload image: `cargo xtask payload` (builds the `payload` crate and writes
   `target/rawboot-payload.img`, its flat binary wrapped in the payload image header)
-- HIL: `scripts/hil-check.sh target/rawboot-fel.bin <label>` loads the image over FEL, captures
-  USART0 and asserts the boot log; run it after `code-review`, on the code branch, before
-  committing docs or merging. The script checks the image build stamp against `HEAD` and
-  requires a quiet UART (board idle in FEL). Set `HIL_REQUIRE_SD=1` when the ticket accepts the
-  card path and `HIL_REQUIRE_HANDOFF=1` when it must prove that the loader entered the payload. Runbook: `docs/agents/hil.md`. The loader
-  initialises DRAM itself, so the load is `xfel write 0x00028000 ... && xfel exec 0x00028000`
-  with no separate DDR step.
+- HIL: run `scripts/hil-check.sh target/rawboot-fel.bin <label>` after `code-review`, on the
+  code branch, before merging. The runbook `docs/agents/hil.md` covers the FEL load, UART
+  assertions, payload-image match and LED confirmation. `scripts/check.sh` covers host checks
+  only.
 
 ## CI
 
@@ -69,6 +66,8 @@ pushing.
   старыми ADR, глоссарием и кодом; нашёл противоречие — сначала грилинг (`grill-with-docs`), потом
   коммит.
 - **Перед пушем прогони ревью — skill `code-review` (Standards + Spec).**
+- **Порядок HIL и доков.** Инструкции по проверке (runbook, команды) можно коммитить до HIL;
+  заявления о результате (PASS, подтверждённый LED) — только после подтверждения HIL.
 - **После пуша выдавай инструкцию по проверке** — шаги сборки, загрузки через FEL и/или SD и
   наблюдения за LED payload'а.
 - **После подтверждения — влей ветку в `master`, закрой issue, удали ветку.**
