@@ -110,8 +110,9 @@ The script:
    It warns if more than one `Hello` appears (stale buffer or a reset loop);
 7. with `HIL_REQUIRE_LED=1`, asks the human to confirm PD22 shows the payload's short-long
    cadence (120 ms on, 180 ms off, 600 ms on, 900 ms off, repeating), not the loader's steady
-   50 ms toggle; on a TTY it reads the answer, otherwise it requires `HIL_LED_CONFIRMED=1`.
-   Without the flag it only prints the human-check prompt.
+   50 ms toggle; on an interactive TTY (unless `HIL_NO_PROMPT=1`) it reads the answer,
+   otherwise it requires `HIL_LED_CONFIRMED=1`. Without the flag it only prints the
+   human-check prompt.
 
 The raw capture is kept at `/tmp/rawboot-hil-<label>.log`.
 
@@ -201,8 +202,9 @@ and checksum depend on the image header and the detected DRAM size.
 - The log shows `BOOT: handoff to ...` but PD22 keeps the loader's steady 50 ms toggle: the card
   has an old payload. Rebuild with `cargo xtask payload` and copy
   `target/rawboot-payload.img` over `payload.bin` on the FAT partition.
-- HIL fails with `LED pattern not confirmed` or `HIL_REQUIRE_LED=1 needs a TTY`: confirm the
-  short-long cadence and rerun, or set `HIL_LED_CONFIRMED=1` after checking the board.
+- HIL fails with `LED pattern not confirmed` or `HIL_REQUIRE_LED=1 needs an interactive prompt`:
+  confirm the short-long cadence and rerun, or set `HIL_LED_CONFIRMED=1` after checking the
+  board.
 - HIL fails with `payload image not found`: run `cargo xtask payload`, or point
   `HIL_PAYLOAD_IMG` at the image you wrote to the card.
 - The UART is silent: check USART0 PE2/PE3, 115200 8N1, and that the CH340 is `/dev/ttyUSB0`.
