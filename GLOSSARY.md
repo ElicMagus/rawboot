@@ -14,6 +14,11 @@ fallback 256), SPI flash, or USB FEL.
 Allwinner's USB recovery/boot mode; a host tool (`xfel`) uploads an image into SRAM/DRAM and
 starts it.
 
+**FEL mailbox**:
+A four-word block in FEL-mode SRAM (magic `RBFM`, payload image address, image size, argument
+pointer) that the host writes before `xfel exec`. When present, the loader boots the uploaded
+payload image instead of reading `payload.bin` from the SD card.
+
 **eGON**:
 Allwinner's boot-image header (magic `eGON.BT0`, seed-checksummed with `0x5F0A6C39`) prepended to a
 stage binary so BROM accepts it.

@@ -72,6 +72,33 @@ HIL_REQUIRE_SD=1 HIL_REQUIRE_HANDOFF=1 HIL_REQUIRE_PAYLOAD=1 HIL_REQUIRE_LED=1 \
     scripts/hil-check.sh target/rawboot-fel.bin blink
 ```
 
+### FEL payload (no SD card)
+
+`HIL_FEL_PAYLOAD=1` uploads `target/rawboot-payload.img` to SRAM and writes the FEL mailbox, so
+the loader boots it without an SD card. The mailbox follows `rawboot-image/src/fel.rs`:
+
+| word | address     | value                                      |
+| ---- | ----------- | ------------------------------------------ |
+| 0    | `0x00044000` | magic `0x4d464252` (`RBFM` little-endian) |
+| 1    | `0x00044004` | payload image address (`0x00039000`)      |
+| 2    | `0x00044008` | payload image size in bytes                |
+| 3    | `0x0004400c` | argument string address, or zero           |
+
+The image window is `0x00039000..0x00044000` (44 KiB); the optional arguments go at
+`0x00038000`. This path deliberately avoids `xfel ddr` (issue #23) and skips SD initialisation.
+Run it with the handoff and LED checks:
+
+```sh
+cargo xtask image
+cargo xtask payload
+HIL_FEL_PAYLOAD=1 HIL_REQUIRE_LED=1 scripts/hil-check.sh target/rawboot-fel.bin fel
+```
+
+`HIL_FEL_ARGS="..."` passes a NUL-terminated argument string through the mailbox at
+`0x00038000` (at most 4 KiB, including the terminator); the run asserts the pointer the loader
+reports. The payload assertion is automatic on this path, and `HIL_REQUIRE_SD` is rejected
+because no SD access happens.
+
 Run HIL from the code branch under test. Verification instructions and runbook updates may be
 committed before the run; record a PASS only after it succeeds. `cargo xtask image` writes
 `target/rawboot-fel.bin.build` with the source commit, branch and dirty flag; `hil-check.sh`
@@ -101,12 +128,14 @@ The script:
    as a busy board instead of looking like a reset loop later (`HIL_SKIP_PREFLIGHT=1`
    downgrades this check to a warning);
 4. drains the UART input buffer before loading;
-5. writes the image at `0x00028000` and jumps to it;
+5. writes the image at `0x00028000` and jumps to it; with `HIL_FEL_PAYLOAD=1` it also writes the
+   payload image and mailbox to SRAM before the jump;
 6. captures USART0 for a few seconds, prints the unique lines and asserts `Hello`, `CLK:`,
    `DRAM simple test OK`, and either the loader loop (`S=0x`) or a payload handoff
    (`BOOT: handoff to ...`); with `HIL_REQUIRE_SD=1` it also asserts `SD/MMC card found` and a
-   non-zero `SD: read N block(s)`, with `HIL_REQUIRE_HANDOFF=1` it requires the handoff line,
-   and with `HIL_REQUIRE_PAYLOAD=1` it requires the handoff to match the host payload image.
+   non-zero `SD: read N block(s)`, with `HIL_FEL_PAYLOAD=1` it requires the `FEL: payload` line,
+   with `HIL_REQUIRE_HANDOFF=1` it requires the handoff line, and with `HIL_REQUIRE_PAYLOAD=1`
+   (or `HIL_FEL_PAYLOAD=1`) it requires the handoff to match the host payload image.
    It warns if more than one `Hello` appears (stale buffer or a reset loop);
 7. with `HIL_REQUIRE_LED=1`, asks the human to confirm PD22 shows the payload's short-long
    cadence (120 ms on, 180 ms off, 600 ms on, 900 ms off, repeating), not the loader's steady
@@ -120,6 +149,19 @@ The raw capture is kept at `/tmp/rawboot-hil-<label>.log`.
 
 ```sh
 xfel write 0x00028000 target/rawboot-fel.bin
+xfel exec 0x00028000
+```
+
+For a manual FEL payload boot, write the image and mailbox before the jump:
+
+```sh
+size=$(stat -c %s target/rawboot-payload.img)
+xfel write 0x00028000 target/rawboot-fel.bin
+xfel write 0x00039000 target/rawboot-payload.img
+xfel write32 0x00044004 0x00039000
+xfel write32 0x00044008 "$size"
+xfel write32 0x0004400c 0
+xfel write32 0x00044000 0x4d464252
 xfel exec 0x00028000
 ```
 
@@ -157,6 +199,13 @@ FAT: mounted Fat32 at LBA 0 (987758592 bytes)
 BOOT: handoff to 0x42000000: 208 bytes at 0x42000000, checksum 0xa2dbc9d5, BootInfo 0x47feffe0, SP 0x48000000
 ```
 
+With `HIL_FEL_PAYLOAD=1` it skips SD initialisation and prints the mailbox request instead:
+
+```
+FEL: payload image 0x00039000, 208 bytes, args 0x00000000
+BOOT: handoff to 0x42000000: 208 bytes at 0x42000000, checksum 0xa2dbc9d5, BootInfo 0x47feffe0, SP 0x48000000
+```
+
 After the handoff the UART is silent unless the payload prints, so the capture ends after the
 `BOOT: handoff to` line. The payload then blinks PD22: 120 ms on, 180 ms off, 600 ms on,
 900 ms off, repeating. The loader's own loop toggles every 50 ms, so the cadence tells a
@@ -172,6 +221,9 @@ and checksum depend on the image header and the detected DRAM size.
   destination, and `BootInfo` written. `HIL_REQUIRE_HANDOFF=1` makes it mandatory;
   `HIL_REQUIRE_PAYLOAD=1` also matches its entry, load address, size and checksum against
   `target/rawboot-payload.img`.
+- `FEL: payload ...` proves the loader read the FEL mailbox and chose the uploaded image.
+  `HIL_FEL_PAYLOAD=1` makes it mandatory and prints the argument pointer from the mailbox
+  (`args 0x...`); the SD path has no such line.
 - `SD/MMC card not found` is expected when no card is inserted. It does not invalidate the
   clock or DRAM checks. Full SD/MMC card parity (#20) is covered by
   `research/sdcard-port-vs-upstream.md`.
@@ -207,6 +259,14 @@ and checksum depend on the image header and the detected DRAM size.
   board.
 - HIL fails with `payload image not found`: run `cargo xtask payload`, or point
   `HIL_PAYLOAD_IMG` at the image you wrote to the card.
+- HIL fails with `missing FEL: payload` under `HIL_FEL_PAYLOAD=1`: the mailbox magic/addresses
+  did not reach the loader, or the loader is older than this path. Rebuild with
+  `cargo xtask image` and check the `xfel write32` values against the mailbox table.
+- The loader prints `BOOT: FEL payload image ... is outside the SRAM staging window`: the
+  mailbox image address/size is wrong, or the image exceeds the 44 KiB window. Keep the image
+  at `0x00039000` and rebuild it with `cargo xtask payload` if it grew.
+- HIL refuses `HIL_FEL_PAYLOAD=1` with `HIL_REQUIRE_SD`: the FEL path skips the SD card;
+  unset `HIL_REQUIRE_SD` for a FEL run.
 - The UART is silent: check USART0 PE2/PE3, 115200 8N1, and that the CH340 is `/dev/ttyUSB0`.
 - The log starts with repeated `Hello`/`S=` lines: the tty buffer still holds a previous
   run, or the board is in a reset loop. The script drains the buffer and now fails the run
