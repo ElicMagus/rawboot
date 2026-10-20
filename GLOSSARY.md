@@ -30,7 +30,12 @@ _Avoid_: app, SPL
 **runtime** (crate `rawboot-rt`):
 The startup layer that lays down the eGON header, sets the stack, clears BSS/copies data, and calls
 the loader's `main`.
-_Avoid_: framework, OS
+_Avoid_: framework, OS, HAL
+
+**`sunxi-pl`** (platform layer):
+The shared hardware layer for the loader, `rawboot-rt` and payload: MMIO, GPIO, timer. CMSIS-like,
+carries no startup code.
+_Avoid_: HAL, driver crate, platform
 
 **payload**:
 The image the loader boots — the user's own firmware (possibly a microkernel), including a trivial
