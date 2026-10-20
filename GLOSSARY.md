@@ -45,6 +45,10 @@ address, size, checksum) that the loader parses.
 The versioned `#[repr(C)]` descriptor the loader places in DRAM and passes to the payload in `r0`
 at handoff.
 
+**boot.cfg**:
+Optional file on the FAT volume whose contents the loader copies into DRAM as a NUL-terminated
+string and exposes through `BootInfo.args`; absent means a null `args` pointer.
+
 **handoff**:
 Transferring control from the loader to the payload, in a defined CPU and register state.
 

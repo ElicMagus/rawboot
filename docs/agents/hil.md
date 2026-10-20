@@ -64,8 +64,25 @@ cp target/rawboot-payload.img /media/$USER/<partition>/payload.bin
 
 Copy `target/rawboot-payload.img`, not the raw
 `target/armv7a-none-eabi/release/payload.bin`: the former has the image header the loader
-parses. For the full end-to-end acceptance (SD -> FAT -> DRAM -> handoff -> blink), run with
-all assertions:
+parses.
+
+An optional `boot.cfg` next to `payload.bin` is copied into DRAM and exposed to the payload as
+a NUL-terminated string through `BootInfo.args` (up to 4095 bytes; the 4 KiB window includes
+the terminator). Without the file, `BootInfo.args` is zero. To assert the handoff end to end,
+put a known file on the card and pass its byte length:
+
+```sh
+printf 'console=ttyS0' > /media/$USER/<partition>/boot.cfg   # 13 bytes
+HIL_REQUIRE_SD=1 HIL_REQUIRE_HANDOFF=1 HIL_BOOT_CFG_LEN=13 \
+    scripts/hil-check.sh target/rawboot-fel.bin bootcfg
+```
+
+`HIL_BOOT_CFG_LEN` makes the script require an `ARGS: boot.cfg <len> bytes at 0x...` line and
+the same pointer in the handoff's `args 0x...` field. A file that is unreadable or does not fit
+aborts the boot with `BOOT: boot.cfg: ...` instead of booting with silently truncated arguments.
+
+For the full end-to-end acceptance (SD -> FAT -> DRAM -> handoff -> blink), run with all
+assertions:
 
 ```sh
 HIL_REQUIRE_SD=1 HIL_REQUIRE_HANDOFF=1 HIL_REQUIRE_PAYLOAD=1 HIL_REQUIRE_LED=1 \
@@ -196,14 +213,24 @@ its loop:
 
 ```
 FAT: mounted Fat32 at LBA 0 (987758592 bytes)
-BOOT: handoff to 0x42000000: 208 bytes at 0x42000000, checksum 0xa2dbc9d5, BootInfo 0x47feffe0, SP 0x48000000
+ARGS: no boot.cfg
+BOOT: handoff to 0x42000000: 208 bytes at 0x42000000, checksum 0xa2dbc9d5, BootInfo 0x47feffe0, SP 0x48000000, args 0x00000000
+```
+
+With a `boot.cfg` on the card the argument line names the file and its DRAM address, and the
+handoff carries the same pointer:
+
+```
+FAT: mounted Fat32 at LBA 0 (987758592 bytes)
+ARGS: boot.cfg 13 bytes at 0x47ffefd0
+BOOT: handoff to 0x42000000: 208 bytes at 0x42000000, checksum 0xa2dbc9d5, BootInfo 0x47feffe0, SP 0x48000000, args 0x47ffefd0
 ```
 
 With `HIL_FEL_PAYLOAD=1` it skips SD initialisation and prints the mailbox request instead:
 
 ```
 FEL: payload image 0x00039000, 208 bytes, args 0x00000000
-BOOT: handoff to 0x42000000: 208 bytes at 0x42000000, checksum 0xa2dbc9d5, BootInfo 0x47feffe0, SP 0x48000000
+BOOT: handoff to 0x42000000: 208 bytes at 0x42000000, checksum 0xa2dbc9d5, BootInfo 0x47feffe0, SP 0x48000000, args 0x00000000
 ```
 
 After the handoff the UART is silent unless the payload prints, so the capture ends after the
@@ -220,10 +247,13 @@ and checksum depend on the image header and the detected DRAM size.
 - `BOOT: handoff to ...` is printed after the payload is placed, its checksum verified at the
   destination, and `BootInfo` written. `HIL_REQUIRE_HANDOFF=1` makes it mandatory;
   `HIL_REQUIRE_PAYLOAD=1` also matches its entry, load address, size and checksum against
-  `target/rawboot-payload.img`.
+  `target/rawboot-payload.img`. Its `args` field is the `boot.cfg` pointer, or zero.
+- `ARGS: boot.cfg ...` (SD path) proves the loader read the optional file and reserved a
+  NUL-terminated copy; `ARGS: no boot.cfg` means the payload gets `args = 0`. The loader does not
+  parse the file: the payload owns its meaning.
 - `FEL: payload ...` proves the loader read the FEL mailbox and chose the uploaded image.
   `HIL_FEL_PAYLOAD=1` makes it mandatory and prints the argument pointer from the mailbox
-  (`args 0x...`); the SD path has no such line.
+  (`args 0x...`); the SD path reports the same field on the handoff line and through `ARGS:`.
 - `SD/MMC card not found` is expected when no card is inserted. It does not invalidate the
   clock or DRAM checks. Full SD/MMC card parity (#20) is covered by
   `research/sdcard-port-vs-upstream.md`.
@@ -248,6 +278,9 @@ and checksum depend on the image header and the detected DRAM size.
 - HIL fails with `missing a payload handoff`: `HIL_REQUIRE_HANDOFF=1` was set but the loader
   stayed in its `S=0x` loop. Check that `payload.bin` is present and valid, and that the card
   path succeeded.
+- `BOOT: boot.cfg: is N bytes, but the buffer holds 4095`: the optional argument file exceeds
+  the 4 KiB window (including the NUL terminator). Shorten it; the loader refuses to hand off
+  with truncated arguments.
 - HIL fails with `payload mismatch`: the card's `payload.bin` is not the image HIL compared with.
   Rebuild with `cargo xtask payload` and copy `target/rawboot-payload.img` over `payload.bin` on
   the FAT partition, or pass the image you actually wrote via `HIL_PAYLOAD_IMG`.
