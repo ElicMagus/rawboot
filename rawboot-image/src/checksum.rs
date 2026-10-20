@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Unlicense
 
-//! Little-endian 32-bit word summing, shared by the payload and eGON checksums.
+//! Little-endian 32-bit word summing for the payload and eGON checksums.
 
-/// Sum `data` as little-endian 32-bit words with 32-bit wraparound. A trailing partial word is
-/// zero-padded.
-pub(crate) fn sum_le_u32(data: &[u8]) -> u32 {
+/// The image checksum: the wrapping sum of `data` as little-endian 32-bit words, with a trailing
+/// partial word zero-padded.
+pub fn image_checksum(data: &[u8]) -> u32 {
     let (words, rest) = data.as_chunks::<4>();
     let mut sum = 0u32;
     for word in words {

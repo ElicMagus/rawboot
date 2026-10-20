@@ -14,25 +14,28 @@
 //! - [`egon::seal`] fills in and pads the Allwinner eGON header of a loader binary so BROM
 //!   validates it. This is the build tooling's seam. It takes and returns an owned buffer, so it
 //!   lives behind the default `alloc` feature; a `no_std` loader can depend on this crate with
-//!   `default-features = false` and still use [`payload::parse`].
+//!   `default-features = false` and still use [`payload::parse`]. The [`egon::EgonHeader`] layout
+//!   itself is shared with the runtime and needs no allocator.
 //! - [`fel::FelMailbox`] is the host-written FEL request that tells the loader where the payload
 //!   image and its argument string are staged in SRAM.
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+mod bytes;
 mod checksum;
 
-#[cfg(feature = "alloc")]
 pub mod egon;
 pub mod fel;
 pub mod payload;
 
+pub use bytes::{read_u32_le, write_u32_le};
+pub use checksum::image_checksum;
 #[cfg(feature = "alloc")]
 pub use egon::{
-    BROM_PAGE_SIZE, EGON_CHECKSUM_OFFSET, EGON_CHECKSUM_SEED, EGON_HEADER_SIZE, EGON_LENGTH_OFFSET,
-    PADDING_BLOCK, PADDING_FLASH, SealError, SealOptions, seal,
+    BROM_PAGE_SIZE, PADDING_BLOCK, PADDING_FLASH, Padding, PageSize, SealError, SealOptions, seal,
 };
+pub use egon::{EGON_CHECKSUM_SEED, EGON_MAGIC, EgonHeader};
 pub use fel::{
     FEL_ARGS_BASE, FEL_ARGS_MAX_SIZE, FEL_MAILBOX_BASE, FEL_MAILBOX_MAGIC, FEL_MAILBOX_WORDS,
     FEL_PAYLOAD_BASE, FEL_PAYLOAD_MAX_SIZE, FelMailbox,
@@ -41,5 +44,5 @@ pub use fel::{
 pub use payload::build;
 pub use payload::{
     DEFAULT_LOAD_ADDR, IMAGE_HEADER_SIZE, IMAGE_MAGIC, IMAGE_VERSION, ImageError, ImageHeader,
-    ImageOptions, MAX_IMAGE_SIZE, Payload, image_checksum, parse, parse_header,
+    ImageOptions, MAX_IMAGE_SIZE, Payload, parse, parse_header,
 };

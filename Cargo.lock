@@ -58,6 +58,9 @@ version = "0.1.0"
 [[package]]
 name = "rawboot-rt"
 version = "0.1.0"
+dependencies = [
+ "rawboot-image",
+]
 
 [[package]]
 name = "xtask"
