@@ -4,7 +4,7 @@
 
 use rawboot_image::{
     IMAGE_HEADER_SIZE, IMAGE_MAGIC, IMAGE_VERSION, ImageError, ImageHeader, ImageOptions,
-    MAX_IMAGE_SIZE, build, image_checksum, parse,
+    MAX_IMAGE_SIZE, build, image_checksum, parse, parse_header,
 };
 
 const BODY: [u8; 8] = [0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04];
@@ -45,6 +45,35 @@ fn parses_valid_image_and_exposes_fields_and_data() {
     assert_eq!(parsed.header.size, BODY.len() as u32);
     assert_eq!(parsed.header.checksum, BODY_CHECKSUM);
     assert_eq!(parsed.data, BODY);
+}
+
+#[test]
+fn parse_header_returns_fields_without_verifying_the_checksum() {
+    let mut bytes = valid_image();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0xFF;
+
+    let header = parse_header(&bytes).unwrap();
+
+    assert_eq!(header.entry, 0x4200_0100);
+    assert_eq!(header.load_addr, 0x4200_0000);
+    assert_eq!(header.size, BODY.len() as u32);
+    assert_eq!(parse(&bytes), Err(ImageError::BadChecksum));
+}
+
+#[test]
+fn parse_header_rejects_a_buffer_shorter_than_the_declared_payload() {
+    let bytes = image(IMAGE_VERSION, 8, BODY_CHECKSUM, &BODY[..4]);
+
+    assert_eq!(parse_header(&bytes), Err(ImageError::Truncated));
+}
+
+#[test]
+fn parse_header_rejects_bad_magic() {
+    let mut bytes = valid_image();
+    bytes[0] ^= 0xFF;
+
+    assert_eq!(parse_header(&bytes), Err(ImageError::BadMagic));
 }
 
 #[test]

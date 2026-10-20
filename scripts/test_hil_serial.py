@@ -24,6 +24,16 @@ CARD_BOOT = CLEAN_BOOT.replace(
     "SD/MMC card found\nSD: read 1 block(s), first bytes [00, 00, 00, 00]",
 )
 
+HANDOFF_BOOT = CLEAN_BOOT.replace(
+    "SD/MMC card not found",
+    "SD/MMC card found\nSD: read 1 block(s), first bytes [eb, 58, 90, 4d]",
+).replace(
+    "S=0x10000\n",
+    "FAT: mounted Fat32 at LBA 0 (987758592 bytes)\n"
+    "BOOT: handoff to 0x42000000: 16 bytes at 0x42000000, "
+    "BootInfo 0x47feffe0, SP 0x48000000\n",
+)
+
 
 class TestEvaluate(unittest.TestCase):
     def test_clean_boot_passes(self):
@@ -66,6 +76,37 @@ class TestEvaluate(unittest.TestCase):
         ok, message = hil_serial.evaluate(text, require_sd=True)
         self.assertFalse(ok)
         self.assertIn("SD: read N block(s)", message)
+
+    def test_handoff_passes_without_the_loader_loop(self):
+        ok, message = hil_serial.evaluate(HANDOFF_BOOT, require_sd=True)
+        self.assertTrue(ok)
+        self.assertEqual(message, "")
+
+    def test_loader_loop_or_handoff_is_required(self):
+        text = CLEAN_BOOT.replace("S=0x10000\n", "")
+        ok, message = hil_serial.evaluate(text)
+        self.assertFalse(ok)
+        self.assertIn("S=0x or BOOT: handoff", message)
+
+    def test_require_handoff_rejects_the_loader_loop(self):
+        ok, message = hil_serial.evaluate(CARD_BOOT, require_sd=True, require_handoff=True)
+        self.assertFalse(ok)
+        self.assertIn("BOOT: handoff", message)
+
+    def test_require_handoff_accepts_a_handoff(self):
+        ok, message = hil_serial.evaluate(HANDOFF_BOOT, require_sd=True, require_handoff=True)
+        self.assertTrue(ok)
+        self.assertEqual(message, "")
+
+    def test_boot_error_is_not_a_handoff(self):
+        text = HANDOFF_BOOT.replace(
+            "BOOT: handoff to 0x42000000: 16 bytes at 0x42000000, "
+            "BootInfo 0x47feffe0, SP 0x48000000",
+            "BOOT: invalid payload image: bad image magic",
+        )
+        ok, message = hil_serial.evaluate(text, require_handoff=True)
+        self.assertFalse(ok)
+        self.assertIn("BOOT: handoff", message)
 
 
 class TestBusyMessage(unittest.TestCase):
