@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Unlicense
+
+[package]
+name = "core_io"
+version = "0.1.20210325"
+edition = "2024"
+description = "Minimal no_std std::io subset used by the fatfs crate"
+
+[lib]
+path = "src/lib.rs"
+
+# Patched into the workspace by the root Cargo.toml. It is not a workspace
+# member: the real core_io 0.1 is generated from an old libstd snapshot and no
+# longer builds on stable Rust.
+[workspace]

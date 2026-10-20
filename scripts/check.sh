@@ -58,6 +58,9 @@ cargo build --release
 echo "==> cargo clippy (bare-metal)"
 cargo clippy -- -D warnings
 
+echo "==> cargo clippy (core_io shim)"
+cargo clippy --manifest-path vendor/core_io/Cargo.toml --target-dir target/core_io-shim -- -D warnings
+
 echo "==> cargo clippy (host tooling)"
 cargo clippy -p rawboot-image -p xtask --target "$host_target" --all-targets -- -D warnings
 
