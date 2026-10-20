@@ -25,6 +25,24 @@ if [ ! -f "$IMAGE" ]; then
     exit 2
 fi
 
+# `HIL_FEL_PAYLOAD=1` uploads the payload image to SRAM and tells the loader to
+# boot it through the FEL mailbox instead of the SD card. These addresses mirror
+# `rawboot-image/src/fel.rs`; keep both together.
+FEL_PAYLOAD=${HIL_FEL_PAYLOAD:-0}
+FEL_MAILBOX_ADDR=0x00044000
+FEL_PAYLOAD_ADDR=0x00039000
+FEL_ARGS_ADDR=0x00038000
+FEL_PAYLOAD_LIMIT=0xB000
+FEL_ARGS_LIMIT=0x1000
+FEL_MAILBOX_MAGIC=0x4d464252
+PAYLOAD_IMG=${HIL_PAYLOAD_IMG:-target/rawboot-payload.img}
+
+if [ "$FEL_PAYLOAD" = "1" ] && [ "${HIL_REQUIRE_SD:-0}" = "1" ]; then
+    echo "error: HIL_FEL_PAYLOAD=1 boots from SRAM and never touches the SD card;" >&2
+    echo "error: unset HIL_REQUIRE_SD or run the SD path without HIL_FEL_PAYLOAD" >&2
+    exit 2
+fi
+
 # Refuse an image built from another tree: switching branches to commit docs
 # used to leave the previously built image in place, so HIL tested stale code.
 STAMP="${IMAGE}.build"
@@ -107,8 +125,11 @@ if [ "${HIL_REQUIRE_HANDOFF:-0}" = "1" ]; then
     echo "handoff assertion: payload must be entered"
     CAPTURE+=(--require-handoff)
 fi
-if [ "${HIL_REQUIRE_PAYLOAD:-0}" = "1" ]; then
-    PAYLOAD_IMG=${HIL_PAYLOAD_IMG:-target/rawboot-payload.img}
+if [ "$FEL_PAYLOAD" = "1" ]; then
+    echo "FEL payload: uploading $PAYLOAD_IMG to $FEL_PAYLOAD_ADDR"
+    CAPTURE+=(--require-fel)
+fi
+if [ "${HIL_REQUIRE_PAYLOAD:-0}" = "1" ] || [ "$FEL_PAYLOAD" = "1" ]; then
     if [ ! -f "$PAYLOAD_IMG" ]; then
         echo "error: payload image not found: $PAYLOAD_IMG (run cargo xtask payload)" >&2
         exit 2
@@ -116,6 +137,24 @@ if [ "${HIL_REQUIRE_PAYLOAD:-0}" = "1" ]; then
     echo "payload assertion: handoff must match $PAYLOAD_IMG"
     CAPTURE+=(--payload "$PAYLOAD_IMG")
 fi
+
+FEL_PAYLOAD_SIZE=0
+if [ "$FEL_PAYLOAD" = "1" ]; then
+    FEL_PAYLOAD_SIZE=$(stat -c %s "$PAYLOAD_IMG")
+    if ((FEL_PAYLOAD_SIZE > FEL_PAYLOAD_LIMIT)); then
+        echo "error: payload image is $FEL_PAYLOAD_SIZE bytes; the FEL SRAM window holds $FEL_PAYLOAD_LIMIT" >&2
+        exit 2
+    fi
+    if [ -n "${HIL_FEL_ARGS:-}" ]; then
+        fel_args_size=$(printf '%s\0' "$HIL_FEL_ARGS" | wc -c)
+        if ((fel_args_size > FEL_ARGS_LIMIT)); then
+            echo "error: HIL_FEL_ARGS needs $fel_args_size bytes; the FEL argument window holds $FEL_ARGS_LIMIT" >&2
+            exit 2
+        fi
+        CAPTURE+=(--fel-args "$FEL_ARGS_ADDR")
+    fi
+fi
+
 if [ -r "$DEV" ]; then
     "${CAPTURE[@]}" &
 else
@@ -124,9 +163,31 @@ fi
 capture_pid=$!
 sleep 2
 
-echo "load: $XFEL write 0x00028000 $IMAGE && $XFEL exec 0x00028000"
-"$XFEL" write 0x00028000 "$IMAGE" >/dev/null
-"$XFEL" exec 0x00028000 >/dev/null
+if [ "$FEL_PAYLOAD" = "1" ]; then
+    echo "load: $XFEL write $FEL_PAYLOAD_ADDR $PAYLOAD_IMG, mailbox at $FEL_MAILBOX_ADDR, exec 0x00028000"
+    "$XFEL" write 0x00028000 "$IMAGE" >/dev/null
+    "$XFEL" write "$FEL_PAYLOAD_ADDR" "$PAYLOAD_IMG" >/dev/null
+
+    fel_args=0
+    if [ -n "${HIL_FEL_ARGS:-}" ]; then
+        args_file=$(mktemp "${TMPDIR:-/tmp}/rawboot-fel-args.XXXXXX")
+        printf '%s\0' "$HIL_FEL_ARGS" >"$args_file"
+        "$XFEL" write "$FEL_ARGS_ADDR" "$args_file" >/dev/null
+        rm -f "$args_file"
+        fel_args=$((FEL_ARGS_ADDR))
+        echo "load: args \"$HIL_FEL_ARGS\" at $FEL_ARGS_ADDR"
+    fi
+
+    "$XFEL" write32 "$((FEL_MAILBOX_ADDR + 4))" "$((FEL_PAYLOAD_ADDR))" >/dev/null
+    "$XFEL" write32 "$((FEL_MAILBOX_ADDR + 8))" "$FEL_PAYLOAD_SIZE" >/dev/null
+    "$XFEL" write32 "$((FEL_MAILBOX_ADDR + 12))" "$fel_args" >/dev/null
+    "$XFEL" write32 "$((FEL_MAILBOX_ADDR))" "$((FEL_MAILBOX_MAGIC))" >/dev/null
+    "$XFEL" exec 0x00028000 >/dev/null
+else
+    echo "load: $XFEL write 0x00028000 $IMAGE && $XFEL exec 0x00028000"
+    "$XFEL" write 0x00028000 "$IMAGE" >/dev/null
+    "$XFEL" exec 0x00028000 >/dev/null
+fi
 
 status=0
 wait "$capture_pid" || status=$?

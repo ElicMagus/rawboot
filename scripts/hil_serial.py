@@ -28,6 +28,10 @@ HANDOFF_LINE = re.compile(
 )
 SD_FOUND = "SD/MMC card found"
 SD_READ = re.compile(r"^SD: read [1-9][0-9]* block\(s\)", re.MULTILINE)
+FEL_FOUND = "FEL: payload"
+FEL_LINE = re.compile(
+    r"FEL: payload image (0x[0-9a-fA-F]+), (\d+) bytes, args (0x[0-9a-fA-F]+)"
+)
 RESET_LOOP_HINT = (
     "power-cycle into FEL (do not xfel reset) and rerun"
 )
@@ -83,7 +87,9 @@ def evaluate(
     text: str,
     require_sd: bool = False,
     require_handoff: bool = False,
+    require_fel: bool = False,
     expected_payload: PayloadExpectation | None = None,
+    expected_fel_args: int | None = None,
 ) -> tuple[bool, str]:
     """Judge one captured boot log.
 
@@ -92,19 +98,25 @@ def evaluate(
     when the required lines are present. The loader ends either in its LED loop
     (``S=0x``) or in a payload handoff (``BOOT: handoff to``); one of the two is
     required. With ``require_sd`` the log must also show a detected card and a
-    non-zero block read; with ``require_handoff`` the loader loop is not enough.
+    non-zero block read; with ``require_fel`` it must show that the payload came
+    from the FEL mailbox; with ``require_handoff`` the loader loop is not enough.
     ``expected_payload`` additionally requires the handoff to name the same
-    entry, load address, size and checksum as that image.
+    entry, load address, size and checksum as that image. ``expected_fel_args``
+    checks the argument pointer printed in the ``FEL: payload`` line.
     """
     if text.count("Hello") > 1:
         return False, f"multiple Hello lines; the board is reset-looping or the capture is stale - {RESET_LOOP_HINT}"
 
     if expected_payload is not None:
         require_handoff = True
+    if expected_fel_args is not None:
+        require_fel = True
 
     required = list(REQUIRED)
     if require_sd:
         required.append(SD_FOUND)
+    if require_fel:
+        required.append(FEL_FOUND)
     missing = [item for item in required if item not in text]
     if missing:
         return False, "missing " + ", ".join(missing)
@@ -117,6 +129,17 @@ def evaluate(
 
     if require_sd and not SD_READ.search(text):
         return False, "missing a successful SD read (SD: read N block(s), N > 0)"
+
+    if expected_fel_args is not None:
+        match = FEL_LINE.search(text)
+        if match is None:
+            return False, "cannot parse the FEL payload line (image address, size, args)"
+        actual = int(match.group(3), 16)
+        if actual != expected_fel_args:
+            return False, (
+                f"FEL args mismatch: loader reported 0x{actual:08x}, "
+                f"expected 0x{expected_fel_args:08x}"
+            )
 
     if expected_payload is not None:
         match = HANDOFF_LINE.search(text)
@@ -182,6 +205,17 @@ def main() -> int:
         "--require-handoff",
         action="store_true",
         help="require the payload handoff line instead of the loader loop",
+    )
+    parser.add_argument(
+        "--require-fel",
+        action="store_true",
+        help="also require the payload to arrive through the FEL mailbox",
+    )
+    parser.add_argument(
+        "--fel-args",
+        metavar="ADDR",
+        type=lambda value: int(value, 0),
+        help="require the FEL argument pointer to equal ADDR (implies --require-fel)",
     )
     parser.add_argument(
         "--payload",
@@ -263,7 +297,9 @@ def main() -> int:
         text,
         require_sd=args.require_sd,
         require_handoff=args.require_handoff,
+        require_fel=args.require_fel,
         expected_payload=expected_payload,
+        expected_fel_args=args.fel_args,
     )
     if not ok:
         print(f"FAIL: {message}", file=sys.stderr)
