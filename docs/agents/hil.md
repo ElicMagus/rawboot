@@ -9,8 +9,9 @@ sequence, the UART capture, and how to read the result. The script from this rep
 - SoC: Allwinner T113-S3, DDR3, 128 MiB.
 - Debug UART: **USART0**, pins **PE2/PE3**, **115200 8N1**. On the host it is the CH340
   (`/dev/ttyUSB0`, override with `UART_DEV`).
-- LED: **PD22**. The loader toggles it in its main loop; after a handoff the payload owns it.
-  The script cannot see the LED, so the run ends with a human check.
+- LED: **PD22**. The loader toggles it every 50 ms in its main loop; after a handoff the payload
+  blinks a short-long cadence instead. The script cannot see the LED, so the run ends with a human
+  check.
 - FEL: USB OTG in FEL mode. The board enumerates as `1f3a:efe8` (some adapters report
   `1f3c:*`). Enter FEL by holding the FEL/BOOT button while applying power or reset.
 
@@ -46,6 +47,25 @@ unset when no card is inserted. For a ticket that must prove the handoff, also s
 `HIL_REQUIRE_HANDOFF=1`: the log must then contain a `BOOT: handoff to ...` line and the
 loader's `S=0x` loop is no longer accepted.
 
+### Payload image on the card
+
+The loader reads `payload.bin` from the FAT partition. Build the blink payload, then copy the
+wrapped image to the mounted card (mount the card on the host, not in the board):
+
+```sh
+cargo xtask payload
+cp target/rawboot-payload.img /media/$USER/<partition>/payload.bin
+```
+
+Copy `target/rawboot-payload.img`, not the raw
+`target/armv7a-none-eabi/release/payload.bin`: the former has the image header the loader
+parses. For the full end-to-end acceptance (SD -> FAT -> DRAM -> handoff -> blink), run with
+both assertions:
+
+```sh
+HIL_REQUIRE_SD=1 HIL_REQUIRE_HANDOFF=1 scripts/hil-check.sh target/rawboot-fel.bin blink
+```
+
 Run HIL from the code branch under test, before switching to `master` for docs or a merge.
 `cargo xtask image` writes `target/rawboot-fel.bin.build` with the source commit, branch and
 dirty flag; `hil-check.sh` refuses an image whose commit is not `HEAD`, so rebuild after
@@ -80,7 +100,8 @@ The script:
    (`BOOT: handoff to ...`); with `HIL_REQUIRE_SD=1` it also asserts `SD/MMC card found` and a
    non-zero `SD: read N block(s)`, and with `HIL_REQUIRE_HANDOFF=1` it requires the handoff
    line. It warns if more than one `Hello` appears (stale buffer or a reset loop);
-7. asks the human to confirm the PD22 LED blinks.
+7. asks the human to confirm PD22 shows the payload's short-long cadence (120 ms on, 180 ms
+   off, 600 ms on, 900 ms off, repeating), not the loader's steady 50 ms toggle.
 
 The raw capture is kept at `/tmp/rawboot-hil-<label>.log`.
 
@@ -122,11 +143,14 @@ its loop:
 
 ```
 FAT: mounted Fat32 at LBA 0 (987758592 bytes)
-BOOT: handoff to 0x42000000: 16 bytes at 0x42000000, BootInfo 0x47feffe0, SP 0x48000000
+BOOT: handoff to 0x42000000: 208 bytes at 0x42000000, BootInfo 0x47feffe0, SP 0x48000000
 ```
 
 After the handoff the UART is silent unless the payload prints, so the capture ends after the
-`BOOT: handoff to` line. The addresses depend on the image header and the detected DRAM size.
+`BOOT: handoff to` line. The payload then blinks PD22: 120 ms on, 180 ms off, 600 ms on,
+900 ms off, repeating. The loader's own loop toggles every 50 ms, so the cadence tells a
+completed handoff apart from a loader that never left its loop. The addresses and payload
+size depend on the image header and the detected DRAM size.
 
 - `CLK: PLL_ddr` is read before `dram.init()`, so it shows the pre-DRAM value; the DRAM
   initialisation that follows sets 792 MHz. See `research/clk-port-vs-upstream.md`.
@@ -138,8 +162,9 @@ After the handoff the UART is silent unless the payload prints, so the capture e
 - `SD/MMC card not found` is expected when no card is inserted. It does not invalidate the
   clock or DRAM checks. Full SD/MMC card parity (#20) is covered by
   `research/sdcard-port-vs-upstream.md`.
-- `S=0x...` repeats while the loader's own LED loop runs. The script stops after a few seconds.
-  A card with a valid `payload.bin` hands off instead and prints `BOOT: handoff to ...`.
+- `S=0x...` repeats while the loader's own LED loop runs, with a 50 ms toggle. The script stops
+  after a few seconds. A card with a valid `payload.bin` hands off instead, prints
+  `BOOT: handoff to ...` and blinks the short-long payload cadence.
 
 ## Troubleshooting
 
@@ -158,6 +183,9 @@ After the handoff the UART is silent unless the payload prints, so the capture e
 - HIL fails with `missing a payload handoff`: `HIL_REQUIRE_HANDOFF=1` was set but the loader
   stayed in its `S=0x` loop. Check that `payload.bin` is present and valid, and that the card
   path succeeded.
+- The log shows `BOOT: handoff to ...` but PD22 keeps the loader's steady 50 ms toggle: the card
+  has an old payload. Rebuild with `cargo xtask payload` and copy
+  `target/rawboot-payload.img` over `payload.bin` on the FAT partition.
 - The UART is silent: check USART0 PE2/PE3, 115200 8N1, and that the CH340 is `/dev/ttyUSB0`.
 - The log starts with repeated `Hello`/`S=` lines: the tty buffer still holds a previous
   run, or the board is in a reset loop. The script drains the buffer and now fails the run
