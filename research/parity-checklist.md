@@ -16,8 +16,9 @@ references are in each linked checklist.
 | --- | --- | --- | --- | --- |
 | `ccu` | `arch/arm32/mach-t113s3/reg-ccu.h` | `rawboot/src/ccu/mod.rs` | `research/clk-port-vs-upstream.md` | #16 |
 | `clk` | `arch/arm32/mach-t113s3/sunxi_clk.c` | `rawboot/src/clk/mod.rs` | `research/clk-port-vs-upstream.md` | #16 |
-| `gpio` | `arch/arm32/mach-t113s3/sunxi_gpio.[ch]`, `board.c` pin tables | `rawboot/src/gpio/mod.rs` (call sites in `sdhci/mod.rs`, `main.rs`) | `research/gpio-io-uart-port-vs-upstream.md` | #17 |
-| `io` | `include/io.h`, `arch/arm32/mach-t113s3/arch_timer.c` (`sdelay` only) | `rawboot/src/io/mod.rs` | `research/gpio-io-uart-port-vs-upstream.md` | #17 |
+| `gpio` | `arch/arm32/mach-t113s3/sunxi_gpio.[ch]`, `board.c` pin tables | `sunxi-pl/src/gpio.rs` (call sites in `rawboot/src/sdhci/mod.rs`, `rawboot/src/main.rs`) | `research/gpio-io-uart-port-vs-upstream.md` | #17 |
+| `io` | `include/io.h`, `arch/arm32/mach-t113s3/arch_timer.c` (`sdelay` only) | `sunxi-pl/src/io.rs` | `research/gpio-io-uart-port-vs-upstream.md` | #17 |
+| `cpu` (timer) | `arch/arm32/mach-t113s3/arch_timer.c` | `sunxi-pl/src/cpu.rs` | `research/gpio-io-uart-port-vs-upstream.md` | #17, #29 |
 | `uart` | `arch/arm32/mach-t113s3/sunxi_usart.[ch]`, `board.c` (`usart0_dbg`) | `rawboot/src/uart/mod.rs` | `research/gpio-io-uart-port-vs-upstream.md` | #17 |
 | `dram` | `arch/arm32/mach-t113s3/dram.[ch]`, `reg-dram.h` | `rawboot/src/dram/mod.rs` | `research/dram-port-vs-upstream.md` | #15, #18 |
 | `sdhci` | `arch/arm32/mach-t113s3/sunxi_sdhci.[ch]` | `rawboot/src/sdhci/mod.rs` | `research/sdhci-port-vs-upstream.md` | #19 |

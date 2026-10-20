@@ -232,7 +232,7 @@ PASS: UART assertions
 6. Upstream `arch/arm32/mach-t113s3/reg-ccu.h` at the same SHA (SMHC clock/gate registers) —
    <https://raw.githubusercontent.com/szemzoa/awboot/5380c00fc67c975433f25c57fb481aa2b91aebf8/arch/arm32/mach-t113s3/reg-ccu.h>
 7. Local `rawboot/src/sdhci/mod.rs`, `rawboot/src/sdcard/mod.rs`,
-   `rawboot/src/ccu/mod.rs`, `rawboot-rt/src/cpu.rs`.
+   `rawboot/src/ccu/mod.rs`, `sunxi-pl/src/cpu.rs` (the timer, re-exported by `rawboot-rt`).
 8. Vendored pre-port reference `embed/app/src/sdhci/mod.rs`.
 9. GitHub API, commit history for `arch/arm32/mach-t113s3/sunxi_sdhci.c` —
    <https://api.github.com/repos/szemzoa/awboot/commits?path=arch/arm32/mach-t113s3/sunxi_sdhci.c&per_page=20>

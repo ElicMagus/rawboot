@@ -6,9 +6,10 @@ Researched: 2026. Target: Allwinner T113-S3. Upstream is pinned to `szemzoa/awbo
 `arch/arm32/mach-t113s3/sunxi_usart.c`, `arch/arm32/mach-t113s3/sunxi_usart.h`,
 `include/io.h`, `arch/arm32/mach-t113s3/arch_timer.c` (`sdelay`), plus the board pin
 tables in `board.c` and the SD pin setup in `sunxi_sdhci.c` [1]-[8]. The local side is
-`rawboot/src/gpio/mod.rs`, `rawboot/src/io/mod.rs`, `rawboot/src/uart/mod.rs`,
+`sunxi-pl/src/gpio.rs`, `sunxi-pl/src/io.rs`, `sunxi-pl/src/cpu.rs`, `rawboot/src/uart/mod.rs`,
 `rawboot/src/sdhci/mod.rs` and `rawboot/src/main.rs`; local code is cited by symbol, not by
-line (see `docs/agents/domain.md`).
+line (see `docs/agents/domain.md`). Updated after issue #29, which moved the shared
+hardware layer into the `sunxi-pl` crate (ADR-0010).
 
 This note is the GPIO/IO/UART counterpart of `research/dram-port-vs-upstream.md` and
 `research/clk-port-vs-upstream.md`; it is the static parity checklist for issue #17.
@@ -28,6 +29,10 @@ This note is the GPIO/IO/UART counterpart of `research/dram-port-vs-upstream.md`
 | `sunxi_gpio_set_drive_lvl` [1:126] | `sunxi_gpio_set_drive_lvl` | Same `DRV0 + ((pin >> 4) << 2)`, `lvl &= 3`. |
 | `read8/16/32/64`, `write8/16/32/64` [5] | same names | Added the missing widths; `read32`/`write32` unchanged. |
 | `sdelay` [6:60] | `sdelay` | Same `subs`/`bne` decrement loop. |
+| `get_arch_counter` [6:16] | `get_arch_counter` | Same `mrrc p15, 0, …, c14`, 64-bit counter. |
+| `time_ms` [6:26] | `time_ms` | Same: counter / 24000. |
+| `time_us` [6:34] | `time_us` | Same: counter / 24. |
+| `udelay` [6:39] | `udelay` | Diverges: upstream loops on `time_us()`, ours compares the raw counter against a deadline (section 3). |
 | `sunxi_usart_init` [3:24] | `sunxi_usart_init` | Same order: TX/RX mux, pull-ups, gate, reset, `div = 1500000/baud`, `LCR/DLL/LCR/FCR`. |
 | `sunxi_usart_putc` [3:61] | `sunxi_usart_putc` | Same TFNF wait, THR write, BUSY wait. |
 | `sunxi_usart_put` [3:72] | `sunxi_usart_put` | Same byte loop. |
@@ -76,6 +81,11 @@ This note is the GPIO/IO/UART counterpart of `research/dram-port-vs-upstream.md`
   `sunxi_usart_*`, `usart0_dbg`, `GPIO_PERIPH_MUX*`); Rust types and their constructors are
   idiomatic (`GpioPin`, `GpioMux`, `GpioPull`, `SunxiUsart`, `gpio_pin`) per ADR-0007,
   while register values and step order stay upstream's.
+- **`udelay` counts the raw counter.** Upstream loops on `time_us()` [6:39-46]; ours reads
+  the counter once, computes a deadline and waits until the counter passes it. The wait
+  length is the same, but ours compares absolute values, so it does not survive the
+  64-bit counter wrap, while upstream's subtraction does. Carried over unchanged from
+  the pre-#29 port; fixing it is a separate parity question.
 
 ## 4. Hardware confirmation
 
