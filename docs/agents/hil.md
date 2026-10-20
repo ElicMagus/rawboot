@@ -219,7 +219,7 @@ its loop:
 ```
 FAT: mounted Fat32 at LBA 0 (987758592 bytes)
 ARGS: no boot.cfg
-BOOT: handoff to 0x42000000: 208 bytes at 0x42000000, checksum 0xa2dbc9d5, BootInfo 0x47feffe0, SP 0x48000000, args 0x00000000
+BOOT: handoff to 0x42000000: 192 bytes at 0x42000000, checksum 0x17e889cb, BootInfo 0x47feffe0, SP 0x48000000, args 0x00000000
 ```
 
 With a `boot.cfg` on the card the argument line names the file and its DRAM address, and the
@@ -228,14 +228,14 @@ handoff carries the same pointer:
 ```
 FAT: mounted Fat32 at LBA 0 (987758592 bytes)
 ARGS: boot.cfg 13 bytes at 0x47ffefd0
-BOOT: handoff to 0x42000000: 208 bytes at 0x42000000, checksum 0xa2dbc9d5, BootInfo 0x47feffe0, SP 0x48000000, args 0x47ffefd0
+BOOT: handoff to 0x42000000: 192 bytes at 0x42000000, checksum 0x17e889cb, BootInfo 0x47feffe0, SP 0x48000000, args 0x47ffefd0
 ```
 
 With `HIL_FEL_PAYLOAD=1` it skips SD initialisation and prints the mailbox request instead:
 
 ```
-FEL: payload image 0x00039000, 208 bytes, args 0x00000000
-BOOT: handoff to 0x42000000: 208 bytes at 0x42000000, checksum 0xa2dbc9d5, BootInfo 0x47feffe0, SP 0x48000000, args 0x00000000
+FEL: payload image 0x00039000, 192 bytes, args 0x00000000
+BOOT: handoff to 0x42000000: 192 bytes at 0x42000000, checksum 0x17e889cb, BootInfo 0x47feffe0, SP 0x48000000, args 0x00000000
 ```
 
 After the handoff the UART is silent unless the payload prints, so the capture ends after the
