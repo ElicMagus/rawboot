@@ -172,7 +172,13 @@ def main() -> int:
         print(f"FAIL: {message}", file=sys.stderr)
         return 1
     print("PASS: UART assertions")
-    print("Human check: does the LED on PD22 blink?")
+    if HANDOFF in text:
+        print(
+            "Human check: does PD22 show the payload's short-long blink "
+            "(not the loader's steady 50 ms toggle)?"
+        )
+    else:
+        print("Human check: does the LED on PD22 blink?")
     return 0
 
 
