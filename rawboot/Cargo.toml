@@ -6,6 +6,9 @@ edition = "2024"
 [dependencies]
 rawboot-image = { path = "../rawboot-image", default-features = false }
 rawboot-rt = { path = "../rawboot-rt" }
+# The shared platform layer: GPIO and the MMIO accessors live there, the loader
+# re-exports them under its own module names (ADR-0010).
+sunxi-pl = { path = "../sunxi-pl" }
 core_io = "0.1"
 fatfs = { version = "0.3.6", default-features = false, features = ["core_io"] }
 # The loader has no logger; compile fatfs's trace/debug calls out entirely.

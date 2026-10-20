@@ -7,11 +7,11 @@ written in 100% Rust and ported from `szemzoa/awboot`. It brings up the SoC, rea
 image from a FAT partition on an SD card over SDHCI, loads it into DRAM, and hands off through a
 versioned `BootInfo` contract. The payload is our own firmware, not Linux (no FDT, no PSCI).
 
-Cargo workspace with five members: `rawboot` (the loader), `rawboot-rt` (the runtime),
-`payload` (the blink test payload image the loader boots), `rawboot-image` (host-testable
-payload/eGON image tooling) and `xtask` (host build tooling). `fatfs`'s `no_std` `core_io`
-dependency is patched to `vendor/core_io`, a minimal stable-compatible shim.
-Target `armv7a-none-eabi` (soft-float), Rust edition 2024.
+Cargo workspace with six members: `rawboot` (the loader), `rawboot-rt` (the runtime),
+`sunxi-pl` (the shared platform layer: MMIO, GPIO, timer), `payload` (the blink test payload
+image the loader boots), `rawboot-image` (host-testable payload/eGON image tooling) and `xtask`
+(host build tooling). `fatfs`'s `no_std` `core_io` dependency is patched to `vendor/core_io`, a
+minimal stable-compatible shim. Target `armv7a-none-eabi` (soft-float), Rust edition 2024.
 
 `embed/` is an ignored snapshot of the older Rust port kept for pre-port comparison; the
 pinned C upstream is fetched by `scripts/fetch-upstream.sh` into `target/upstream/`.

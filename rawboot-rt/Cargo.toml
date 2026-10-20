@@ -7,6 +7,8 @@ edition = "2024"
 # The eGON header layout is defined once, in the image tooling, and embedded here. The runtime
 # only needs the layout, not the heap-allocating `seal`, so `alloc` stays off.
 rawboot-image = { path = "../rawboot-image", default-features = false }
+# The shared platform layer: CPU and timer primitives live there (ADR-0010).
+sunxi-pl = { path = "../sunxi-pl" }
 
 [lib]
 test = false
