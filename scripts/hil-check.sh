@@ -141,13 +141,13 @@ fi
 FEL_PAYLOAD_SIZE=0
 if [ "$FEL_PAYLOAD" = "1" ]; then
     FEL_PAYLOAD_SIZE=$(stat -c %s "$PAYLOAD_IMG")
-    if [ "$FEL_PAYLOAD_SIZE" -gt "$FEL_PAYLOAD_LIMIT" ]; then
+    if ((FEL_PAYLOAD_SIZE > FEL_PAYLOAD_LIMIT)); then
         echo "error: payload image is $FEL_PAYLOAD_SIZE bytes; the FEL SRAM window holds $FEL_PAYLOAD_LIMIT" >&2
         exit 2
     fi
     if [ -n "${HIL_FEL_ARGS:-}" ]; then
         fel_args_size=$(printf '%s\0' "$HIL_FEL_ARGS" | wc -c)
-        if [ "$fel_args_size" -gt "$FEL_ARGS_LIMIT" ]; then
+        if ((fel_args_size > FEL_ARGS_LIMIT)); then
             echo "error: HIL_FEL_ARGS needs $fel_args_size bytes; the FEL argument window holds $FEL_ARGS_LIMIT" >&2
             exit 2
         fi
