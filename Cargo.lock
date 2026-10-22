@@ -39,6 +39,9 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 [[package]]
 name = "payload"
 version = "0.1.0"
+dependencies = [
+ "sunxi-pl",
+]
 
 [[package]]
 name = "rawboot"
@@ -49,6 +52,7 @@ dependencies = [
  "log",
  "rawboot-image",
  "rawboot-rt",
+ "sunxi-pl",
 ]
 
 [[package]]
@@ -60,7 +64,12 @@ name = "rawboot-rt"
 version = "0.1.0"
 dependencies = [
  "rawboot-image",
+ "sunxi-pl",
 ]
+
+[[package]]
+name = "sunxi-pl"
+version = "0.1.0"
 
 [[package]]
 name = "xtask"

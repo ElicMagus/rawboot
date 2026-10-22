@@ -5,6 +5,11 @@ edition = "2024"
 license = "Unlicense"
 publish = false
 
+[dependencies]
+# The shared platform layer: GPIO and the timer, the same code the loader uses
+# (ADR-0010).
+sunxi-pl = { path = "../sunxi-pl" }
+
 [[bin]]
 name = "payload"
 path = "src/main.rs"

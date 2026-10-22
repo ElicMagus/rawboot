@@ -1,5 +1,12 @@
 // SPDX-License-Identifier: Unlicense
 
+//! GPIO controller access, transcribed from upstream
+//! `arch/arm32/mach-t113s3/sunxi_gpio.c:24-139` — the port bases at `:24`, the
+//! pin number at `:52`, the `sunxi_gpio_*` functions at `:57`, `:72`, `:84`,
+//! `:94` and `:126` — and `sunxi_gpio.h:35-37`, at upstream `5380c00`.
+//!
+//! The pin encoding is upstream's: `port << 5 | pin` (`GPIO_PIN`).
+
 use crate::io::{read32, write32};
 
 const GPIO_CFG0: u32 = 0x00;

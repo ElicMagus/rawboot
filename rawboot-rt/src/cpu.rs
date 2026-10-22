@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Unlicense
 
+//! The runtime's arch control and the loader-image-specific CPU helpers.
+//!
+//! The timer lives in the shared platform layer (`sunxi-pl`) and is re-exported
+//! here; the arch control and the startup part stay in the runtime (ADR-0010).
+
 use core::arch::asm;
 
-#[unsafe(no_mangle)]
-pub fn wfe() {
-    unsafe { asm!("wfe", options(nomem, nostack)) }
-}
+pub use sunxi_pl::cpu::{get_arch_counter, time_ms, time_us, udelay};
 
 #[unsafe(no_mangle)]
 pub fn get_cpsr() -> u32 {
@@ -33,6 +35,14 @@ pub fn get_sp() -> u32 {
 }
 
 #[unsafe(no_mangle)]
+pub fn set_sp(addr: u32) {
+    unsafe {
+        asm!("mov sp,  {}", in(reg) addr);
+    }
+}
+
+/// The size of the loader's SRAM image, from the loader's linker script.
+#[unsafe(no_mangle)]
 pub fn get_spl_size() -> u32 {
     unsafe extern "C" {
         static __spl_end: u32;
@@ -41,49 +51,6 @@ pub fn get_spl_size() -> u32 {
 }
 
 #[unsafe(no_mangle)]
-pub fn get_arch_counter() -> u64 {
-    let low: u32;
-    let high: u32;
-    unsafe {
-        asm!(
-            "mrrc p15, 0, {}, {}, c14",
-            out(reg) low,
-            out(reg) high,
-        );
-    }
-    ((high as u64) << 32) | low as u64
-}
-
-#[unsafe(no_mangle)]
 pub fn get_sys_ticks() -> u32 {
     time_ms()
-}
-
-#[unsafe(no_mangle)]
-pub fn time_ms() -> u32 {
-    (get_arch_counter() / 24000) as u32
-}
-
-#[unsafe(no_mangle)]
-pub fn time_us() -> u64 {
-    get_arch_counter() / 24
-}
-
-#[unsafe(no_mangle)]
-pub fn udelay(us: u64) {
-    let mut t1 = get_arch_counter();
-    let t2 = t1 + us * 24;
-    loop {
-        t1 = get_arch_counter();
-        if t2 < t1 {
-            break;
-        }
-    }
-}
-
-#[unsafe(no_mangle)]
-pub fn set_sp(addr: u32) {
-    unsafe {
-        asm!("mov sp,  {}", in(reg) addr);
-    }
 }

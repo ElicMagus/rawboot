@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: Unlicense
 
+//! Volatile MMIO accessors and the busy-wait delay loop.
+//!
+//! Transcribed from upstream `include/io.h:10-48` and
+//! `arch/arm32/mach-t113s3/arch_timer.c:60-67` (`sdelay`), at upstream `5380c00`.
+
 #[inline(always)]
 pub fn read8(addr: u32) -> u8 {
     unsafe { core::ptr::read_volatile(addr as *const u8) }

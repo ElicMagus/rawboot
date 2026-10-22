@@ -1,0 +1,12 @@
+[package]
+name = "sunxi-pl"
+version = "0.1.0"
+edition = "2024"
+license = "Unlicense"
+publish = false
+
+# The platform layer is shared by the loader, the runtime and the payload: no
+# startup code, no eGON header, no panic handler (ADR-0010).
+[lib]
+test = false
+doctest = false

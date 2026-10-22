@@ -7,7 +7,10 @@ use core::panic::PanicInfo;
 use rawboot_rt::entry;
 entry!(main);
 
-use rawboot_rt::cpu::{udelay, wfe};
+// The timer comes from the runtime, which re-exports it from the platform
+// layer; `wfe` the runtime no longer carries (ADR-0010).
+use rawboot_rt::cpu::udelay;
+use sunxi_pl::cpu::wfe;
 
 use crate::io::{read32, write32};
 mod boot;
@@ -15,12 +18,14 @@ pub mod ccu;
 pub mod clk;
 pub mod dram;
 mod fat;
-pub mod gpio;
-pub mod io;
 pub mod print;
 pub mod sdcard;
 pub mod sdhci;
 pub mod uart;
+
+// The shared platform layer, re-exported under the loader's module names so the
+// call sites stay `crate::gpio::…` and `crate::io::…` (ADR-0010).
+pub use sunxi_pl::{gpio, io};
 
 fn main() -> ! {
     // LED on port D pin 22, as upstream board_init_led()
