@@ -24,7 +24,8 @@ Standard commands:
 
 - Build: `cargo build --release` (`xtask` and its host-only image tooling are kept out of the
   bare-metal `default-members`; `rawboot-image` is still built as the loader's no-alloc
-  dependency)
+  dependency. `rawboot-flasher` is also out of `default-members`: it enables
+  `sunxi-drivers/write`, which would unify into the loader; `cargo xtask flasher` builds it)
 - Test (host, tooling): `cargo test -p rawboot-image -p rawboot-fel -p xtask -p sunxi-drivers --target x86_64-unknown-linux-gnu`
   (the workspace default target is `armv7a-none-eabi`, so host tests need an explicit
   `--target`; the package scope keeps the hardware-only bare-metal members out of the host
@@ -34,8 +35,10 @@ Standard commands:
   target, so `--all-targets` cannot build the libtest harness on
   `armv7a-none-eabi`; `sunxi-drivers` is not a default member, so its two feature sets
   are linted explicitly with `cargo clippy -p sunxi-drivers -- -D warnings` and
-  `cargo clippy -p sunxi-drivers --no-default-features -- -D warnings`; the host
-  tooling and the host-testable driver tests are linted with
+  `cargo clippy -p sunxi-drivers --no-default-features -- -D warnings`; the flasher is
+  linted separately with `cargo clippy -p rawboot-flasher -- -D warnings` because it is
+  not a default member and enables the write feature; the host tooling and the
+  host-testable driver tests are linted with
   `cargo clippy -p rawboot-image -p rawboot-fel -p xtask -p sunxi-drivers --target x86_64-unknown-linux-gnu --all-targets -- -D warnings`;
   the `core_io` shim is linted with
   `cargo clippy --manifest-path vendor/core_io/Cargo.toml --target-dir target/core_io-shim -- -D warnings`)
@@ -44,8 +47,8 @@ Standard commands:
   `llvm-objdump` from the `llvm-tools` component; there is no `cargo objdump`)
 - Fetch pinned upstream: `scripts/fetch-upstream.sh` (writes the C tree used by the parity
   research notes to `target/upstream/awboot-<sha>/`)
-- Check everything: `scripts/check.sh` (fmt, build, both clippy passes, host tests, SPDX
-  headers, branch-docs rule, the loader no-write guard, and
+- Check everything: `scripts/check.sh` (fmt, build, the bare-metal, flasher, driver and host
+  clippy passes, host tests, SPDX headers, branch-docs rule, the loader no-write guard, and
   `cargo xtask image`/`payload`/`flasher`/`sd-image` smoke builds)
 - Seal an image: `cargo xtask image` (builds the loader twice and writes the sealed
   `target/rawboot-fel.bin` for FEL at `0x00028000` and `target/rawboot-boot-sd.bin` for
@@ -55,6 +58,11 @@ Standard commands:
 - Build the FEL flasher images: `cargo xtask flasher` (writes `target/rawboot-ddr.bin`, the
   returning DDR-init stub at `0x00028000`, and `target/rawboot-flasher.bin`, linked at
   `0x40010000` in DRAM; both carry no eGON header; ADR-0013)
+- Flash the card in the board: `cargo xtask fel-flash [--payload <path>] [--boot-cfg <path>]
+  [--loader <path>] [--flasher <path>] [--ddr-stub <path>] [--sequence <n>] [--skip-build]`
+  (builds or reuses the images, checks the sealed SD loader and refuses the FEL variant, writes
+  the payload files and loader over FEL without touching the MBR, and reads everything back;
+  ADR-0014; runbook `docs/agents/hil.md`)
 - FEL CLI: `cargo fel version|read|write|exec|bringup ...` (host-side FEL transport over USB
   with no system `libusb`; `version` identifies the T113-S3, `read <addr> <len>` hex-dumps or
   writes to `--output`, `write <addr> <file>` uploads bytes, `exec <addr>` jumps, `bringup
@@ -71,9 +79,11 @@ Standard commands:
   multi-partition disks; runbook `docs/agents/hil.md`)
 - HIL: run `scripts/hil-check.sh target/rawboot-fel.bin <label>` after `code-review`, on the
   code branch, before merging. When SD init is flaky (#43), `scripts/hil-sd-retry.sh
-  [image] [label]` retries only `SD/MMC card not found`. The runbook `docs/agents/hil.md` covers
-  the FEL load, UART assertions, payload-image match and LED confirmation. `scripts/check.sh`
-  covers host checks only.
+  [image] [label]` retries only `SD/MMC card not found`. For in-board SD updates, run
+  `cargo xtask fel-flash` with the card inserted, then cold-boot from the card and capture the
+  handoff (`HIL_REQUIRE_SD=1 HIL_REQUIRE_HANDOFF=1 HIL_REQUIRE_PAYLOAD=1 HIL_REQUIRE_LED=1`).
+  The runbook `docs/agents/hil.md` covers the FEL load, UART assertions, payload-image match,
+  the `fel-flash` safety checks and LED confirmation. `scripts/check.sh` covers host checks only.
 
 ## CI
 
