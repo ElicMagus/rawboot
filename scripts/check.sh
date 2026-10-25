@@ -58,14 +58,20 @@ cargo build --release
 echo "==> cargo clippy (bare-metal)"
 cargo clippy -- -D warnings
 
+echo "==> cargo clippy (sunxi-drivers, write)"
+cargo clippy -p sunxi-drivers -- -D warnings
+
+echo "==> cargo clippy (sunxi-drivers, read-only)"
+cargo clippy -p sunxi-drivers --no-default-features -- -D warnings
+
 echo "==> cargo clippy (core_io shim)"
 cargo clippy --manifest-path vendor/core_io/Cargo.toml --target-dir target/core_io-shim -- -D warnings
 
 echo "==> cargo clippy (host tooling)"
-cargo clippy -p rawboot-image -p rawboot-fel -p xtask --target "$host_target" --all-targets -- -D warnings
+cargo clippy -p rawboot-image -p rawboot-fel -p xtask -p sunxi-drivers --target "$host_target" --all-targets -- -D warnings
 
 echo "==> cargo test (host)"
-cargo test -p rawboot-image -p rawboot-fel -p xtask --target "$host_target"
+cargo test -p rawboot-image -p rawboot-fel -p xtask -p sunxi-drivers --target "$host_target"
 
 echo "==> cargo xtask image"
 cargo xtask image

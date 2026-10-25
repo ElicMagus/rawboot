@@ -9,8 +9,15 @@ publish = false
 # image that links them: no startup code, no eGON header, no linker scripts and
 # no global allocator (ADR-0012).
 [lib]
-test = false
+test = true
 doctest = false
+
+[features]
+# Block and FAT writes. The loader keeps it off: the write-cache code does not
+# fit its 64 KiB SRAM budget (ADR-0005). The FEL flasher and the host tests use
+# the default.
+default = ["write"]
+write = []
 
 [dependencies]
 # The shared platform layer: MMIO, GPIO and the timer (ADR-0010).

@@ -8,6 +8,7 @@
 //! 24 MHz (`arch_timer.c:14`); that frequency lives here as the crate's single
 //! constant, so the payload does not hardcode it.
 
+#[cfg(target_arch = "arm")]
 use core::arch::asm;
 
 /// The T113-S3 generic timer runs at 24 MHz.
@@ -16,12 +17,14 @@ pub const TICKS_PER_MS: u64 = 24_000;
 /// Timer ticks per microsecond, derived from the timer frequency.
 const TICKS_PER_US: u64 = TICKS_PER_MS / 1000;
 
+#[cfg(target_arch = "arm")]
 #[unsafe(no_mangle)]
 pub fn wfe() {
     unsafe { asm!("wfe", options(nomem, nostack)) }
 }
 
 /// The 64-bit generic timer counter.
+#[cfg(target_arch = "arm")]
 #[unsafe(no_mangle)]
 pub fn get_arch_counter() -> u64 {
     let low: u32;
@@ -38,6 +41,19 @@ pub fn get_arch_counter() -> u64 {
     (u64::from(high) << 32) | u64::from(low)
 }
 
+// The host build exists only so the allocation-free FAT and block code can be
+// unit-tested. It has no timer or CPU to wait on, and nothing may run the
+// driver entry points there.
+#[cfg(not(target_arch = "arm"))]
+#[unsafe(no_mangle)]
+pub fn wfe() {}
+
+#[cfg(not(target_arch = "arm"))]
+#[unsafe(no_mangle)]
+pub fn get_arch_counter() -> u64 {
+    0
+}
+
 #[unsafe(no_mangle)]
 pub fn time_ms() -> u32 {
     (get_arch_counter() / TICKS_PER_MS) as u32
@@ -48,6 +64,7 @@ pub fn time_us() -> u64 {
     get_arch_counter() / TICKS_PER_US
 }
 
+#[cfg(target_arch = "arm")]
 #[unsafe(no_mangle)]
 pub fn udelay(us: u64) {
     let mut t1 = get_arch_counter();
@@ -59,3 +76,7 @@ pub fn udelay(us: u64) {
         }
     }
 }
+
+#[cfg(not(target_arch = "arm"))]
+#[unsafe(no_mangle)]
+pub fn udelay(_us: u64) {}

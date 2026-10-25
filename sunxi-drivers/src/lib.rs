@@ -4,7 +4,8 @@
 //! any future image that links them.
 //!
 //! The crate sits above the platform layer (`sunxi-pl`) and below a program:
-//! clock and DRAM bring-up, UART, SDHCI/SD/MMC, and the read-only FAT adapter.
+//! clock and DRAM bring-up, UART, SDHCI/SD/MMC, and the FAT adapter (read-only in
+//! the loader, read-write for the flasher and the host tests).
 //! It carries no startup code, no eGON header, no linker scripts and no global
 //! allocator; those belong to the image that links it (ADR-0012).
 //!
@@ -12,7 +13,7 @@
 //! binary installs its own sink (the loader uses USART0); without one the
 //! drivers still do their work, silently.
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 
 pub mod ccu;
 pub mod clk;

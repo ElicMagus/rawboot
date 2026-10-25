@@ -13,7 +13,7 @@ rawboot-image = { path = "../rawboot-image", default-features = false }
 rawboot-rt = { path = "../rawboot-rt" }
 # The Allwinner drivers above the platform layer: clocks, DRAM, UART, SDHCI and
 # the FAT adapter (ADR-0012).
-sunxi-drivers = { path = "../sunxi-drivers" }
+sunxi-drivers = { path = "../sunxi-drivers", default-features = false }
 # The shared platform layer: GPIO, MMIO and the timer (ADR-0010).
 sunxi-pl = { path = "../sunxi-pl" }
 

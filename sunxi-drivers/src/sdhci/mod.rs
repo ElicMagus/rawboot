@@ -510,8 +510,12 @@ fn wait_done(
 
         let done = match dat {
             Some(dat) if dma && dat.blkcnt * dat.blksz > 0 => {
-                status & flag != 0
-                    && read32(sdhci.reg + reg::IDST) & SMHC_IDMAC_RECEIVE_INTERRUPT != 0
+                let idmac_done = if dat.flag & MMC_DATA_WRITE != 0 {
+                    SMHC_IDMAC_TRANSMIT_INTERRUPT
+                } else {
+                    SMHC_IDMAC_RECEIVE_INTERRUPT
+                };
+                status & flag != 0 && read32(sdhci.reg + reg::IDST) & idmac_done != 0
             }
             _ => status & flag != 0,
         };
