@@ -18,10 +18,33 @@ pub const SDRAM_BASE: u32 = 0x40000000;
 const MCTL_COM_BASE: u32 = 0x0310_2000;
 const MCTL_COM_WORK_MODE0: u32 = 0x00;
 const MCTL_COM_WORK_MODE1: u32 = 0x04;
+const MCTL_COM_DBGCR: u32 = 0x08;
+const MCTL_COM_TMR: u32 = 0x0c;
+const MCTL_COM_CCCR: u32 = 0x14;
+const MCTL_COM_MAER0: u32 = 0x20;
+const MCTL_COM_MAER1: u32 = 0x24;
+const MCTL_COM_MAER2: u32 = 0x28;
+const MCTL_COM_REMAP0: u32 = 0x500;
+const MCTL_COM_REMAP1: u32 = 0x504;
+const MCTL_COM_REMAP2: u32 = 0x508;
+const MCTL_COM_REMAP3: u32 = 0x50c;
+
 const RESCAL_CTRL_REG: u32 = 0x0300_0160;
 const RES240_CTRL_REG: u32 = 0x0300_0168;
 const RESCAL_STATUS_REG: u32 = 0x0300_016C;
 const SYS_LDO_CTRL_REG: u32 = 0x0300_0150;
+const SYS_SID_BASE: u32 = 0x0300_6000;
+const SYS_EFUSE_REG: u32 = 0x228;
+const SYS_LDOB_SID: u32 = 0x21c;
+// SID chip-ID register: no name in the pinned upstream header.
+const SYS_CHIP_ID: u32 = 0x0300_6200;
+
+const R_PRCM_BASE: u32 = 0x0701_0000;
+const VDD_SYS_PWROFF_GATING_REG: u32 = 0x250;
+const ANALOG_PWROFF_GATING_REG: u32 = 0x254;
+
+const SUNXI_R_CPUCFG_BASE: u32 = 0x0700_0400;
+const SUNXI_R_CPUCFG_SUP_STAN_FLAG: u32 = 0x1d4;
 
 const MCTL_PHY_BASE: u32 = 0x0310_3000;
 const PIR: u32 = 0x00; /*PHY initialization register */
@@ -33,18 +56,30 @@ const PGSR1: u32 = 0x14;
 const STATR: u32 = 0x18; /**/
 // const res1	        :u32= 0x1c ;/*[u8;0x10]; [u32;4]*/
 const LP3MR11: u32 = 0x2c; /**/
-const MR: u32 = 0x30; /*mode registers [4]*/
+const DRAM_MR0: u32 = 0x30; /*mode registers [4]*/
+const DRAM_MR1: u32 = 0x34;
+const DRAM_MR2: u32 = 0x38;
+const DRAM_MR3: u32 = 0x3c;
 const PLLGCR: u32 = 0x40; /**/
-const PTR: u32 = 0x44; /*PHY timing registers [5]*/
-const DRAMTMG: u32 = 0x58; /*DRAM timing registers [9] */
+const PTR0: u32 = 0x44; /*PHY timing registers [5]*/
+const PTR3: u32 = 0x50;
+const PTR4: u32 = 0x54;
+const DRAMTMG0: u32 = 0x58; /*DRAM timing registers [9] */
+const DRAMTMG1: u32 = 0x5c;
+const DRAMTMG2: u32 = 0x60;
+const DRAMTMG3: u32 = 0x64;
+const DRAMTMG4: u32 = 0x68;
+const DRAMTMG5: u32 = 0x6c;
+const DRAMTMG8: u32 = 0x78;
 const ODTCFG: u32 = 0x7c; /**/
-const PITMG: u32 = 0x80; /*PHY interface timing registers [2] */
+const PITMG0: u32 = 0x80; /*PHY interface timing registers [2] */
 // const res2      	:u32= 0x88 ;/*[u8;0x4];*/
 const RFSHCTL0: u32 = 0x8c; /**/
 const RFSHTMG: u32 = 0x90; /*refresh timing [2]*/
+const RFSHCTL1: u32 = 0x94;
 const PWRTMG: u32 = 0x98; /**/
 // const res3 	        :u32= 0x9c ;/*[0x4]*/
-const UNK_0X0A0: u32 = 0xa0; /**/
+const ASRTC: u32 = 0xa0; /**/
 // const res3_1        :u32= 0xa4 ;/*[0x14]*/
 const VTFCR: u32 = 0xb8; /* VTF feature control register */
 const DQSGMR: u32 = 0xbc; /**/
@@ -57,7 +92,10 @@ const CATR: u32 = 0xe8; /*  [2]*/
 const DTEDR: u32 = 0xf0; /*[2]*/
 // const res4	        :u32= 0xf8 ;/*[0x8] */
 const PGCR0: u32 = 0x100; /* PHY general configuration registers [4] */
-const IOVCR: u32 = 0x110; /*[2] */
+const PGCR2: u32 = 0x108;
+const PGCR3: u32 = 0x10c;
+const IOVCR0: u32 = 0x110; /*[2] */
+const IOVCR1: u32 = 0x114;
 const DQSDR: u32 = 0x118; /* */
 const DXCCR: u32 = 0x11c; /* */
 const ODTMAP: u32 = 0x120; /* */
@@ -74,7 +112,7 @@ const PERFWR: u32 = 0x1d4; /*  [2] */
 // const res8      	:u32= 0x1dc;/* [0x24]*/
 const ACMDLR: u32 = 0x200; /* AC master delay line register */
 const ACLCDLR: u32 = 0x204; /* AC local calibrated delay line register */
-const ACIOCR: u32 = 0x208; /* AC I/O configuration register */
+const ACIOCR0: u32 = 0x208; /* AC I/O configuration register */
 // const res9      	:u32= 0x20c;/*[0x4] */
 const ACBDLR: u32 = 0x210; /* AC bit delay line registers [31]*/
 // const res10         :u32= 0x28c;/*[0x74] */
@@ -91,16 +129,27 @@ const ACBDLR: u32 = 0x210; /* AC bit delay line registers [31]*/
 // u8 res11[0x388];	/* 0x500 */
 const UPD2: u32 = 0x888; /* 0x888 */
 
-const CR: u32 = 0x000; /*control register */
-const CR_R1: u32 = 0x004; /*control register for 2nd rank */
-const UNK_0X008: u32 = 0x008; /**/
-const TMR: u32 = 0x00c; /*timer register */
+const fn aciocr1(n: u32) -> u32 {
+    0x210 + 4 * n
+}
+const fn datx0iocr(n: u32) -> u32 {
+    0x310 + 4 * n
+}
+const fn datx1iocr(n: u32) -> u32 {
+    0x390 + 4 * n
+}
+const fn dxngcr0(n: u32) -> u32 {
+    0x344 + 0x80 * n
+}
+const fn dxngsr0(n: u32) -> u32 {
+    0x348 + 0x80 * n
+}
+const fn dxnsdlr6(n: u32) -> u32 {
+    0x33c + 0x80 * n
+}
+
 // const reserved_0x010[4]     :u32 = 0x010;/**/
-const UNK_0X014: u32 = 0x014; /**/
 // const reserved_0x018[8]     :u32 = 0x018;/**/
-const MAER0: u32 = 0x020; /*master enable register 0 */
-const MAER1: u32 = 0x024; /*master enable register 1 */
-const MAER2: u32 = 0x028; /*master enable register 2 */
 // const reserved_0x02c[468] 	:u32 = 0x02c;/**/
 const BWCR: u32 = 0x200; /*bandwidth control register */
 // const reserved_0x204[12] 	:u32 = 0x204;/**/
@@ -213,7 +262,10 @@ impl DramPara {
             sdelay(10);
         } else {
             write32(RESCAL_CTRL_REG, read32(RESCAL_CTRL_REG) & 0xfffffffc);
-            write32(0x7010254, self.dram_tpr13 & 0x10000); //PRCM register
+            write32(
+                R_PRCM_BASE + ANALOG_PWROFF_GATING_REG,
+                self.dram_tpr13 & 0x10000,
+            ); //PRCM register
             sdelay(10);
             write32(RESCAL_CTRL_REG, (read32(RESCAL_CTRL_REG) & 0xfffffef7) | 2);
             sdelay(10);
@@ -279,14 +331,14 @@ impl DramPara {
         //         print!("Enable Auto SR");
         //     } else {
         // #endif
-        let addr = MCTL_PHY_BASE + 0x0a0;
+        let addr = MCTL_PHY_BASE + ASRTC;
         write32(addr, read32(addr) & 0xffff0000);
-        let addr = MCTL_PHY_BASE + 0x004;
+        let addr = MCTL_PHY_BASE + PWRCTL;
         write32(addr, read32(addr) & (!0x1));
         //	}
 
         // Pupose ??
-        let addr = MCTL_PHY_BASE + 0x100;
+        let addr = MCTL_PHY_BASE + PGCR0;
         rc = read32(addr) & !(0xf000);
         if (self.dram_tpr13 & 0x200) == 0 {
             if self.dram_type != 6 {
@@ -303,7 +355,7 @@ impl DramPara {
             write32(addr1, read32(addr1) | 0x300);
         }
 
-        let addr = MCTL_PHY_BASE + 0x108;
+        let addr = MCTL_PHY_BASE + PGCR2;
         rc = read32(addr);
         if (self.dram_tpr13 & (1 << 16)) != 0 {
             rc &= 0xffffdfff;
@@ -313,7 +365,7 @@ impl DramPara {
         write32(addr, rc);
 
         // Purpose ??
-        let addr = MCTL_PHY_BASE + 0x07c;
+        let addr = MCTL_PHY_BASE + ODTCFG;
         if self.dram_type == 7 {
             rc = read32(addr) & 0xfff0ffff;
             rc |= 0x0001000;
@@ -322,7 +374,7 @@ impl DramPara {
 
         self.dram_enable_all_master();
         if (self.dram_tpr13 & (1 << 28)) != 0 {
-            rc = read32(0x70005d4);
+            rc = read32(SUNXI_R_CPUCFG_BASE + SUNXI_R_CPUCFG_SUP_STAN_FLAG);
             if (rc & (1 << 16)) != 0 || self.dramc_simple_wr_test(mem_size, 4096) != 0 {
                 return 0;
             }
@@ -347,7 +399,7 @@ impl DramPara {
     fn sid_read_ldo_b_cal(&self) {
         let mut reg: u32;
 
-        reg = (read32(0x0300621c) << 0x10) >> 0x18; //непонятный регистр
+        reg = (read32(SYS_SID_BASE + SYS_LDOB_SID) << 0x10) >> 0x18; //непонятный регистр
 
         if reg != 0 {
             if self.dram_type != 2 {
@@ -556,7 +608,7 @@ impl DramPara {
 
         self.mctl_core_init();
 
-        let addr = MCTL_PHY_BASE + 0x010;
+        let addr = MCTL_PHY_BASE + PGSR0;
         if (read32(addr) & (1 << 20)) != 0 {
             //непонятный регистр
             return 0;
@@ -581,10 +633,10 @@ impl DramPara {
         let mut u1: u32;
         let u2: u32;
 
-        if (read32(MCTL_PHY_BASE + 0x010) & (1 << 22)) != 0 {
-            let addr = MCTL_PHY_BASE + 0x348;
+        if (read32(MCTL_PHY_BASE + PGSR0) & (1 << 22)) != 0 {
+            let addr = MCTL_PHY_BASE + dxngsr0(0);
             u1 = (read32(addr) << 6) >> 0x1e;
-            let addr = MCTL_PHY_BASE + 0x3c8;
+            let addr = MCTL_PHY_BASE + dxngsr0(1);
             u2 = (read32(addr) << 6) >> 0x1e;
 
             if u1 == 2 {
@@ -639,12 +691,12 @@ impl DramPara {
         dqs_gating_mode = (self.dram_tpr13 >> 2) & 0x3;
 
         // set DDR clock to half of CPU clock
-        val = read32(0x310200c) & 0xfffff000;
+        val = read32(MCTL_COM_BASE + MCTL_COM_TMR) & 0xfffff000;
         val |= (self.dram_clk >> 1) - 1;
-        write32(0x310200c, val);
+        write32(MCTL_COM_BASE + MCTL_COM_TMR, val);
 
         // MRCTRL0 nibble 3 undocumented
-        let addr = MCTL_PHY_BASE + 0x108;
+        let addr = MCTL_PHY_BASE + PGCR2;
         val = read32(addr) & 0xfffff0ff;
         val |= 0x300;
         write32(addr, val);
@@ -652,7 +704,7 @@ impl DramPara {
         val = ((!self.dram_odt_en) & 1) << 5;
 
         // DX0GCR0
-        let addr = MCTL_PHY_BASE + 0x344;
+        let addr = MCTL_PHY_BASE + dxngcr0(0);
         if self.dram_clk > 672 {
             write32(addr, read32(addr) & 0xffff09c1);
         } else {
@@ -661,7 +713,7 @@ impl DramPara {
         write32(addr, read32(addr) | val);
 
         // DX1GCR0
-        let addr1 = MCTL_PHY_BASE + 0x3c4;
+        let addr1 = MCTL_PHY_BASE + dxngcr0(1);
         if self.dram_clk > 672 {
             write32(addr, read32(addr) | 0x400);
             write32(addr1, read32(addr1) & 0xffff09c1);
@@ -671,48 +723,48 @@ impl DramPara {
         write32(addr1, read32(addr1) | val);
 
         // 0x3103208 undocumented
-        let addr = MCTL_PHY_BASE + 0x208;
+        let addr = MCTL_PHY_BASE + ACIOCR0;
         write32(addr, read32(addr) | 2);
 
         self.eye_delay_compensation();
 
         // set PLL SSCG ?
         //
-        val = read32(0x3103108);
+        val = read32(MCTL_PHY_BASE + PGCR2);
         if dqs_gating_mode == 1 {
             val &= !(0xc0);
-            write32(0x3103108, val);
+            write32(MCTL_PHY_BASE + PGCR2, val);
 
-            val = read32(0x31030bc);
+            val = read32(MCTL_PHY_BASE + DQSGMR);
             val &= 0xfffffef8;
-            write32(0x31030bc, val);
+            write32(MCTL_PHY_BASE + DQSGMR, val);
         } else if dqs_gating_mode == 2 {
             val &= !(0xc0);
             val |= 0x80;
-            write32(0x3103108, val);
+            write32(MCTL_PHY_BASE + PGCR2, val);
 
-            val = read32(0x31030bc);
+            val = read32(MCTL_PHY_BASE + DQSGMR);
             val &= 0xfffffef8;
             val |= ((self.dram_tpr13 >> 16) & 0x1f) - 2;
             val |= 0x100;
-            write32(0x31030bc, val);
+            write32(MCTL_PHY_BASE + DQSGMR, val);
 
-            val = read32(0x310311c) & 0x7fffffff;
+            val = read32(MCTL_PHY_BASE + DXCCR) & 0x7fffffff;
             val |= 0x08000000;
-            write32(0x310311c, val);
+            write32(MCTL_PHY_BASE + DXCCR, val);
         } else {
             val &= !(0x40);
-            write32(0x3103108, val);
+            write32(MCTL_PHY_BASE + PGCR2, val);
 
             sdelay(10);
 
-            val = read32(0x3103108);
+            val = read32(MCTL_PHY_BASE + PGCR2);
             val |= 0xc0;
-            write32(0x3103108, val);
+            write32(MCTL_PHY_BASE + PGCR2, val);
         }
 
         if self.dram_type == 6 || self.dram_type == 7 {
-            val = read32(0x310311c);
+            val = read32(MCTL_PHY_BASE + DXCCR);
             if dqs_gating_mode == 1 {
                 val &= 0xf7ffff3f;
                 val |= 0x80000000;
@@ -720,38 +772,38 @@ impl DramPara {
                 val &= 0x88ffffff;
                 val |= 0x22000000;
             }
-            write32(0x310311c, val);
+            write32(MCTL_PHY_BASE + DXCCR, val);
         }
 
-        val = read32(0x31030c0);
+        val = read32(MCTL_PHY_BASE + DTCR);
         val &= 0xf0000000;
         val |= if (self.dram_para2 & (1 << 12)) != 0 {
             0x03000001
         } else {
             0x01000007
         }; // 0x01003087 XXX
-        write32(0x31030c0, val);
+        write32(MCTL_PHY_BASE + DTCR, val);
 
-        if (read32(0x70005d4) & (1 << 16)) != 0 {
-            val = read32(0x7010250);
+        if (read32(SUNXI_R_CPUCFG_BASE + SUNXI_R_CPUCFG_SUP_STAN_FLAG) & (1 << 16)) != 0 {
+            val = read32(R_PRCM_BASE + VDD_SYS_PWROFF_GATING_REG);
             val &= 0xfffffffd;
-            write32(0x7010250, val);
+            write32(R_PRCM_BASE + VDD_SYS_PWROFF_GATING_REG, val);
 
             sdelay(10);
         }
 
         // Set ZQ config
-        val = read32(0x3103140) & 0xfc000000;
+        val = read32(MCTL_PHY_BASE + ZQCR) & 0xfc000000;
         val |= self.dram_zq & 0x00ffffff;
         val |= 0x02000000;
-        write32(0x3103140, val);
+        write32(MCTL_PHY_BASE + ZQCR, val);
 
         // Initialise DRAM controller
         if dqs_gating_mode == 1 {
             //		write32(0x3103000, 0x52); // prep PHY reset + PLL init + z-cal
-            write32(0x3103000, 0x53); // Go
+            write32(MCTL_PHY_BASE + PIR, 0x53); // Go
 
-            while (read32(0x3103010) & 0x1) == 0 {} // wait for IDONE
+            while (read32(MCTL_PHY_BASE + PGSR0) & 0x1) == 0 {} // wait for IDONE
             sdelay(10);
 
             // 0x520 = prep DQS gating + DRAM init + d-cal
@@ -759,25 +811,25 @@ impl DramPara {
             //					     : 0x520;
 
             if self.dram_type == 3 {
-                write32(0x3103000, 0x5a0);
+                write32(MCTL_PHY_BASE + PIR, 0x5a0);
             } else {
-                write32(0x3103000, 0x520);
+                write32(MCTL_PHY_BASE + PIR, 0x520);
             }
         } else {
-            if (read32(0x70005d4) & (1 << 16)) == 0 {
+            if (read32(SUNXI_R_CPUCFG_BASE + SUNXI_R_CPUCFG_SUP_STAN_FLAG) & (1 << 16)) == 0 {
                 // prep DRAM init + PHY reset + d-cal + PLL init + z-cal
                 //			val = (self.dram_type == 3) ? 0x1f2	// + DRAM reset
                 //						     : 0x172;
 
                 if self.dram_type == 3 {
-                    write32(0x3103000, 0x1f2);
+                    write32(MCTL_PHY_BASE + PIR, 0x1f2);
                 } else {
-                    write32(0x3103000, 0x172);
+                    write32(MCTL_PHY_BASE + PIR, 0x172);
                 }
             } else {
                 // prep PHY reset + d-cal + z-cal
                 //			val = 0x62;
-                write32(0x3103000, 0x62);
+                write32(MCTL_PHY_BASE + PIR, 0x62);
             }
         }
 
@@ -785,53 +837,53 @@ impl DramPara {
         //	val |= 1;
         //	write32(0x3103000, val); // Go
 
-        write32(0x3103000, read32(0x3103000) | 1); // GO
+        write32(MCTL_PHY_BASE + PIR, read32(MCTL_PHY_BASE + PIR) | 1); // GO
 
         sdelay(10);
-        while (read32(0x3103010) & 0x1) == 0 {} // wait for IDONE
+        while (read32(MCTL_PHY_BASE + PGSR0) & 0x1) == 0 {} // wait for IDONE
 
-        if (read32(0x70005d4) & (1 << 16)) != 0 {
-            val = read32(0x310310c);
+        if (read32(SUNXI_R_CPUCFG_BASE + SUNXI_R_CPUCFG_SUP_STAN_FLAG) & (1 << 16)) != 0 {
+            val = read32(MCTL_PHY_BASE + PGCR3);
             val &= 0xf9ffffff;
             val |= 0x04000000;
-            write32(0x310310c, val);
+            write32(MCTL_PHY_BASE + PGCR3, val);
 
             sdelay(10);
 
-            val = read32(0x3103004);
+            val = read32(MCTL_PHY_BASE + PWRCTL);
             val |= 0x1;
-            write32(0x3103004, val);
+            write32(MCTL_PHY_BASE + PWRCTL, val);
 
-            while (read32(0x3103018) & 0x7) != 0x3 {}
+            while (read32(MCTL_PHY_BASE + STATR) & 0x7) != 0x3 {}
 
-            val = read32(0x7010250);
+            val = read32(R_PRCM_BASE + VDD_SYS_PWROFF_GATING_REG);
             val &= 0xfffffffe;
-            write32(0x7010250, val);
+            write32(R_PRCM_BASE + VDD_SYS_PWROFF_GATING_REG, val);
 
             sdelay(10);
 
-            val = read32(0x3103004);
+            val = read32(MCTL_PHY_BASE + PWRCTL);
             val &= 0xfffffffe;
-            write32(0x3103004, val);
+            write32(MCTL_PHY_BASE + PWRCTL, val);
 
-            while (read32(0x3103018) & 0x7) != 0x1 {}
+            while (read32(MCTL_PHY_BASE + STATR) & 0x7) != 0x1 {}
 
             sdelay(15);
 
             if dqs_gating_mode == 1 {
-                val = read32(0x3103108);
+                val = read32(MCTL_PHY_BASE + PGCR2);
                 val &= 0xffffff3f;
-                write32(0x3103108, val);
+                write32(MCTL_PHY_BASE + PGCR2, val);
 
-                val = read32(0x310310c);
+                val = read32(MCTL_PHY_BASE + PGCR3);
                 val &= 0xf9ffffff;
                 val |= 0x02000000;
-                write32(0x310310c, val);
+                write32(MCTL_PHY_BASE + PGCR3, val);
 
                 sdelay(1);
-                write32(0x3103000, 0x401);
+                write32(MCTL_PHY_BASE + PIR, 0x401);
 
-                while (read32(0x3103010) & 0x1) == 0 {}
+                while (read32(MCTL_PHY_BASE + PGSR0) & 0x1) == 0 {}
             }
         }
 
@@ -842,10 +894,10 @@ impl DramPara {
                 return 0;
             }
         */
-        if (read32(0x3103010) & 0xff00000) == 0 {
+        if (read32(MCTL_PHY_BASE + PGSR0) & 0xff00000) == 0 {
             val = 1;
         } else {
-            val = read32(0x3103010) & 0x100000;
+            val = read32(MCTL_PHY_BASE + PGSR0) & 0x100000;
 
             if val != 0 {
                 // print!("ZQ calibration error, check external 240 ohm resistor.\r\n");
@@ -854,35 +906,35 @@ impl DramPara {
         }
 
         // STATR = Zynq STAT? Wait for status 'normal'?
-        while (read32(0x3103018) & 0x1) == 0 {}
+        while (read32(MCTL_PHY_BASE + STATR) & 0x1) == 0 {}
 
-        val = read32(0x310308c);
+        val = read32(MCTL_PHY_BASE + RFSHCTL0);
         val |= 0x80000000;
-        write32(0x310308c, val);
+        write32(MCTL_PHY_BASE + RFSHCTL0, val);
 
         sdelay(10);
 
-        val = read32(0x310308c);
+        val = read32(MCTL_PHY_BASE + RFSHCTL0);
         val &= 0x7fffffff;
-        write32(0x310308c, val);
+        write32(MCTL_PHY_BASE + RFSHCTL0, val);
 
         sdelay(10);
 
-        val = read32(0x3102014);
+        val = read32(MCTL_COM_BASE + MCTL_COM_CCCR);
         val |= 0x80000000;
-        write32(0x3102014, val);
+        write32(MCTL_COM_BASE + MCTL_COM_CCCR, val);
 
         sdelay(10);
 
-        val = read32(0x310310c);
+        val = read32(MCTL_PHY_BASE + PGCR3);
         val &= 0xf9ffffff;
-        write32(0x310310c, val);
+        write32(MCTL_PHY_BASE + PGCR3, val);
 
         if dqs_gating_mode == 1 {
-            val = read32(0x310311c);
+            val = read32(MCTL_PHY_BASE + DXCCR);
             val &= 0xffffff3f;
             val |= 0x00000040;
-            write32(0x310311c, val);
+            write32(MCTL_PHY_BASE + DXCCR, val);
         }
 
         1
@@ -894,8 +946,8 @@ impl DramPara {
         let mut ptr = 0;
 
         // DATn0IOCR, n =  0...7
-        ptr = 0x3103310u32;
-        while ptr != 0x3103334u32 {
+        ptr = MCTL_PHY_BASE + datx0iocr(0);
+        while ptr != MCTL_PHY_BASE + datx0iocr(9) {
             val = read32(ptr);
             val |= (self.dram_tpr11 << 9) & 0x1e00;
             val |= (self.dram_tpr12 << 1) & 0x001e;
@@ -904,8 +956,8 @@ impl DramPara {
         }
 
         // DATn1IOCR, n =  0...7
-        ptr = 0x3103390;
-        while ptr != 0x31033b4 {
+        ptr = MCTL_PHY_BASE + datx1iocr(0);
+        while ptr != MCTL_PHY_BASE + datx1iocr(9) {
             val = read32(ptr);
             val |= ((self.dram_tpr11 >> 4) << 9) & 0x1e00;
             val |= ((self.dram_tpr12 >> 4) << 1) & 0x001e;
@@ -914,73 +966,73 @@ impl DramPara {
         }
 
         // PGCR0: assert AC loopback FIFO reset
-        val = read32(0x3103100);
+        val = read32(MCTL_PHY_BASE + PGCR0);
         val &= 0xfbffffff;
-        write32(0x3103100, val);
+        write32(MCTL_PHY_BASE + PGCR0, val);
 
         // ??
-        val = read32(0x3103334);
+        val = read32(MCTL_PHY_BASE + datx0iocr(9));
         val |= ((self.dram_tpr11 >> 16) << 9) & 0x1e00;
         val |= ((self.dram_tpr12 >> 16) << 1) & 0x001e;
-        write32(0x3103334, val);
+        write32(MCTL_PHY_BASE + datx0iocr(9), val);
 
-        val = read32(0x3103338);
+        val = read32(MCTL_PHY_BASE + datx0iocr(10));
         val |= ((self.dram_tpr11 >> 16) << 9) & 0x1e00;
         val |= ((self.dram_tpr12 >> 16) << 1) & 0x001e;
-        write32(0x3103338, val);
+        write32(MCTL_PHY_BASE + datx0iocr(10), val);
 
-        val = read32(0x31033b4);
+        val = read32(MCTL_PHY_BASE + datx1iocr(9));
         val |= ((self.dram_tpr11 >> 20) << 9) & 0x1e00;
         val |= ((self.dram_tpr12 >> 20) << 1) & 0x001e;
-        write32(0x31033b4, val);
+        write32(MCTL_PHY_BASE + datx1iocr(9), val);
 
-        val = read32(0x31033b8);
+        val = read32(MCTL_PHY_BASE + datx1iocr(10));
         val |= ((self.dram_tpr11 >> 20) << 9) & 0x1e00;
         val |= ((self.dram_tpr12 >> 20) << 1) & 0x001e;
-        write32(0x31033b8, val);
+        write32(MCTL_PHY_BASE + datx1iocr(10), val);
 
-        val = read32(0x310333c);
+        val = read32(MCTL_PHY_BASE + dxnsdlr6(0));
         val |= ((self.dram_tpr11 >> 16) << 25) & 0x1e000000;
-        write32(0x310333c, val);
+        write32(MCTL_PHY_BASE + dxnsdlr6(0), val);
 
-        val = read32(0x31033bc);
+        val = read32(MCTL_PHY_BASE + dxnsdlr6(1));
         val |= ((self.dram_tpr11 >> 20) << 25) & 0x1e000000;
-        write32(0x31033bc, val);
+        write32(MCTL_PHY_BASE + dxnsdlr6(1), val);
 
         // PGCR0: release AC loopback FIFO reset
-        val = read32(0x3103100);
+        val = read32(MCTL_PHY_BASE + PGCR0);
         val |= 0x04000000;
-        write32(0x3103100, val);
+        write32(MCTL_PHY_BASE + PGCR0, val);
 
         sdelay(1);
 
-        ptr = 0x3103240;
-        while ptr != 0x310327c {
+        ptr = MCTL_PHY_BASE + aciocr1(12);
+        while ptr != MCTL_PHY_BASE + aciocr1(27) {
             val = read32(ptr);
             val |= ((self.dram_tpr10 >> 4) << 8) & 0x0f00;
             write32(ptr, val);
             ptr += 4;
         }
 
-        ptr = 0x3103228;
-        while ptr != 0x3103240 {
+        ptr = MCTL_PHY_BASE + aciocr1(6);
+        while ptr != MCTL_PHY_BASE + aciocr1(12) {
             val = read32(ptr);
             val |= ((self.dram_tpr10 >> 4) << 8) & 0x0f00;
             write32(ptr, val);
             ptr += 4;
         }
 
-        val = read32(0x3103218);
+        val = read32(MCTL_PHY_BASE + aciocr1(2));
         val |= (self.dram_tpr10 << 8) & 0x0f00;
-        write32(0x3103218, val);
+        write32(MCTL_PHY_BASE + aciocr1(2), val);
 
-        val = read32(0x310321c);
+        val = read32(MCTL_PHY_BASE + aciocr1(3));
         val |= (self.dram_tpr10 << 8) & 0x0f00;
-        write32(0x310321c, val);
+        write32(MCTL_PHY_BASE + aciocr1(3), val);
 
-        val = read32(0x3103280);
+        val = read32(MCTL_PHY_BASE + aciocr1(28));
         val |= ((self.dram_tpr10 >> 12) << 8) & 0x0f00;
-        write32(0x3103280, val);
+        write32(MCTL_PHY_BASE + aciocr1(28), val);
     }
 
     // Main purpose of the auto_set_timing routine seems to be to calculate all
@@ -1391,30 +1443,30 @@ impl DramPara {
         trtp = 4;
 
         // Set mode registers
-        write32(0x3103030, mr0);
-        write32(0x3103034, mr1);
-        write32(0x3103038, mr2);
-        write32(0x310303c, mr3);
-        write32(0x310302c, (self.dram_odt_en >> 4) & 0x3); // ??
+        write32(MCTL_PHY_BASE + DRAM_MR0, mr0);
+        write32(MCTL_PHY_BASE + DRAM_MR1, mr1);
+        write32(MCTL_PHY_BASE + DRAM_MR2, mr2);
+        write32(MCTL_PHY_BASE + DRAM_MR3, mr3);
+        write32(MCTL_PHY_BASE + LP3MR11, (self.dram_odt_en >> 4) & 0x3); // ??
 
         // Set dram timing DRAMTMG0 - DRAMTMG5
         reg_val = ((twtp as u32) << 24) | ((tfaw as u32) << 16) | (trasmax << 8) | (tras as u32);
-        write32(0x3103058, reg_val);
+        write32(MCTL_PHY_BASE + DRAMTMG0, reg_val);
         reg_val = ((txp as u32) << 16) | ((trtp as u32) << 8) | (trc as u32);
-        write32(0x310305c, reg_val);
+        write32(MCTL_PHY_BASE + DRAMTMG1, reg_val);
         reg_val =
             ((tcwl as u32) << 24) | ((tcl as u32) << 16) | ((trd2wr as u32) << 8) | (twr2rd as u32);
-        write32(0x3103060, reg_val);
+        write32(MCTL_PHY_BASE + DRAMTMG2, reg_val);
         reg_val = (tmrw << 16) | (tmrd << 12) | tmod;
-        write32(0x3103064, reg_val);
+        write32(MCTL_PHY_BASE + DRAMTMG3, reg_val);
         reg_val =
             ((trcd as u32) << 24) | ((tccd as u32) << 16) | ((trrd as u32) << 8) | (trp as u32);
-        write32(0x3103068, reg_val);
+        write32(MCTL_PHY_BASE + DRAMTMG4, reg_val);
         reg_val = (tcksrx << 24) | (tcksrx << 16) | (tckesr << 8) | tcke;
-        write32(0x310306c, reg_val);
+        write32(MCTL_PHY_BASE + DRAMTMG5, reg_val);
 
         // Set two rank timing
-        reg_val = read32(0x3103078);
+        reg_val = read32(MCTL_PHY_BASE + DRAMTMG8);
         reg_val &= 0x0fff0000;
         reg_val |= if self.dram_clk < 800 {
             0xf0006600
@@ -1422,20 +1474,20 @@ impl DramPara {
             0xf0007600
         };
         reg_val |= 0x10;
-        write32(0x3103078, reg_val);
+        write32(MCTL_PHY_BASE + DRAMTMG8, reg_val);
 
         // Set phy interface time PITMG0, PTR3, PTR4
         reg_val =
             (0x2_u32 << 24) | ((t_rdata_en as u32) << 16) | (0x1_u32 << 8) | (wr_latency as u32);
-        write32(0x3103080, reg_val);
-        write32(0x3103050, tdinit0 | (tdinit1 << 20));
-        write32(0x3103054, tdinit2 | (tdinit3 << 20));
+        write32(MCTL_PHY_BASE + PITMG0, reg_val);
+        write32(MCTL_PHY_BASE + PTR3, tdinit0 | (tdinit1 << 20));
+        write32(MCTL_PHY_BASE + PTR4, tdinit2 | (tdinit3 << 20));
 
         // Set refresh timing and mode
         reg_val = ((trefi as u32) << 16) | (trfc as u32);
-        write32(0x3103090, reg_val);
+        write32(MCTL_PHY_BASE + RFSHTMG, reg_val);
         reg_val = 0x0fff0000 & ((trefi as u32) << 15);
-        write32(0x3103094, reg_val);
+        write32(MCTL_PHY_BASE + RFSHCTL1, reg_val);
     }
 
     fn ns_to_t(&self, nanoseconds: u32) -> u32 {
@@ -1455,10 +1507,10 @@ impl DramPara {
         let mut fuse: u32 = 0;
         let mut val: u32 = 0;
 
-        fuse = (read32(0x3006228) << 0x14) >> 0x1c;
+        fuse = (read32(SYS_SID_BASE + SYS_EFUSE_REG) << 0x14) >> 0x1c;
         // print!("ddr_efuse_type: 0x{:x?}\r\n", fuse);
 
-        val = (read32(0x03006200) << 0x10) >> 0x18;
+        val = (read32(SYS_CHIP_ID) << 0x10) >> 0x18;
         // print!("mark_id: 0x{:x?}\r\n", val);
 
         if ((self.dram_tpr13 >> 18) & 0x3) != 0 {
@@ -1510,7 +1562,7 @@ impl DramPara {
                 | ((cfg0[2] as u32) << 15)
                 | ((cfg0[1] as u32) << 10)
                 | ((cfg0[0] as u32) << 5);
-            write32(0x3102500, val);
+            write32(MCTL_COM_BASE + MCTL_COM_REMAP0, val);
 
             val = ((cfg0[10] as u32) << 25)
                 | ((cfg0[9] as u32) << 20)
@@ -1518,14 +1570,14 @@ impl DramPara {
                 | ((cfg0[7] as u32) << 10)
                 | ((cfg0[6] as u32) << 5)
                 | (cfg0[5] as u32);
-            write32(0x3102504, val);
+            write32(MCTL_COM_BASE + MCTL_COM_REMAP1, val);
 
             val = ((cfg0[15] as u32) << 20)
                 | ((cfg0[14] as u32) << 15)
                 | ((cfg0[13] as u32) << 10)
                 | ((cfg0[12] as u32) << 5)
                 | (cfg0[11] as u32);
-            write32(0x3102508, val);
+            write32(MCTL_COM_BASE + MCTL_COM_REMAP2, val);
 
             val = ((cfg0[21] as u32) << 25)
                 | ((cfg0[20] as u32) << 20)
@@ -1533,7 +1585,7 @@ impl DramPara {
                 | ((cfg0[18] as u32) << 10)
                 | ((cfg0[17] as u32) << 5)
                 | (cfg0[16] as u32);
-            write32(0x310250c, val);
+            write32(MCTL_COM_BASE + MCTL_COM_REMAP3, val);
 
             val = ((cfg0[4] as u32) << 25)
                 | ((cfg0[3] as u32) << 20)
@@ -1541,7 +1593,7 @@ impl DramPara {
                 | ((cfg0[1] as u32) << 10)
                 | ((cfg0[0] as u32) << 5)
                 | 1_u32;
-            write32(0x3102500, val);
+            write32(MCTL_COM_BASE + MCTL_COM_REMAP0, val);
         }
     }
 
@@ -1556,12 +1608,12 @@ impl DramPara {
         let mut i: i32 = 0;
 
         // purpose ??
-        val = read32(0x3102008) & 0xffffc0ff;
+        val = read32(MCTL_COM_BASE + MCTL_COM_DBGCR) & 0xffffc0ff;
         val |= 0x2000;
-        write32(0x3102008, val);
+        write32(MCTL_COM_BASE + MCTL_COM_DBGCR, val);
 
         // Set sdram type and word width
-        val = read32(0x3102000) & 0xff000fff;
+        val = read32(MCTL_COM_BASE + MCTL_COM_WORK_MODE0) & 0xff000fff;
         val |= (self.dram_type & 0x7) << 16; // DRAM type
         val |= (!self.dram_para2 & 0x1) << 12; // DQ width
         if (self.dram_type) != 6 && (self.dram_type) != 7 {
@@ -1570,7 +1622,7 @@ impl DramPara {
         } else {
             val |= 0x480000; // type 6 and 7 must use 1T
         }
-        write32(0x3102000, val);
+        write32(MCTL_COM_BASE + MCTL_COM_WORK_MODE0, val);
 
         // init rank / bank / row for single/dual or two different ranks
         val = self.dram_para2;
@@ -1579,7 +1631,7 @@ impl DramPara {
         } else {
             16
         };
-        ptr = 0x3102000;
+        ptr = MCTL_COM_BASE + MCTL_COM_WORK_MODE0;
 
         i = 0;
         while i != end as i32 {
@@ -1614,27 +1666,27 @@ impl DramPara {
         }
 
         // set ODTMAP based on number of ranks in use
-        val = if (read32(0x3102000) & 0x1) != 0 {
+        val = if (read32(MCTL_COM_BASE + MCTL_COM_WORK_MODE0) & 0x1) != 0 {
             0x303
         } else {
             0x201
         };
-        write32(0x3103120, val);
+        write32(MCTL_PHY_BASE + ODTMAP, val);
 
         // set mctl reg 3c4 to zero when using half DQ
         if (self.dram_para2 & (1 << 0)) != 0 {
-            write32(0x31033c4, 0);
+            write32(MCTL_PHY_BASE + dxngcr0(1), 0);
         }
 
         // purpose ??
         if (self.dram_tpr4) != 0 {
-            val = read32(0x3102000);
+            val = read32(MCTL_COM_BASE + MCTL_COM_WORK_MODE0);
             val |= (self.dram_tpr4 << 25) & 0x06000000;
-            write32(0x3102000, val);
+            write32(MCTL_COM_BASE + MCTL_COM_WORK_MODE0, val);
 
-            val = read32(0x3102004);
+            val = read32(MCTL_COM_BASE + MCTL_COM_WORK_MODE1);
             val |= ((self.dram_tpr4 >> 2) << 12) & 0x001ff000;
-            write32(0x3102004, val);
+            write32(MCTL_COM_BASE + MCTL_COM_WORK_MODE1, val);
         }
     }
 
@@ -1644,14 +1696,14 @@ impl DramPara {
         let mut val: u32 = 0;
 
         if (self.dram_tpr13 & (1 << 17)) == 0 {
-            val = read32(0x3103110) & 0x80808080; // IOCVR0
+            val = read32(MCTL_PHY_BASE + IOVCR0) & 0x80808080; // IOCVR0
             val |= self.dram_tpr5;
-            write32(0x3103110, val);
+            write32(MCTL_PHY_BASE + IOVCR0, val);
 
             if (self.dram_tpr13 & (1 << 16)) == 0 {
-                val = read32(0x3103114) & 0xffffff80; // IOCVR1
+                val = read32(MCTL_PHY_BASE + IOVCR1) & 0xffffff80; // IOCVR1
                 val |= self.dram_tpr6 & 0x7f;
-                write32(0x3103114, val);
+                write32(MCTL_PHY_BASE + IOVCR1, val);
             }
         }
     }
@@ -1702,7 +1754,7 @@ impl DramPara {
         sdelay(5);
 
         // mCTL clock enable
-        let addr = MCTL_PHY_BASE + 0x00C;
+        let addr = MCTL_PHY_BASE + CLKEN;
         write32(addr, 0x8000);
         sdelay(10);
     }
@@ -1724,32 +1776,32 @@ impl DramPara {
         // set VCO clock divider
         n = (clk * 2) / 24;
 
-        val = read32(0x2001010);
+        val = read32(ccu::BASE + ccu::PLL_DDR_CTRL_REG);
         val &= 0xfff800fc; // clear dividers        
         val |= (n - 1) << 8; // set PLL division        
         val |= 0xc0000000; // enable PLL and LDO
         val &= 0xdfffffff;
         val |= 0x20000000;
-        write32(0x2001010, val);
+        write32(ccu::BASE + ccu::PLL_DDR_CTRL_REG, val);
 
         // wait for PLL to lock
         val = 0;
         while val == 0 {
-            val = read32(0x2001010) & 0x10000000;
+            val = read32(ccu::BASE + ccu::PLL_DDR_CTRL_REG) & 0x10000000;
         } //тут застряли
 
         sdelay(20);
 
         // enable PLL output
-        val = read32(0x2001000);
+        val = read32(ccu::BASE);
         val |= 0x08000000;
-        write32(0x2001000, val);
+        write32(ccu::BASE, val);
 
         // turn clock gate on
-        val = read32(0x2001800);
+        val = read32(ccu::BASE + ccu::DRAM_CLK_REG);
         val &= 0xfcfffcfc; // select DDR clk source, n=1, m=1
         val |= 0x80000000; // turn clock on
-        write32(0x2001800, val);
+        write32(ccu::BASE + ccu::DRAM_CLK_REG, val);
 
         n * 24
     }
@@ -1760,7 +1812,7 @@ impl DramPara {
         let mut size0 = 0;
         let mut size1 = 0;
 
-        rval = read32(0x3102000); // MC_WORK_MODE0
+        rval = read32(MCTL_COM_BASE + MCTL_COM_WORK_MODE0); // MC_WORK_MODE0
 
         temp = (rval >> 8) & 0xf; // page size - 3
         temp += (rval >> 4) & 0xf; // row width - 1
@@ -1773,7 +1825,7 @@ impl DramPara {
             return size0;
         }
 
-        rval = read32(0x3102004); // MC_WORK_MODE1
+        rval = read32(MCTL_COM_BASE + MCTL_COM_WORK_MODE1); // MC_WORK_MODE1
 
         temp = rval & 0x3;
         if temp == 0 {
@@ -1791,16 +1843,16 @@ impl DramPara {
     }
 
     fn dram_enable_all_master(&self) {
-        write32(0x3102020, u32::MAX); //-1
-        write32(0x3102024, 0xff);
-        write32(0x3102028, 0xffff);
+        write32(MCTL_COM_BASE + MCTL_COM_MAER0, u32::MAX); //-1
+        write32(MCTL_COM_BASE + MCTL_COM_MAER1, 0xff);
+        write32(MCTL_COM_BASE + MCTL_COM_MAER2, 0xffff);
         sdelay(10);
     }
 
     fn dram_disable_all_master(&self) {
-        write32(0x3102020, 1);
-        write32(0x3102024, 0);
-        write32(0x3102028, 0);
+        write32(MCTL_COM_BASE + MCTL_COM_MAER0, 1);
+        write32(MCTL_COM_BASE + MCTL_COM_MAER1, 0);
+        write32(MCTL_COM_BASE + MCTL_COM_MAER2, 0);
         sdelay(10);
     }
 
