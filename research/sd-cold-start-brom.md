@@ -85,6 +85,9 @@ C does not use it.
   being mistaken for a completed SD initialisation.
 - `sdmmc_detect` stops the attempt if the reset times out; the stop/busy error paths
   reuse the polling reset.
+- `sunxi_sdhci_init` logs the pre-reset `GCTRL`, `CLKCR`, `WIDTH`, `RINT` and
+  `STATUS` once, so a cold-start log records what BROM left behind. If the SMHC clock
+  gate is off, it logs that instead of touching a gated block.
 - The retry budget, the 100 ms inter-attempt pause and the 2 ms post-CMD0 delay are
   unchanged. No timeout is extended to hide the failure.
 

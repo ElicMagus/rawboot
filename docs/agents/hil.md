@@ -79,6 +79,9 @@ for the reasoning. Build the branch and repeat this at least ten times:
 1. Remove power, insert the card, hold FEL/BOOT, then apply power.
 2. Run `HIL_REQUIRE_SD=1 scripts/hil-check.sh target/rawboot-fel.bin cold<N>`.
 3. Every run must print `SD/MMC card found` and a successful `SD: read ...` line.
+4. Record the `SMHC: initial gctrl=... clkcr=... width=... rint=... status=...`
+   line from each cold start; it is the pre-reset BROM state the issue asks for.
+   `SMHC: initial state unavailable (clock gate off)` means BROM left SMHC0 gated.
 
 Then repeat the two recovery paths: insert the card after the board is in FEL
 and load the loader; and re-exec the loader over FEL without removing power
