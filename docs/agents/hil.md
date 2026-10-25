@@ -267,6 +267,40 @@ If the UART is captured by hand, drain it before `xfel exec` (for example with
 `python3 -c 'import serial; s=serial.Serial("/dev/ttyUSB0",115200); s.reset_input_buffer()'`)
 and capture at 115200 8N1.
 
+### In-tree FEL transport (no `xfel`)
+
+`cargo fel` speaks the BROM's FEL protocol directly; it needs the udev rule above but no
+external `xfel`. This checks issue #40 end to end:
+
+```sh
+cargo xtask image
+cargo fel version        # must print `SoC:        T113-S3 (chip id 0x1859)`
+```
+
+Write a pattern to SRAM and read it back (the read prints a hex dump; `--output` saves the
+bytes for `cmp`):
+
+```sh
+size=$(stat -c %s target/rawboot-payload.img)
+cargo fel write 0x00039000 target/rawboot-payload.img
+cargo fel read 0x00039000 "$size" --output /tmp/rawboot-readback.img
+cmp target/rawboot-payload.img /tmp/rawboot-readback.img
+```
+
+For exec, upload a stub that returns to the BROM (`bx lr`), run it, then read the memory
+again:
+
+```sh
+printf '\x1e\xff\x2f\xe1' > /tmp/rawboot-return.bin   # bx lr
+cargo fel write 0x00030000 /tmp/rawboot-return.bin
+cargo fel exec 0x00030000
+cargo fel read 0x00030000 4
+```
+
+`cargo fel exec` returns only when the stub gives control back to the BROM; a stub that does
+not return ends in a transfer timeout. `scripts/hil-check.sh` still uses `xfel`; this CLI is
+for the manual checks above.
+
 ### Capture a self-booting board (no FEL)
 
 When the board boots on its own — from SD or SPI, with no `xfel` step — start the capture

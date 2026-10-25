@@ -80,7 +80,8 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
 - **Workspace shape.** The `rawboot-internal` repository is a single Cargo workspace with members
   `rawboot` (the loader), `rawboot-rt` (the runtime), `sunxi-pl` (the shared hardware layer),
   `payload` (the blink test payload), `rawboot-image` (host-testable payload, eGON and SD boot
-  prefix tooling) and `xtask` (host build tooling). Driver modules live inside `rawboot`;
+  prefix tooling), `rawboot-fel` (host-side FEL USB transport and CLI) and `xtask` (host build
+  tooling). Driver modules live inside `rawboot`;
   payload-header parsing and eGON sealing are `rawboot-image`. The hardware layer shared by loader,
   runtime and payload — volatile accessors, GPIO and the timer — carries no startup code (ADR-0010).
   Domain docs (`GLOSSARY.md`, `docs/adr/`) live at the repository root.
@@ -122,26 +123,33 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
   `rawboot-sd-mbr.img`, the SD boot prefix: an MBR pointing at the FAT partition starting at
   `--start-lba` (default 2048, 1 MiB) plus `rawboot-boot-sd.bin` at sector 16 (ADR-0011). It
   formats nothing, copies no payload and only writes a file. The existing Windows scripts and
-  `.exe` tools are kept as a working Windows path; `xfel` stays an external host tool.
+  `.exe` tools are kept as a working Windows path. `rawboot-fel` (CLI `cargo fel`) talks to the
+  BROM's FEL USB protocol directly for manual bring-up; `xfel` stays the external tool used by
+  `scripts/hil-check.sh`.
 - **Toolchain.** Target `armv7a-none-eabi` (soft-float; measured as smaller than the hard-float
   variant for this code), Rust edition 2024, pinned by `rust-toolchain.toml`.
 - **Licence.** Public domain via `Unlicense`, with SPDX headers in files. Only facts (addresses,
   offsets, constant names) are transcribed from awboot; GPL-2.0+/unlicensed awboot sources are not
   copied.
 - **Debugging.** A best-effort `openocd` + `gdb` path over the USB-JTAG adapter; FEL is the primary
-  fast-iteration load path.
+  fast-iteration load path, through either `xfel` or the in-tree `rawboot-fel` transport.
 
 ## Testing Decisions
 
 - A good test exercises **external behaviour, not implementation details** — for this project that
   means byte-in/byte-out on the image tooling, and observable LED behaviour on hardware. There are
-  no hardware mocks.
+  no models of the SoC or board: the only mock is the scripted USB bulk transport behind the FEL
+  transport trait (issue #40), which checks wire frames rather than emulating hardware.
 - **Unit seam (host, `cargo test`):** the image tooling. `seal()` must produce a BROM-valid header
   (checksum over the padded image with the `0x5F0A6C39` seed, correct 512/8192 padding, correct
   2 KB→N KB page scattering); `parse()` must accept a well-formed header and reject bad magic, bad
   checksum, or truncated/oversized lengths. These are pure functions over `&[u8]`. The SD boot
   prefix is likewise byte-in/byte-out: MBR fields, loader placement, prefix length, and rejection
   of an unsealed, overlapping or overflowing input.
+- **FEL transport seam (host, `cargo test`):** `rawboot-fel` frames the BROM's `AWUC`/FEL
+  requests and validates its replies over a `Transport` trait. Scripted bulk frames cover
+  version/read/write/exec, 64 KiB chunking, short transfers and transport failures; the board
+  check remains the final word.
 - **Compile-time seam:** `const` assertions on `BootInfo`/image-header size and field offsets, so an
   ABI break fails the build.
 - **Hardware-in-the-loop acceptance seam:** build the blink payload with the xtask, boot the loader

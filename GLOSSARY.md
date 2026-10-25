@@ -11,13 +11,18 @@ Allwinner's on-chip first-stage boot ROM; it loads and validates an eGON image f
 fallback 256), SPI flash, or USB FEL.
 
 **FEL**:
-Allwinner's USB recovery/boot mode; a host tool (`xfel`) uploads an image into SRAM/DRAM and
-starts it.
+Allwinner's USB recovery/boot mode; a host tool uploads an image into SRAM/DRAM and starts it.
+
+**FEL transport** (crate `rawboot-fel`):
+Our host-side implementation of the BROM's FEL USB protocol: device discovery, version and chip
+ID, and memory read/write/exec, with a CLI for manual bring-up. `xfel` remains the external tool
+for the HIL script.
+_Avoid_: FEL library, xfel clone
 
 **FEL mailbox**:
 A four-word block in FEL-mode SRAM (magic `RBFM`, payload image address, image size, argument
-pointer) that the host writes before `xfel exec`. When present, the loader boots the uploaded
-payload image instead of reading `payload.bin` from the SD card.
+pointer) that the host writes before starting the loader over FEL. When present, the loader boots
+the uploaded payload image instead of reading `payload.bin` from the SD card.
 
 **eGON**:
 Allwinner's boot-image header (magic `eGON.BT0`, seed-checksummed with `0x5F0A6C39`) prepended to a
