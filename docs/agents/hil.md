@@ -159,7 +159,7 @@ refuses a mounted device or one that holds `/`:
 sudo scripts/flash-sd.sh --device /dev/sdX
 # also copy target/rawboot-payload.img as payload.bin
 sudo scripts/flash-sd.sh --device /dev/sdX --copy-payload
-# recreate the partition as FAT32 (destroys its contents), then copy the payload
+# recreate the partition as FAT (destroys its contents), then copy the payload
 sudo scripts/flash-sd.sh --device /dev/sdX --format --yes
 ```
 
