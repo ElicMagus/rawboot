@@ -4,9 +4,15 @@ Researched: 2026. Target: Allwinner T113-S3, SMHC0. Upstream is pinned to
 `szemzoa/awboot` `5380c00fc67c975433f25c57fb481aa2b91aebf8`. Local code is cited by
 symbol, not by line.
 
-This note records the investigation behind issue #43 and the deliberately chosen
-divergence from upstream. It does not claim a HIL pass; the statistical acceptance
-(ten cold power-cycles) is tracked in the issue.
+This note records the investigation behind issue #43 and the divergence from
+upstream that was considered at the time.
+
+**Status after the HIL re-test (2026-10-25): the loader was not the cause and the
+changes in sections 3-4 were not merged.** Baseline `master @ 60e6867`, which does
+not contain them, passed 3/3 true cold starts once the SD card was actually
+power-cycled. The PASS/FAIL alternation on the bench came from the USB-UART adapter
+backfeeding the board and keeping the card stateful across FEL power-offs. See
+section 5 and `docs/agents/hil.md`.
 
 ---
 
@@ -93,14 +99,32 @@ C does not use it.
 
 Both changes are deliberate divergences from the pinned upstream, adopted from
 mainline Linux because they are host-initialisation requirements, not card-protocol
-policy. They are recorded in `research/sdhci-port-vs-upstream.md`.
+policy. They were investigated but not merged: the HIL re-test below showed the
+observed failures were a bench artefact. `research/sdhci-port-vs-upstream.md` is not
+updated for them.
 
-## 5. Acceptance still to run
+## 5. HIL outcome (correction)
 
-The cause above is consistent with the logs, but the fix is not confirmed until the
-issue's HIL criterion is met: at least ten cold power-cycles with the card inserted
-before power-on, each reaching `SD/MMC card found` and a successful block read, plus
-hot-plug, re-exec and no-card checks. See `docs/agents/hil.md` for the procedure.
+The statistical acceptance was run, but the first attempt still produced a strict
+PASS/FAIL alternation. The failing runs answered CMD8 and CMD55/ACMD41
+(`app_fail=0`, `ocr=0x00ff8000`) and never set the busy bit, even after 5 s of
+polling; a loader re-exec without a board power cycle failed the same way.
+
+The alternation disappeared when the USB-UART adapter was unplugged for the
+power-off: the adapter backfeeds the board through the serial lines, so the card
+never lost power and carried its state into the next "cold" start. On real
+power-offs the driver did not need the changes above:
+
+- `master @ 60e6867` (no code changes): 3/3 cold starts reached `SD/MMC card found`
+  and a successful block read.
+- The branch with the changes also passed once the card was truly power-cycled, but
+  the baseline result shows the changes were not the fix.
+
+The deterministic procedure is in `docs/agents/hil.md`: unplug the USB-UART
+adapter while the board is off, wait for the card rail to discharge, then apply
+power with FEL/BOOT held and reconnect the adapter. Hot-plug works because it
+power-cycles the card. Issue #43 was closed as a bench-procedure issue, not a
+loader defect.
 
 ## Sources
 

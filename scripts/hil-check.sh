@@ -80,6 +80,8 @@ if [ -t 0 ] && [ "${HIL_NO_PROMPT:-0}" != "1" ]; then
 Put the board into FEL:
   - remove power completely, hold FEL/BOOT, then apply power: the strap is
     sampled at cold power-on, so holding it through a reset does not work;
+  - for a true card cold start, unplug the USB-UART adapter while the board is
+    off: it can backfeed the board and keep the card stateful (#43);
   - do not use `xfel reset`: a watchdog reset leaves the watchdog armed, so the
     loader then boots in a loop, and a loader left running from a previous run
     keeps printing on USART0.
