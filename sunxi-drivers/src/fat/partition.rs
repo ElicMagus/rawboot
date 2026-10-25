@@ -20,7 +20,7 @@ const MBR_PARTITION_ENTRIES: usize = 4;
 pub const MAX_CANDIDATES: usize = 1 + MBR_PARTITION_ENTRIES;
 
 /// A candidate FAT volume.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Partition {
     /// First SD block of the volume.
     pub base_lba: u64,
@@ -35,25 +35,43 @@ pub struct MbrFatPartition {
     pub base_lba: u64,
     /// Sectors the MBR declares for the partition.
     pub sectors: u32,
-    /// MBR partition type byte.
-    pub partition_type: u8,
 }
 
-/// Returns the first FAT partition in the MBR in the same priority order as
-/// [`candidates`]: FAT32 before FAT12/16, then table order.
-///
-/// The extent is not clamped to the card, so a caller that is about to write
-/// can check the declared partition against the real capacity.
-pub fn first_fat_partition(sector0: &[u8; BLOCK_SIZE_USIZE]) -> Option<MbrFatPartition> {
-    if sector0[SIGNATURE_OFFSET..] != BOOT_SIGNATURE {
-        return None;
+impl MbrFatPartition {
+    /// The declared length in bytes, without clamping to the card.
+    pub const fn len_bytes(self) -> u64 {
+        self.sectors as u64 * BLOCK_SIZE
     }
 
+    /// This entry clamped to the card, or `None` when it starts past the card.
+    pub fn partition(self, card_bytes: u64) -> Option<Partition> {
+        let base_byte = self.base_lba.checked_mul(BLOCK_SIZE)?;
+        if base_byte >= card_bytes {
+            return None;
+        }
+        Some(Partition {
+            base_lba: self.base_lba,
+            len_bytes: self.len_bytes().min(card_bytes - base_byte),
+        })
+    }
+}
+
+/// Lists the MBR's FAT partitions in priority order: FAT32 before FAT12/16,
+/// then table order. Extents are not clamped to the card, so a writer can
+/// validate the declaration first.
+pub fn fat_partitions(
+    sector0: &[u8; BLOCK_SIZE_USIZE],
+) -> [Option<MbrFatPartition>; MBR_PARTITION_ENTRIES] {
+    let mut partitions = [None; MBR_PARTITION_ENTRIES];
+    if sector0[SIGNATURE_OFFSET..] != BOOT_SIGNATURE {
+        return partitions;
+    }
+
+    let mut count = 0;
     for priority in [2, 1] {
         for index in 0..MBR_PARTITION_ENTRIES {
             let entry = MBR_PARTITION_TABLE + index * 16;
-            let partition_type = sector0[entry + 4];
-            if fat_type_priority(partition_type) != Some(priority) {
+            if fat_type_priority(sector0[entry + 4]) != Some(priority) {
                 continue;
             }
 
@@ -62,15 +80,21 @@ pub fn first_fat_partition(sector0: &[u8; BLOCK_SIZE_USIZE]) -> Option<MbrFatPar
             if base_lba == 0 || sectors == 0 {
                 continue;
             }
-            return Some(MbrFatPartition {
-                base_lba,
-                sectors,
-                partition_type,
-            });
+            partitions[count] = Some(MbrFatPartition { base_lba, sectors });
+            count += 1;
         }
     }
 
-    None
+    partitions
+}
+
+/// The whole-card FAT volume when sector 0 carries a FAT boot sector.
+pub fn bare_fat_partition(sector0: &[u8; BLOCK_SIZE_USIZE], card_bytes: u64) -> Option<Partition> {
+    let len_bytes = fat_boot_sector_len_bytes(sector0)?;
+    Some(Partition {
+        base_lba: 0,
+        len_bytes: len_bytes.min(card_bytes),
+    })
 }
 
 /// Lists candidate FAT volumes described by the card's first block.
@@ -86,38 +110,17 @@ pub fn candidates(
     let mut candidates = [None; MAX_CANDIDATES];
     let mut count = 0;
 
-    if let Some(len_bytes) = fat_boot_sector_len_bytes(sector0) {
-        candidates[count] = Some(Partition {
-            base_lba: 0,
-            len_bytes: len_bytes.min(card_bytes),
-        });
+    if let Some(bare) = bare_fat_partition(sector0, card_bytes) {
+        candidates[count] = Some(bare);
         count += 1;
     }
 
-    if sector0[SIGNATURE_OFFSET..] != BOOT_SIGNATURE {
-        return candidates;
-    }
-
-    for priority in [2, 1] {
-        for index in 0..MBR_PARTITION_ENTRIES {
-            let entry = MBR_PARTITION_TABLE + index * 16;
-            if fat_type_priority(sector0[entry + 4]) != Some(priority) {
-                continue;
-            }
-
-            let base_lba = le32(sector0, entry + 8) as u64;
-            let sectors = le32(sector0, entry + 12) as u64;
-            let base_byte = base_lba * BLOCK_SIZE;
-            if base_lba == 0 || sectors == 0 || base_byte >= card_bytes {
-                continue;
-            }
-
-            candidates[count] = Some(Partition {
-                base_lba,
-                len_bytes: (sectors * BLOCK_SIZE).min(card_bytes - base_byte),
-            });
-            count += 1;
-        }
+    for entry in fat_partitions(sector0).into_iter().flatten() {
+        let Some(partition) = entry.partition(card_bytes) else {
+            continue;
+        };
+        candidates[count] = Some(partition);
+        count += 1;
     }
 
     candidates
@@ -200,17 +203,17 @@ mod tests {
     fn prefers_fat32_over_fat16_regardless_of_table_order() {
         let sector = mbr(&[(0x06, 100, 200), (0x0c, 2048, 4096)]);
 
-        let partition = first_fat_partition(&sector).expect("a FAT partition");
-        assert_eq!(partition.base_lba, 2048);
-        assert_eq!(partition.sectors, 4096);
-        assert_eq!(partition.partition_type, 0x0c);
+        let partitions = fat_partitions(&sector);
+        let first = partitions[0].expect("a FAT partition");
+        assert_eq!(first.base_lba, 2048);
+        assert_eq!(first.sectors, 4096);
     }
 
     #[test]
     fn skips_empty_and_non_fat_entries() {
         let sector = mbr(&[(0x83, 100, 200), (0x0c, 0, 200), (0x06, 300, 0)]);
 
-        assert_eq!(first_fat_partition(&sector), None);
+        assert_eq!(fat_partitions(&sector), [None; MBR_PARTITION_ENTRIES]);
     }
 
     #[test]
@@ -218,14 +221,46 @@ mod tests {
         let mut sector = mbr(&[(0x0c, 2048, 4096)]);
         sector[SIGNATURE_OFFSET] = 0;
 
-        assert_eq!(first_fat_partition(&sector), None);
+        assert_eq!(fat_partitions(&sector), [None; MBR_PARTITION_ENTRIES]);
     }
 
     #[test]
     fn returns_a_declared_extent_without_clamping_the_card_size() {
         let sector = mbr(&[(0x0c, 2048, 10_000_000)]);
 
-        let partition = first_fat_partition(&sector).expect("a FAT partition");
+        let partition = fat_partitions(&sector)[0].expect("a FAT partition");
         assert_eq!(partition.sectors, 10_000_000);
+        assert_eq!(partition.len_bytes(), 10_000_000 * BLOCK_SIZE);
+        assert_eq!(
+            partition.partition(2048 * BLOCK_SIZE + 4096),
+            Some(Partition {
+                base_lba: 2048,
+                len_bytes: 4096,
+            })
+        );
+    }
+
+    #[test]
+    fn an_entry_past_the_card_has_no_clamped_partition() {
+        let sector = mbr(&[(0x0c, 4096, 100)]);
+
+        let partition = fat_partitions(&sector)[0].expect("a FAT partition");
+        assert_eq!(partition.partition(4096 * BLOCK_SIZE), None);
+    }
+
+    #[test]
+    fn candidates_put_a_bare_volume_first_and_skip_past_card_entries() {
+        let mut sector = mbr(&[(0x0c, 8192, 100), (0x06, 2048, 100)]);
+        sector[0] = 0xeb;
+        sector[11..13].copy_from_slice(&512u16.to_le_bytes());
+        sector[13] = 1;
+        sector[14..16].copy_from_slice(&1u16.to_le_bytes());
+        sector[16] = 1;
+        sector[19..21].copy_from_slice(&100u16.to_le_bytes());
+
+        let candidates = candidates(&sector, 8192 * BLOCK_SIZE);
+        assert_eq!(candidates[0].map(|p| p.base_lba), Some(0));
+        assert_eq!(candidates[1].map(|p| p.base_lba), Some(2048));
+        assert_eq!(candidates[2], None);
     }
 }

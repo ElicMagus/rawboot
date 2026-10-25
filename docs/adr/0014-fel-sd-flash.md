@@ -29,11 +29,11 @@ job/status, но SD он ещё не трогал. Карту обновляли
 Прошивальщик проверяет magic/version/size/checksum плана, длины и checksums областей, а также
 `verify_sealed` для лоадера. Это защищает от битой FEL-передачи между `write` и `exec`.
 
-Новые шаги статуса (`plan`, `SD init`, `layout`, `write payload`, `write boot.cfg`,
+Новые шаги статуса (`plan`, `SD init`, `layout`, `read MBR`, `write payload`, `write boot.cfg`,
 `verify FAT files`, `write loader`, `verify loader`) и результаты (`bad plan`, `SD card offline`,
-`no MBR`, `no FAT partition`, `unsafe card layout`, `card too small`, `write failed`,
-`read-back mismatch`, `MBR changed`) позволяют хосту напечатать шаг и причину сбоя. Успешный
-статус по-прежнему `done`/`ok`.
+`no MBR`, `no FAT partition`, `unsafe card layout`, `card too small`, `read failed`,
+`write failed`, `read-back mismatch`, `MBR changed`) позволяют хосту напечатать шаг и причину
+сбоя. Успешный статус по-прежнему `done`/`ok`.
 
 ## Порядок и safety
 

@@ -22,7 +22,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use rawboot_fel::FelDevice;
+use rawboot_fel::{FelDevice, FlashSdRequest};
 use rawboot_image::{
     DDR_RESULT_ADDR, DDR_STUB_LOAD_ADDR, DDR_STUB_MAX_SIZE, DEFAULT_LOAD_ADDR, DEFAULT_START_LBA,
     FLASH_ARGS_MAX_SIZE, FLASH_PAYLOAD_MAX_SIZE, FLASHER_LOAD_ADDR, FLASHER_MAX_SIZE,
@@ -457,7 +457,14 @@ fn fel_flash(args: impl Iterator<Item = String>) -> Result<()> {
     let (_, soc) = fel.identify()?;
     println!("SoC:        {}", soc.name());
 
-    let report = fel.flash_sd_card(&stub, &flasher, &payload, &boot_cfg, &loader, args.sequence)?;
+    let report = fel.flash_sd_card(FlashSdRequest {
+        stub: &stub,
+        flasher: &flasher,
+        payload: &payload,
+        args: &boot_cfg,
+        loader: &loader,
+        sequence: args.sequence,
+    })?;
 
     println!("DRAM:       {} MiB", report.dram_size_mib);
     println!(

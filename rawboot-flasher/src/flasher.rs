@@ -80,36 +80,28 @@ fn run_flash_sd() -> (u32, u32) {
         return (FLASH_STEP_LAYOUT, FLASH_RESULT_NO_MBR);
     }
 
-    let candidates = partition::candidates(&mbr, sd.card.capacity);
-    let Some(declared) = partition::first_fat_partition(&mbr) else {
-        let has_bare_volume = candidates
-            .iter()
-            .flatten()
-            .any(|candidate| candidate.base_lba == 0);
-        return if has_bare_volume {
+    let partitions = partition::fat_partitions(&mbr);
+    if partitions.iter().flatten().next().is_none() {
+        return if partition::bare_fat_partition(&mbr, sd.card.capacity).is_some() {
             (FLASH_STEP_LAYOUT, FLASH_RESULT_NO_MBR)
         } else {
             (FLASH_STEP_LAYOUT, FLASH_RESULT_NO_FAT)
         };
-    };
-
-    // Check the MBR's declared extent before `candidates` clamps it to the card.
-    let declared = partition::Partition {
-        base_lba: declared.base_lba,
-        len_bytes: declared.sectors as u64 * partition::BLOCK_SIZE,
-    };
-    if let Err(status) = check_layout(&sd, declared, staged.plan.loader_len) {
-        return status;
     }
 
     let mut outcome = None;
-    for candidate in candidates.into_iter().flatten() {
-        if candidate.base_lba == 0 {
-            continue;
-        }
-        if let Err(status) = check_layout(&sd, candidate, staged.plan.loader_len) {
+    for entry in partitions.into_iter().flatten() {
+        // Check the MBR's declared extent before clamping it to the card.
+        let declared = partition::Partition {
+            base_lba: entry.base_lba,
+            len_bytes: entry.len_bytes(),
+        };
+        if let Err(status) = check_layout(&sd, declared, staged.plan.loader_len) {
             return status;
         }
+        let Some(candidate) = entry.partition(sd.card.capacity) else {
+            return (FLASH_STEP_LAYOUT, FLASH_RESULT_CARD_TOO_SMALL);
+        };
 
         match fat::mount_partition(SdCardIo::new(&mut sd), candidate) {
             Ok(fs) => {
@@ -143,9 +135,9 @@ fn read_plan() -> Result<Staged, (u32, u32)> {
     let plan =
         FlashPlan::from_bytes(&bytes).map_err(|_| (FLASH_STEP_PLAN, FLASH_RESULT_BAD_PLAN))?;
 
-    let payload = stage(FLASH_PAYLOAD_ADDR, plan.payload_len);
-    let args = stage(FLASH_ARGS_ADDR, plan.args_len);
-    let loader = stage(FLASH_LOADER_ADDR, plan.loader_len);
+    let payload = staged_region(FLASH_PAYLOAD_ADDR, plan.payload_len);
+    let args = staged_region(FLASH_ARGS_ADDR, plan.args_len);
+    let loader = staged_region(FLASH_LOADER_ADDR, plan.loader_len);
     if !plan.matches(payload, args, loader) {
         return Err((FLASH_STEP_PLAN, FLASH_RESULT_BAD_PLAN));
     }
@@ -162,7 +154,7 @@ fn read_plan() -> Result<Staged, (u32, u32)> {
 }
 
 /// A view of one staged region in DRAM.
-fn stage(address: u32, length: u32) -> &'static [u8] {
+fn staged_region(address: u32, length: u32) -> &'static [u8] {
     // SAFETY: the host wrote the region at this fixed DRAM address before it
     // executed the flasher, and the plan has been checked against its window.
     unsafe { slice::from_raw_parts(address as *const u8, length as usize) }
