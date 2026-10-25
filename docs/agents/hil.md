@@ -35,12 +35,12 @@ sequence, the UART capture, and how to read the result. The script from this rep
 
 ## Load and capture
 
-> Only the FEL image is built today: the loader is linked at `0x00028000`, and `cargo xtask
-> image` writes `target/rawboot-fel.bin`. Booting the loader from SD/SPI needs an image linked
-> at `0x00020000`, which does not exist yet — see #37.
+`cargo xtask image` writes two loader images from the same code: `target/rawboot-fel.bin`,
+linked for SRAM at `0x00028000`, and `target/rawboot-boot-sd.bin`, linked at `0x00020000` for
+BROM SD/SPI boot from sector 16. Use the FEL image with `hil-check.sh`; write the boot image to
+the card. The loader initialises DRAM itself, so `xfel ddr` is **not** part of either procedure.
 
-Build the loader, then run the script. The loader is linked for SRAM at `0x00028000`; it
-initialises DRAM itself, so `xfel ddr` is **not** part of the procedure.
+Build the loader, then run the script:
 
 ```sh
 cargo xtask image
@@ -122,11 +122,41 @@ HIL_FEL_PAYLOAD=1 HIL_REQUIRE_LED=1 scripts/hil-check.sh target/rawboot-fel.bin 
 reports. The payload assertion is automatic on this path, and `HIL_REQUIRE_SD` is rejected
 because no SD access happens.
 
+### SD/SPI boot (no FEL)
+
+BROM loads a boot image from sector 16 straight to `0x00020000`, while the FEL image is linked
+at `0x00028000` and is written by `xfel`. Put **`target/rawboot-boot-sd.bin`** on the card:
+the FEL image in sector 16 runs 32 KiB off and dies before UART, leaving the board silent with
+a steady LED.
+
+The card needs an MBR with a FAT partition (this runbook assumes LBA 2048, as in the #37
+bring-up) and `payload.bin` (or `boot.cfg`) in its root. Building and writing that layout is
+still manual, pending #36; write the loader at byte offset 8192 (sector 16):
+
+```sh
+cargo xtask image
+cargo xtask payload
+sudo dd if=target/rawboot-boot-sd.bin of=/dev/sdX bs=512 seek=16 conv=notrunc,fsync
+cp target/rawboot-payload.img /media/$USER/<partition>/payload.bin
+```
+
+Capture a self-boot run by starting the capture **before** the power-cycle, then apply power
+(the BROM strap is sampled at cold power-on; see [Capture a self-booting board](#capture-a-self-booting-board-no-fel)):
+
+```sh
+setsid sg dialout -c 'python3 scripts/hil_serial.py /tmp/boot.log --seconds 10 \
+    --require-handoff --payload target/rawboot-payload.img' &
+```
+
+The run passes when the log reaches `BOOT: handoff to ...` and PD22 then shows the payload's
+short-long cadence (120 ms on, 180 ms off, 600 ms on, 900 ms off). A steady 50 ms toggle means
+the loader is still in its `S=0x` loop; silence points at the wrong image in sector 16.
+
 Run HIL from the code branch under test. Verification instructions and runbook updates may be
 committed before the run; record a PASS only after it succeeds. `cargo xtask image` writes
-`target/rawboot-fel.bin.build` with the source commit, branch and dirty flag; `hil-check.sh`
-refuses an image whose commit is not `HEAD`, so rebuild after switching branches
-(`HIL_SKIP_PROVENANCE=1` is the escape hatch).
+`target/rawboot-fel.bin.build` and `target/rawboot-boot-sd.bin.build` with the source commit,
+branch and dirty flag; `hil-check.sh` refuses a FEL image whose commit is not `HEAD`, so rebuild
+after switching branches (`HIL_SKIP_PROVENANCE=1` is the escape hatch).
 
 Put the board into FEL with a cold power-cycle (power off, hold FEL/BOOT, power on), not with
 `xfel reset` or a plain reset: the strap is sampled only at power-on, and `xfel reset` resets
@@ -300,6 +330,12 @@ and checksum depend on the image header and the detected DRAM size.
   drain it and replace the loader, or power-cycle into FEL (do not `xfel reset`) and rerun.
 - `image commit ... does not match HEAD`: the image predates a branch switch or commit.
   Rebuild with `cargo xtask image` on the branch under test.
+- `... is linked at 0x..., expected 0x...`: the loader was linked with the wrong script.
+  `cargo xtask image` builds both variants and fails here rather than producing an unbootable
+  image; check `rawboot/build.rs` and `rawboot-rt/link*.x`.
+- A cold power-on from SD is silent and PD22 stays steady: sector 16 holds the FEL image
+  (`0x00028000`) instead of `target/rawboot-boot-sd.bin` (`0x00020000`). The two images are not
+  interchangeable; rewrite sector 16.
 - HIL fails with `missing SD/MMC card found` or `missing a successful SD read`: no card,
   an unreadable card, or `HIL_REQUIRE_SD=1` without a card. Insert a card and rerun, or
   unset the flag for a no-card test.

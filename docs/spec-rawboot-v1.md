@@ -116,7 +116,9 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
   filesystem is provided by the `fatfs` crate over a block-device adapter, replacing the vendored
   2 MB ChaN FatFs.
 - **Build tooling.** A cross-platform Rust xtask assembles and eGON-seals images (`rawboot-fel.bin`,
-  `rawboot-boot-sd.bin`, `rawboot.img`). The existing Windows scripts and `.exe` tools are kept as a
+  `rawboot-boot-sd.bin`, `rawboot.img`). The loader is linked twice from the same code:
+  `rawboot-fel.bin` at `0x00028000` for `xfel`, and `rawboot-boot-sd.bin` at `0x00020000` for
+  BROM SD/SPI boot from sector 16. The existing Windows scripts and `.exe` tools are kept as a
   working Windows path; `xfel` stays an external host tool.
 - **Toolchain.** Target `armv7a-none-eabi` (soft-float; measured as smaller than the hard-float
   variant for this code), Rust edition 2024, pinned by `rust-toolchain.toml`.

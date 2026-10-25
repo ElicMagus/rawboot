@@ -38,8 +38,9 @@ Standard commands:
   research notes to `target/upstream/awboot-<sha>/`)
 - Check everything: `scripts/check.sh` (fmt, build, both clippy passes, host tests, SPDX
   headers, branch-docs rule, and `cargo xtask image`/`payload` smoke builds)
-- Seal an image: `cargo xtask image` (builds the loader and writes the sealed
-  `target/rawboot-fel.bin`; the `xtask` alias pins the host triple in `.cargo/config.toml`)
+- Seal an image: `cargo xtask image` (builds the loader twice and writes the sealed
+  `target/rawboot-fel.bin` for FEL at `0x00028000` and `target/rawboot-boot-sd.bin` for
+  SD/SPI boot at `0x00020000`; the `xtask` alias pins the host triple in `.cargo/config.toml`)
 - Build the payload image: `cargo xtask payload` (builds the `payload` crate and writes
   `target/rawboot-payload.img`, its flat binary wrapped in the payload image header)
 - HIL: run `scripts/hil-check.sh target/rawboot-fel.bin <label>` after `code-review`, on the
