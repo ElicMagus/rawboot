@@ -46,7 +46,7 @@ per ADR-0007.
 | `UNSTUFF_BITS` macro [1:126-140] | `UNSTUFF_BITS` | Same mask, word index and cross-word shift. |
 | `go_idle_state` [1:152-162] | same name | One CMD0, `MMC_RSP_R1` in SPI and `MMC_RSP_NONE` otherwise. |
 | `sd_send_if_cond` [1:165-184] | same name | Same voltage-window argument, check pattern `0xaa`, R7 response and `SD_VERSION_2` on success. |
-| `sd_send_op_cond` [1:186-241] | same name | CMD0 then CMD8 inside the function, CMD55/ACMD41 loop, 50 retries with upstream post-decrement semantics, SPI `MMC_SPI_READ_OCR`, `rca = 0`. |
+| `sd_send_op_cond` [1:186-241] | same name | CMD0 then CMD8 inside the function, CMD55/ACMD41 loop, 50-attempt budget, SPI `MMC_SPI_READ_OCR`, `rca = 0`; ACMD41 transport failure consumes a retry instead of being treated as ready (#43). |
 | `mmc_send_op_cond` [1:270-309] | same name | CMD1 with exact `MMC_VDD_27_36` / `MMC_VDD_165_195` OCR arguments, 50 retries, 5 ms delay, `MMC_VERSION_UNKNOWN`, `rca = 1`. |
 | `sdmmc_status` [1:311-331] | same name | 100 retries, ready bit `1 << 8`, 1 us delay, state `(response >> 9) & 0xf`, `-1` on timeout. |
 | `sdmmc_read_blocks` [1:333-373] | same name | CMD17/CMD18, block vs byte addressing, R1, data descriptor, TRAN/DATA wait, CMD12 after multi-block. |
@@ -118,6 +118,11 @@ per ADR-0007.
   timeout; upstream ignores the reset result because its reset returns immediately. The
   polling reset and the CMD0 init sequence live in `sdhci`; see
   `research/sd-cold-start-brom.md`.
+- **ACMD41 transport failure (#43).** `sd_send_op_cond` only leaves the polling loop
+  when ACMD41 succeeded and set the busy bit. Upstream breaks on a transport failure
+  too and then treats the stale response as OCR; here the failure consumes a retry
+  inside the same 50-attempt budget, so the SD path is rejected before the MMC
+  fallback.
 - **No host seam.** As decided by the parent issue, there is no host test for the card
   driver; parity is checked by this static table plus HIL on T113-S3.
 

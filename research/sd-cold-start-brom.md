@@ -34,9 +34,9 @@ failure.
 ## 2. What the HIL logs rule out
 
 - **Retry budget.** `fix/43-sd-init-retries` raised the attempt count. One cold run
-  passed after two CMD1 timeouts; another kept timing out for more than five seconds
-  (`/tmp/rawboot-hil-43-fix-2.log`) before the loader gave up. More attempts and more
-  delay do not make the card answer.
+  passed after two CMD1 timeouts; another logged about forty CMD1 timeouts over more
+  than five seconds before the loader gave up. More attempts and more delay do not make
+  the card answer.
 - **A power-only card state.** Re-executing the loader without a power cycle recovers
   the card, so the card is not latched in a state that only a power cycle clears.
 - **#38/#39 regressions.** The same timeouts reproduce on the pre-#38 baseline and on
@@ -50,8 +50,9 @@ until the loader replaces it.
 
 ## 3. Two missing host steps
 
-The pinned upstream `sunxi_sdhci.c` does neither of the following; mainline Linux
-`sunxi-mmc.c` does both [2]. The port transcribed upstream, so both are absent here.
+The pinned upstream `sunxi_sdhci.c` does neither of the following [1:525-645,
+647-651]; mainline Linux `sunxi-mmc.c` does both (`sunxi_mmc_reset_host`,
+`sunxi_mmc_request`) [2]. The port transcribed upstream, so both are absent here.
 
 1. **Wait for the controller reset to finish.** `sdhci_reset` writes
    `SMHC_GCTRL_HARDWARE_RESET` and returns immediately. The reset bits are
@@ -74,9 +75,14 @@ C does not use it.
 
 ## 4. Chosen change
 
-- `sdhci_reset` now polls `GCTRL` until the reset bits clear (250 ms bound) and
-  reports a timeout instead of returning immediately.
+- `sdhci_reset` first enables the controller gate and deasserts its CCU reset, then
+  polls `GCTRL` until the reset bits clear (250 ms bound) and reports a timeout
+  instead of returning immediately. Enabling the gate first matters because a gated
+  SMHC block cannot be polled reliably.
 - `sdhci_transfer` sets `SMHC_CMD_SEND_INIT_SEQUENCE` when the command is CMD0.
+- `sd_send_op_cond` only accepts ACMD41 when the transfer succeeded and the busy bit
+  is set; a transport failure is retried inside the same bounded budget instead of
+  being mistaken for a completed SD initialisation.
 - `sdmmc_detect` stops the attempt if the reset times out; the stop/busy error paths
   reuse the polling reset.
 - The retry budget, the 100 ms inter-attempt pause and the 2 ms post-CMD0 delay are
@@ -95,7 +101,8 @@ hot-plug, re-exec and no-card checks. See `docs/agents/hil.md` for the procedure
 
 ## Sources
 
-1. `szemzoa/awboot` at `5380c00fc67c975433f25c57fb481aa2b91aebf8`,
-   `arch/arm32/mach-t113s3/sunxi_sdhci.c` and `sdmmc.c`.
+1. `szemzoa/awboot` at `5380c00fc67c975433f25c57fb481aa2b91aebf8`:
+   `arch/arm32/mach-t113s3/sunxi_sdhci.c` [525-645, 647-651];
+   `arch/arm32/mach-t113s3/sdmmc.c` [186-241, 375-706, 725-763].
 2. Linux `drivers/mmc/host/sunxi-mmc.c`: `sunxi_mmc_reset_host` (GCTRL polling) and
    `sunxi_mmc_request` (`SDXC_SEND_INIT_SEQUENCE` for `MMC_GO_IDLE_STATE`).
