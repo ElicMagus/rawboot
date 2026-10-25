@@ -3,6 +3,11 @@ name = "rawboot"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# Link at the SD/SPI boot origin (0x00020000) instead of the FEL origin.
+# `cargo xtask image` builds both variants; the FEL image is the default.
+boot-sd = []
+
 [dependencies]
 rawboot-image = { path = "../rawboot-image", default-features = false }
 rawboot-rt = { path = "../rawboot-rt" }

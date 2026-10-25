@@ -8,6 +8,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rustc-link-search={}", out_dir.display());
 
     File::create(out_dir.join("link.x"))?.write_all(include_bytes!("link.x"))?;
+    File::create(out_dir.join("link-boot.x"))?.write_all(include_bytes!("link-boot.x"))?;
+    File::create(out_dir.join("link-sections.x"))?.write_all(include_bytes!("link-sections.x"))?;
 
     Ok(())
 }
