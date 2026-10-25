@@ -20,9 +20,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use rawboot_image::{
-    DDR_STUB_LOAD_ADDR, DDR_STUB_MAX_SIZE, DEFAULT_LOAD_ADDR, DEFAULT_START_LBA, FLASHER_LOAD_ADDR,
-    FLASHER_MAX_SIZE, FLASHER_STACK_TOP, ImageOptions, SdImageOptions, SealOptions, build_sd_image,
-    seal, verify_sealed,
+    DDR_RESULT_ADDR, DDR_STUB_LOAD_ADDR, DDR_STUB_MAX_SIZE, DEFAULT_LOAD_ADDR, DEFAULT_START_LBA,
+    FLASHER_LOAD_ADDR, FLASHER_MAX_SIZE, FLASHER_STACK_SIZE, FLASHER_STACK_TOP, ImageOptions,
+    SdImageOptions, SealOptions, build_sd_image, seal, verify_sealed,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -196,6 +196,31 @@ fn verify_elf_section_vma(elf: &Path, section: &str, expected: u32) -> Result<()
 
 /// Fail the build if `symbol` is not at `expected`.
 fn verify_elf_symbol(elf: &Path, symbol: &str, expected: u32) -> Result<()> {
+    let actual = elf_symbol_value(elf, symbol)?;
+    if actual != expected {
+        return Err(format!(
+            "`{}` has `{symbol}` at {actual:#010x}, expected {expected:#010x}",
+            elf.display()
+        )
+        .into());
+    }
+    Ok(())
+}
+
+/// Fail the build if `symbol` lies above `limit`.
+fn verify_elf_symbol_at_most(elf: &Path, symbol: &str, limit: u32) -> Result<()> {
+    let actual = elf_symbol_value(elf, symbol)?;
+    if actual > limit {
+        return Err(format!(
+            "`{}` has `{symbol}` at {actual:#010x}, above {limit:#010x}",
+            elf.display()
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn elf_symbol_value(elf: &Path, symbol: &str) -> Result<u32> {
     let output = Command::new(llvm_objdump()?)
         .args(["-t"])
         .arg(elf)
@@ -206,16 +231,8 @@ fn verify_elf_symbol(elf: &Path, symbol: &str, expected: u32) -> Result<()> {
     }
 
     let symbols = String::from_utf8_lossy(&output.stdout);
-    let actual = parse_symbol_value(&symbols, symbol)
-        .ok_or_else(|| format!("cannot read `{symbol}` from `{}`", elf.display()))?;
-    if actual != expected {
-        return Err(format!(
-            "`{}` has `{symbol}` at {actual:#010x}, expected {expected:#010x}",
-            elf.display()
-        )
-        .into());
-    }
-    Ok(())
+    parse_symbol_value(&symbols, symbol)
+        .ok_or_else(|| format!("cannot read `{symbol}` from `{}`", elf.display()).into())
 }
 
 /// The value of one symbol in `llvm-objdump -t` output.
@@ -278,6 +295,7 @@ fn flasher() -> Result<()> {
             load_addr: DDR_STUB_LOAD_ADDR,
             max_size: DDR_STUB_MAX_SIZE,
             stack_top: None,
+            bss_limit: Some(DDR_RESULT_ADDR),
         },
         FlasherImage {
             bin: "rawboot-flasher",
@@ -285,6 +303,7 @@ fn flasher() -> Result<()> {
             load_addr: FLASHER_LOAD_ADDR,
             max_size: FLASHER_MAX_SIZE,
             stack_top: Some(FLASHER_STACK_TOP),
+            bss_limit: Some(FLASHER_STACK_TOP - FLASHER_STACK_SIZE),
         },
     ] {
         let (elf, _) = release_bin(&root, image.bin);
@@ -293,6 +312,9 @@ fn flasher() -> Result<()> {
         verify_elf_symbol(&elf, "_start", image.load_addr)?;
         if let Some(stack_top) = image.stack_top {
             verify_elf_symbol(&elf, "_estack", stack_top)?;
+        }
+        if let Some(bss_limit) = image.bss_limit {
+            verify_elf_symbol_at_most(&elf, "_ebss", bss_limit)?;
         }
 
         let output = root.join("target").join(image.output);
@@ -334,6 +356,7 @@ struct FlasherImage {
     load_addr: u32,
     max_size: u32,
     stack_top: Option<u32>,
+    bss_limit: Option<u32>,
 }
 
 /// Build the SD boot prefix: an MBR pointing at the existing FAT partition and

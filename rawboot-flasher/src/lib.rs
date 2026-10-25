@@ -17,3 +17,27 @@
 
 pub mod ddr;
 pub mod flasher;
+
+/// Zero the BSS section of the image that links this function.
+///
+/// # Safety
+///
+/// The image's linker script must define `_sbss` and `_ebss` bracketing a
+/// writable zero-initialised region. The flat binary does not carry `.bss`, so
+/// every entry point calls this before running driver or contract code.
+pub unsafe fn zero_bss() {
+    unsafe extern "C" {
+        static mut _sbss: u8;
+        static mut _ebss: u8;
+    }
+
+    let mut cursor = &raw mut _sbss;
+    let end = &raw mut _ebss;
+    while cursor < end {
+        // SAFETY: the caller's linker script places the range in writable RAM.
+        unsafe {
+            core::ptr::write_volatile(cursor, 0);
+            cursor = cursor.add(1);
+        }
+    }
+}

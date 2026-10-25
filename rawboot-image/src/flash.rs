@@ -85,10 +85,14 @@ pub const DRAM_TEST_SIZE: u32 = 0x1000;
 
 /// Where the host places the flasher in DRAM.
 pub const FLASHER_LOAD_ADDR: u32 = 0x4001_0000;
-/// Largest flasher image, including room for its stack above it.
-pub const FLASHER_MAX_SIZE: u32 = 0x0004_0000;
+/// Total DRAM window reserved for the flasher and its stack.
+pub const FLASHER_WINDOW_SIZE: u32 = 0x0004_0000;
+/// Stack reserved at the top of the flasher window.
+pub const FLASHER_STACK_SIZE: u32 = 0x4000;
+/// Largest flasher image; the rest of the window is its stack.
+pub const FLASHER_MAX_SIZE: u32 = FLASHER_WINDOW_SIZE - FLASHER_STACK_SIZE;
 /// Top of the flasher's DRAM stack; the flasher switches to it on entry.
-pub const FLASHER_STACK_TOP: u32 = FLASHER_LOAD_ADDR + FLASHER_MAX_SIZE;
+pub const FLASHER_STACK_TOP: u32 = FLASHER_LOAD_ADDR + FLASHER_WINDOW_SIZE;
 
 /// The block layout version shared by jobs and statuses.
 pub const FLASH_CONTRACT_VERSION: u32 = 1;
@@ -422,7 +426,8 @@ const _: () = {
     assert!(FLASH_JOB_ADDR + FLASH_JOB_SIZE as u32 <= FLASH_STATUS_ADDR);
     assert!(FLASH_STATUS_ADDR + FLASH_STATUS_SIZE as u32 <= DRAM_TEST_ADDR);
     assert!(DRAM_TEST_ADDR + DRAM_TEST_SIZE <= FLASHER_LOAD_ADDR);
-    assert!(FLASHER_LOAD_ADDR + FLASHER_MAX_SIZE == FLASHER_STACK_TOP);
+    assert!(FLASHER_LOAD_ADDR + FLASHER_WINDOW_SIZE == FLASHER_STACK_TOP);
+    assert!(FLASHER_MAX_SIZE + FLASHER_STACK_SIZE == FLASHER_WINDOW_SIZE);
 };
 
 #[cfg(test)]

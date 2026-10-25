@@ -110,6 +110,11 @@ pub enum FelError {
         /// Bytes the read asked for.
         length: usize,
     },
+    /// A FEL-callable image is empty.
+    EmptyImage {
+        /// Which image was rejected.
+        what: &'static str,
+    },
     /// A FEL-callable image carries an eGON header.
     UnexpectedEgon {
         /// Which image was rejected.
@@ -182,6 +187,7 @@ impl fmt::Display for FelError {
             Self::OutOfMemory { length } => {
                 write!(f, "cannot allocate a {length}-byte read buffer")
             }
+            Self::EmptyImage { what } => write!(f, "{what} is empty"),
             Self::UnexpectedEgon { what } => write!(
                 f,
                 "{what} starts with an eGON header; a FEL-callable image must not"

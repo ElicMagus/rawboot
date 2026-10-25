@@ -32,6 +32,11 @@ impl<T: Transport> FelDevice<T> {
     /// A stub that does not return leaves the next FEL read waiting until the
     /// transport timeout, which surfaces as a transport error.
     pub fn run_ddr_stub(&mut self, stub: &[u8]) -> Result<u32, FelError> {
+        if stub.is_empty() {
+            return Err(FelError::EmptyImage {
+                what: "DDR-init stub",
+            });
+        }
         if stub.starts_with(b"eGON") {
             return Err(FelError::UnexpectedEgon {
                 what: "DDR-init stub",
@@ -95,6 +100,9 @@ impl<T: Transport> FelDevice<T> {
         flasher: &[u8],
         job: FlashJob,
     ) -> Result<FlashStatus, FelError> {
+        if flasher.is_empty() {
+            return Err(FelError::EmptyImage { what: "flasher" });
+        }
         if flasher.starts_with(b"eGON") {
             return Err(FelError::UnexpectedEgon { what: "flasher" });
         }
@@ -293,6 +301,28 @@ mod tests {
                 magic: 0,
                 size_mib: 0
             })
+        );
+        fel.into_inner().assert_done();
+    }
+
+    #[test]
+    fn rejects_an_empty_stub_without_touching_the_device() {
+        let mut fel = device(Vec::new());
+        assert_eq!(
+            fel.run_ddr_stub(b""),
+            Err(FelError::EmptyImage {
+                what: "DDR-init stub"
+            })
+        );
+        fel.into_inner().assert_done();
+    }
+
+    #[test]
+    fn rejects_an_empty_flasher_without_touching_the_device() {
+        let mut fel = device(Vec::new());
+        assert_eq!(
+            fel.run_flash_job(b"", FlashJob::new(1, FLASH_COMMAND_NOOP, 0, 0, 0)),
+            Err(FelError::EmptyImage { what: "flasher" })
         );
         fel.into_inner().assert_done();
     }
