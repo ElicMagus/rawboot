@@ -15,14 +15,16 @@ use rawboot_image::{
 };
 use sunxi_pl::io::{read8, write8};
 
+const SEQUENCE_OFFSET: u32 = core::mem::offset_of!(FlashJob, sequence) as u32;
+
 /// Run the job currently in DRAM, then publish its status and return.
 pub fn run() {
     let job = match read_job() {
         Ok(job) => job,
         Err(_) => {
-            // The job header itself is untrustworthy, so there is no sequence
-            // to echo; the host reports the read status and the result.
-            write_status(0, FLASH_RESULT_BAD_JOB);
+            // The header is untrustworthy, but the host still needs the status:
+            // echo the raw sequence word so a valid host job can match it.
+            write_status(raw_sequence(), FLASH_RESULT_BAD_JOB);
             return;
         }
     };
@@ -40,6 +42,14 @@ fn read_job() -> Result<FlashJob, FlashContractError> {
         *byte = read8(FLASH_JOB_ADDR + index as u32);
     }
     FlashJob::from_bytes(&bytes)
+}
+
+fn raw_sequence() -> u32 {
+    let mut bytes = [0u8; 4];
+    for (index, byte) in bytes.iter_mut().enumerate() {
+        *byte = read8(FLASH_JOB_ADDR + SEQUENCE_OFFSET + index as u32);
+    }
+    u32::from_le_bytes(bytes)
 }
 
 fn write_status(sequence: u32, result: u32) {

@@ -110,6 +110,11 @@ pub enum FelError {
         /// Bytes the read asked for.
         length: usize,
     },
+    /// A FEL-callable image carries an eGON header.
+    UnexpectedEgon {
+        /// Which image was rejected.
+        what: &'static str,
+    },
     /// The DDR-init stub is larger than its FEL SRAM window.
     StubTooLarge {
         /// Bytes supplied.
@@ -177,6 +182,10 @@ impl fmt::Display for FelError {
             Self::OutOfMemory { length } => {
                 write!(f, "cannot allocate a {length}-byte read buffer")
             }
+            Self::UnexpectedEgon { what } => write!(
+                f,
+                "{what} starts with an eGON header; a FEL-callable image must not"
+            ),
             Self::StubTooLarge { size, max } => write!(
                 f,
                 "DDR-init stub is {size} bytes, larger than the {max}-byte SRAM window"

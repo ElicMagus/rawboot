@@ -32,6 +32,47 @@ pub const DDR_STUB_MAX_SIZE: u32 = 20 * 1024;
 pub const DDR_RESULT_ADDR: u32 = DDR_STUB_LOAD_ADDR + DDR_STUB_MAX_SIZE;
 /// `RBDD` in little-endian order: the DDR-init stub ran and wrote a result.
 pub const DDR_RESULT_MAGIC: u32 = u32::from_le_bytes(*b"RBDD");
+/// Number of bytes in a [`DdrResult`].
+pub const DDR_RESULT_SIZE: usize = 8;
+
+/// What the DDR-init stub leaves at [`DDR_RESULT_ADDR`].
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DdrResult {
+    /// [`DDR_RESULT_MAGIC`].
+    pub magic: u32,
+    /// Detected DRAM size in MiB; zero means the driver failed.
+    pub size_mib: u32,
+}
+
+impl DdrResult {
+    /// A result for a successful DRAM bring-up.
+    pub const fn new(size_mib: u32) -> Self {
+        Self {
+            magic: DDR_RESULT_MAGIC,
+            size_mib,
+        }
+    }
+
+    /// The result's little-endian byte representation, as left in SRAM.
+    pub const fn to_bytes(self) -> [u8; DDR_RESULT_SIZE] {
+        let mut out = [0u8; DDR_RESULT_SIZE];
+        write_u32_le(&mut out, 0, self.magic);
+        write_u32_le(&mut out, 4, self.size_mib);
+        out
+    }
+
+    /// Decode a result, or return `None` when the stub did not write its magic.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < DDR_RESULT_SIZE || read_u32_le(bytes, 0) != DDR_RESULT_MAGIC {
+            return None;
+        }
+        Some(Self {
+            magic: DDR_RESULT_MAGIC,
+            size_mib: read_u32_le(bytes, 4),
+        })
+    }
+}
 
 /// Start of the in-DRAM job block.
 pub const FLASH_JOB_ADDR: u32 = 0x4000_0000;
@@ -302,9 +343,9 @@ impl FlashStatus {
         )
     }
 
-    /// Whether the flasher reported success.
+    /// Whether the flasher reported a completed, successful job.
     pub const fn is_ok(&self) -> bool {
-        self.result == FLASH_RESULT_OK
+        self.step == FLASH_STEP_DONE && self.result == FLASH_RESULT_OK
     }
 }
 
@@ -363,8 +404,11 @@ pub const fn result_name(result: u32) -> &'static str {
 const _: () = {
     use core::mem::{offset_of, size_of};
 
+    assert!(size_of::<DdrResult>() == DDR_RESULT_SIZE);
     assert!(size_of::<FlashJob>() == FLASH_JOB_SIZE);
     assert!(size_of::<FlashStatus>() == FLASH_STATUS_SIZE);
+    assert!(offset_of!(DdrResult, magic) == 0);
+    assert!(offset_of!(DdrResult, size_mib) == 4);
     assert!(offset_of!(FlashJob, magic) == job_offset::MAGIC);
     assert!(offset_of!(FlashJob, checksum) == job_offset::CHECKSUM);
     assert!(offset_of!(FlashJob, sequence) == job_offset::SEQUENCE);
@@ -386,6 +430,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_ddr_result_round_trips() {
+        let result = DdrResult::new(128);
+        assert_eq!(DdrResult::from_bytes(&result.to_bytes()), Some(result));
+    }
+
+    #[test]
+    fn a_ddr_result_without_its_magic_is_not_a_result() {
+        assert_eq!(DdrResult::from_bytes(&[0u8; DDR_RESULT_SIZE]), None);
+        assert_eq!(DdrResult::from_bytes(&[0u8; DDR_RESULT_SIZE - 1]), None);
+    }
+
+    #[test]
     fn a_new_job_round_trips() {
         let job = FlashJob::new(7, FLASH_COMMAND_NOOP, 0x11, 0x22, 0x33);
         let bytes = job.to_bytes();
@@ -405,6 +461,12 @@ mod tests {
         assert_eq!(status.size, FLASH_STATUS_SIZE as u32);
         assert_eq!(FlashStatus::from_bytes(&bytes), Ok(status));
         assert!(status.is_ok());
+    }
+
+    #[test]
+    fn an_incomplete_status_is_not_success() {
+        let status = FlashStatus::new(7, FLASH_STEP_STARTED, FLASH_RESULT_OK);
+        assert!(!status.is_ok());
     }
 
     #[test]

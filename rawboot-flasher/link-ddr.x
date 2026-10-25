@@ -8,7 +8,7 @@
 
 MEMORY
 {
-  SRAM : ORIGIN = 0x00028000, LENGTH = 64k
+  SRAM : ORIGIN = 0x00028000, LENGTH = 20k
 }
 
 ENTRY(_start)
@@ -42,5 +42,7 @@ SECTIONS
     *(.comment)
   }
 
-  ASSERT(_ebss <= ORIGIN(SRAM) + LENGTH(SRAM), "DDR-init stub exceeds the SRAM window")
+  ASSERT(_sbss >= ORIGIN(SRAM), "DDR-init stub BSS starts outside the SRAM window")
+  ASSERT(_ebss <= ORIGIN(SRAM) + LENGTH(SRAM), "DDR-init stub exceeds its 20 KiB SRAM window")
+  ASSERT(_ebss <= 0x0002d000, "DDR-init stub would overwrite the result block")
 }

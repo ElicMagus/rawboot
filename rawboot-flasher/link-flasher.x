@@ -51,5 +51,9 @@ SECTIONS
     *(.comment)
   }
 
+  ASSERT(_ebss <= _sstack, "flasher BSS overlaps its stack")
+  ASSERT(_sstack <= _estack, "flasher stack starts above the DRAM window")
+  ASSERT(_estack == ORIGIN(DRAM) + LENGTH(DRAM), "flasher stack top is not the window top")
+  ASSERT(_estack % 8 == 0, "flasher stack top is not 8-byte aligned")
   ASSERT(_estack - _sstack >= 0x4000, "flasher stack is too small")
 }

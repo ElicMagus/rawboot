@@ -8,9 +8,9 @@
 //! All addresses and block layouts come from [`rawboot_image::flash`].
 
 use rawboot_image::{
-    DDR_RESULT_ADDR, DDR_RESULT_MAGIC, DDR_STUB_LOAD_ADDR, DDR_STUB_MAX_SIZE, DRAM_TEST_ADDR,
-    DRAM_TEST_SIZE, FLASH_COMMAND_NOOP, FLASH_JOB_ADDR, FLASH_STATUS_ADDR, FLASH_STATUS_SIZE,
-    FLASHER_LOAD_ADDR, FLASHER_MAX_SIZE, FlashJob, FlashStatus,
+    DDR_RESULT_ADDR, DDR_RESULT_SIZE, DDR_STUB_LOAD_ADDR, DDR_STUB_MAX_SIZE, DRAM_TEST_ADDR,
+    DRAM_TEST_SIZE, DdrResult, FLASH_COMMAND_NOOP, FLASH_JOB_ADDR, FLASH_STATUS_ADDR,
+    FLASH_STATUS_SIZE, FLASHER_LOAD_ADDR, FLASHER_MAX_SIZE, FlashJob, FlashStatus, read_u32_le,
 };
 
 use crate::device::FelDevice;
@@ -32,6 +32,11 @@ impl<T: Transport> FelDevice<T> {
     /// A stub that does not return leaves the next FEL read waiting until the
     /// transport timeout, which surfaces as a transport error.
     pub fn run_ddr_stub(&mut self, stub: &[u8]) -> Result<u32, FelError> {
+        if stub.starts_with(b"eGON") {
+            return Err(FelError::UnexpectedEgon {
+                what: "DDR-init stub",
+            });
+        }
         if stub.len() > DDR_STUB_MAX_SIZE as usize {
             return Err(FelError::StubTooLarge {
                 size: stub.len(),
@@ -40,16 +45,18 @@ impl<T: Transport> FelDevice<T> {
         }
 
         self.write(DDR_STUB_LOAD_ADDR, stub)?;
+        // A retry must not accept the result a previous, successful stub left.
+        self.write(DDR_RESULT_ADDR, &[0u8; DDR_RESULT_SIZE])?;
         self.exec(DDR_STUB_LOAD_ADDR)?;
 
-        let result = self.read(DDR_RESULT_ADDR, 8)?;
-        let magic = u32::from_le_bytes([result[0], result[1], result[2], result[3]]);
-        let size_mib = u32::from_le_bytes([result[4], result[5], result[6], result[7]]);
-        if magic != DDR_RESULT_MAGIC || size_mib == 0 {
-            return Err(FelError::DdrInitFailed { magic, size_mib });
+        let bytes = self.read(DDR_RESULT_ADDR, DDR_RESULT_SIZE)?;
+        match DdrResult::from_bytes(&bytes) {
+            Some(result) if result.size_mib != 0 => Ok(result.size_mib),
+            _ => Err(FelError::DdrInitFailed {
+                magic: read_u32_le(&bytes, 0),
+                size_mib: read_u32_le(&bytes, 4),
+            }),
         }
-
-        Ok(size_mib)
     }
 
     /// Write a known pattern to DRAM and read it back.
@@ -88,6 +95,9 @@ impl<T: Transport> FelDevice<T> {
         flasher: &[u8],
         job: FlashJob,
     ) -> Result<FlashStatus, FelError> {
+        if flasher.starts_with(b"eGON") {
+            return Err(FelError::UnexpectedEgon { what: "flasher" });
+        }
         job.verify()?;
         if flasher.len() > FLASHER_MAX_SIZE as usize {
             return Err(FelError::FlasherTooLarge {
@@ -133,8 +143,11 @@ impl<T: Transport> FelDevice<T> {
     }
 }
 
+const DRAM_PATTERN_SEED: u32 = 0x5242_0000;
+const DRAM_PATTERN_MULTIPLIER: u32 = 0x9e37_79b9;
+
 fn dram_pattern(index: u32) -> u32 {
-    0x5242_0000 ^ index.wrapping_mul(0x9e37_79b9)
+    DRAM_PATTERN_SEED ^ index.wrapping_mul(DRAM_PATTERN_MULTIPLIER)
 }
 
 #[cfg(test)]
@@ -253,18 +266,13 @@ mod tests {
         FelDevice::new(Mock::new(steps))
     }
 
-    fn ddr_result(size_mib: u32) -> Vec<u8> {
-        let mut bytes = DDR_RESULT_MAGIC.to_le_bytes().to_vec();
-        bytes.extend_from_slice(&size_mib.to_le_bytes());
-        bytes
-    }
-
     #[test]
     fn runs_the_stub_and_reads_the_size() {
         let stub = b"stub";
         let mut steps = write_steps(DDR_STUB_LOAD_ADDR, stub);
+        steps.extend(write_steps(DDR_RESULT_ADDR, &[0u8; DDR_RESULT_SIZE]));
         steps.extend(exec_steps(DDR_STUB_LOAD_ADDR));
-        steps.extend(read_steps(DDR_RESULT_ADDR, &ddr_result(128)));
+        steps.extend(read_steps(DDR_RESULT_ADDR, &DdrResult::new(128).to_bytes()));
 
         let mut fel = device(steps);
         assert_eq!(fel.run_ddr_stub(stub), Ok(128));
@@ -274,8 +282,9 @@ mod tests {
     #[test]
     fn reports_a_stub_that_did_not_publish_a_result() {
         let mut steps = write_steps(DDR_STUB_LOAD_ADDR, b"stub");
+        steps.extend(write_steps(DDR_RESULT_ADDR, &[0u8; DDR_RESULT_SIZE]));
         steps.extend(exec_steps(DDR_STUB_LOAD_ADDR));
-        steps.extend(read_steps(DDR_RESULT_ADDR, &[0u8; 8]));
+        steps.extend(read_steps(DDR_RESULT_ADDR, &[0u8; DDR_RESULT_SIZE]));
 
         let mut fel = device(steps);
         assert_eq!(
@@ -284,6 +293,28 @@ mod tests {
                 magic: 0,
                 size_mib: 0
             })
+        );
+        fel.into_inner().assert_done();
+    }
+
+    #[test]
+    fn rejects_an_egon_stub_without_touching_the_device() {
+        let mut fel = device(Vec::new());
+        assert_eq!(
+            fel.run_ddr_stub(b"eGON.BT0"),
+            Err(FelError::UnexpectedEgon {
+                what: "DDR-init stub"
+            })
+        );
+        fel.into_inner().assert_done();
+    }
+
+    #[test]
+    fn rejects_an_egon_flasher_without_touching_the_device() {
+        let mut fel = device(Vec::new());
+        assert_eq!(
+            fel.run_flash_job(b"eGON.BT0", FlashJob::new(1, FLASH_COMMAND_NOOP, 0, 0, 0)),
+            Err(FelError::UnexpectedEgon { what: "flasher" })
         );
         fel.into_inner().assert_done();
     }

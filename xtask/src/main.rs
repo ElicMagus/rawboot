@@ -21,8 +21,8 @@ use std::process::Command;
 
 use rawboot_image::{
     DDR_STUB_LOAD_ADDR, DDR_STUB_MAX_SIZE, DEFAULT_LOAD_ADDR, DEFAULT_START_LBA, FLASHER_LOAD_ADDR,
-    FLASHER_MAX_SIZE, ImageOptions, SdImageOptions, SealOptions, build_sd_image, seal,
-    verify_sealed,
+    FLASHER_MAX_SIZE, FLASHER_STACK_TOP, ImageOptions, SdImageOptions, SealOptions, build_sd_image,
+    seal, verify_sealed,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -194,6 +194,41 @@ fn verify_elf_section_vma(elf: &Path, section: &str, expected: u32) -> Result<()
     Ok(())
 }
 
+/// Fail the build if `symbol` is not at `expected`.
+fn verify_elf_symbol(elf: &Path, symbol: &str, expected: u32) -> Result<()> {
+    let output = Command::new(llvm_objdump()?)
+        .args(["-t"])
+        .arg(elf)
+        .output()
+        .map_err(|e| format!("running llvm-objdump: {e}"))?;
+    if !output.status.success() {
+        return Err(format!("llvm-objdump failed: {}", output.status).into());
+    }
+
+    let symbols = String::from_utf8_lossy(&output.stdout);
+    let actual = parse_symbol_value(&symbols, symbol)
+        .ok_or_else(|| format!("cannot read `{symbol}` from `{}`", elf.display()))?;
+    if actual != expected {
+        return Err(format!(
+            "`{}` has `{symbol}` at {actual:#010x}, expected {expected:#010x}",
+            elf.display()
+        )
+        .into());
+    }
+    Ok(())
+}
+
+/// The value of one symbol in `llvm-objdump -t` output.
+fn parse_symbol_value(symbols: &str, symbol: &str) -> Option<u32> {
+    symbols.lines().find_map(|line| {
+        if line.split_whitespace().last()? != symbol {
+            return None;
+        }
+        let mut fields = line.split_whitespace();
+        u32::from_str_radix(fields.next()?, 16).ok()
+    })
+}
+
 /// The VMA of one section in `llvm-objdump -h` output.
 fn parse_section_vma(sections: &str, section: &str) -> Option<u32> {
     sections.lines().find_map(|line| {
@@ -242,17 +277,23 @@ fn flasher() -> Result<()> {
             output: "rawboot-ddr.bin",
             load_addr: DDR_STUB_LOAD_ADDR,
             max_size: DDR_STUB_MAX_SIZE,
+            stack_top: None,
         },
         FlasherImage {
             bin: "rawboot-flasher",
             output: "rawboot-flasher.bin",
             load_addr: FLASHER_LOAD_ADDR,
             max_size: FLASHER_MAX_SIZE,
+            stack_top: Some(FLASHER_STACK_TOP),
         },
     ] {
         let (elf, _) = release_bin(&root, image.bin);
         build_bin(&root, image.bin, &[])?;
         verify_elf_section_vma(&elf, ".text", image.load_addr)?;
+        verify_elf_symbol(&elf, "_start", image.load_addr)?;
+        if let Some(stack_top) = image.stack_top {
+            verify_elf_symbol(&elf, "_estack", stack_top)?;
+        }
 
         let output = root.join("target").join(image.output);
         objcopy(&elf, &output)?;
@@ -292,6 +333,7 @@ struct FlasherImage {
     output: &'static str,
     load_addr: u32,
     max_size: u32,
+    stack_top: Option<u32>,
 }
 
 /// Build the SD boot prefix: an MBR pointing at the existing FAT partition and
@@ -509,6 +551,20 @@ Idx Name            Size     VMA      LMA      Type
         assert_eq!(parse_section_vma(output, ".head"), Some(0x0002_0000));
         assert_eq!(parse_section_vma(output, ".text"), Some(0x0002_0080));
         assert_eq!(parse_section_vma("Sections:\n", ".head"), None);
+    }
+
+    #[test]
+    fn parses_a_symbol_value_from_objdump_output() {
+        let output = "\
+SYMBOL TABLE:
+40010000 g     F .text\t0000001c _start
+40050000 g       .stack\t00000000 _estack
+40010580 g       .bss\t00000000 _sbss
+";
+
+        assert_eq!(parse_symbol_value(output, "_start"), Some(0x4001_0000));
+        assert_eq!(parse_symbol_value(output, "_estack"), Some(0x4005_0000));
+        assert_eq!(parse_symbol_value(output, "_missing"), None);
     }
 
     fn args(items: &[&str]) -> impl Iterator<Item = String> {
