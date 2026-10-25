@@ -78,10 +78,11 @@ fi
 if [ -t 0 ] && [ "${HIL_NO_PROMPT:-0}" != "1" ]; then
     cat <<'EOF'
 Put the board into FEL:
-  - hold the FEL/BOOT button while applying power, or hold it and press reset;
-  - power-cycle rather than `xfel reset`: a watchdog reset leaves the watchdog
-    armed, so the loader then boots in a loop, and a loader left running from a
-    previous run keeps printing on USART0.
+  - remove power completely, hold FEL/BOOT, then apply power: the strap is
+    sampled at cold power-on, so holding it through a reset does not work;
+  - do not use `xfel reset`: a watchdog reset leaves the watchdog armed, so the
+    loader then boots in a loop, and a loader left running from a previous run
+    keeps printing on USART0.
 EOF
     printf 'Press Enter once the board is in FEL... '
     read -r _
