@@ -64,9 +64,10 @@ Cold starts with a card inserted can fail with `SD/MMC card not found` (#43).
 `HIL_SD_RETRIES` times (default 3) and retries only that failure; handoff,
 payload and other assertion failures stop at once. It forces
 `HIL_SKIP_PREFLIGHT=1` and `HIL_NO_PROMPT=1` because each retry replaces the
-loader left running by the previous attempt. Set `HIL_LED_CONFIRMED=1` for the
-LED assertion, or run `hil-check.sh` directly when a clean interactive run is
-required.
+loader left running by the previous attempt. Set
+`HIL_REQUIRE_LED=1 HIL_LED_CONFIRMED=1` to include the LED assertion, or run
+`hil-check.sh` directly when a clean interactive run is required. If FEL stops
+answering between attempts, power-cycle the board into FEL and rerun.
 
 ### Payload image on the card
 

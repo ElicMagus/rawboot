@@ -44,7 +44,8 @@ Standard commands:
 - Fetch pinned upstream: `scripts/fetch-upstream.sh` (writes the C tree used by the parity
   research notes to `target/upstream/awboot-<sha>/`)
 - Check everything: `scripts/check.sh` (fmt, build, both clippy passes, host tests, SPDX
-  headers, branch-docs rule, and `cargo xtask image`/`payload`/`sd-image` smoke builds)
+  headers, branch-docs rule, the loader no-write guard, and
+  `cargo xtask image`/`payload`/`sd-image` smoke builds)
 - Seal an image: `cargo xtask image` (builds the loader twice and writes the sealed
   `target/rawboot-fel.bin` for FEL at `0x00028000` and `target/rawboot-boot-sd.bin` for
   SD/SPI boot at `0x00020000`; the `xtask` alias pins the host triple in `.cargo/config.toml`)
@@ -82,7 +83,8 @@ pushing.
   уточнения и комментарии в трекере) — тоже на русском.
 - **Ветку с решением issue — пушь, PR — не создавай.** Решив задачу, создай ветку
   (`feat/<N>-<slug>` / `fix/<N>-<slug>`), закоммить и запушь её в `origin`. Pull request открывает
-  только владелец проекта.
+  только владелец проекта. Инструментальные правки без issue веди в `chore/<slug>`; связанные с
+  ними доки (runbook, инструкции) можно нести в той же ветке.
 - **Доки коммить прямо, без ветки.** ADR, `GLOSSARY.md`, `research/` и `docs/` коммить в текущую
   ветку (обычно `master`); ветка (`feat/`/`fix/`) — для кода. Исключение: доки, без которых merge
   меняет контракт (spec/GLOSSARY/ADR о границе модуля, публичном API или `default-members`), веди

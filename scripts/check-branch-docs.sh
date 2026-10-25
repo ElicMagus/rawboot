@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Unlicense
 #
-# AGENTS.md sends ADRs, GLOSSARY.md, research/ and docs/ straight to master.
-# Fail a feat/fix branch that carries them.
+# Contract docs (ADR, GLOSSARY, spec) may ride a feat/fix branch. Runbooks,
+# research notes and other docs go straight to master.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -31,13 +31,14 @@ if ! committed=$(git diff --name-only "$base"...HEAD); then
 fi
 
 changed=$(printf '%s\n' "$committed"; git diff --name-only; git diff --cached --name-only)
-docs=$(
+non_contract=$(
     printf '%s\n' "$changed" |
         sort -u |
-        grep -E '^(docs/|research/|GLOSSARY\.md$)' || true
+        grep -E '^(docs/|research/|GLOSSARY\.md$)' |
+        grep -vE '^(GLOSSARY\.md$|docs/spec-rawboot-v1\.md$|docs/adr/)' || true
 )
-if [ -n "$docs" ]; then
-    echo "error: docs must be committed directly to master, not on $branch:" >&2
-    printf '%s\n' "$docs" >&2
+if [ -n "$non_contract" ]; then
+    echo "error: non-contract docs must be committed directly to master, not on $branch:" >&2
+    printf '%s\n' "$non_contract" >&2
     exit 1
 fi
