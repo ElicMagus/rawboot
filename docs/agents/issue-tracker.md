@@ -45,6 +45,8 @@ All calls use header `Authorization: token <token>`. `{B}` below is
   `POST {B}/issues` with JSON `{"title": ..., "body": ..., "labels": [<label ids>]}`
   -> the response's `number` is the issue number.
 - **Fetch an issue**: `GET {B}/issues/<N>`
+- **Fetch it for an agent**: `scripts/issue-view.sh <N>` prints the title, state, labels, body,
+  `## Agent Brief`, and dependency/blocking links in one call.
 - **Fetch the brief**: `GET {B}/issues/<N>/comments`. The `## Agent Brief` comment written by
   triage is authoritative: it carries the scope, acceptance criteria and out-of-scope items the
   body may omit. Read it before implementing.

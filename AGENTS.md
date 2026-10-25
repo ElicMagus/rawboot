@@ -64,9 +64,10 @@ Standard commands:
   partition; runs `--dry-run` without touching anything; refuses mounted, root, GPT or
   multi-partition disks; runbook `docs/agents/hil.md`)
 - HIL: run `scripts/hil-check.sh target/rawboot-fel.bin <label>` after `code-review`, on the
-  code branch, before merging. The runbook `docs/agents/hil.md` covers the FEL load, UART
-  assertions, payload-image match and LED confirmation. `scripts/check.sh` covers host checks
-  only.
+  code branch, before merging. When SD init is flaky (#43), `scripts/hil-sd-retry.sh
+  [image] [label]` retries only `SD/MMC card not found`. The runbook `docs/agents/hil.md` covers
+  the FEL load, UART assertions, payload-image match and LED confirmation. `scripts/check.sh`
+  covers host checks only.
 
 ## CI
 
@@ -83,14 +84,18 @@ pushing.
   (`feat/<N>-<slug>` / `fix/<N>-<slug>`), закоммить и запушь её в `origin`. Pull request открывает
   только владелец проекта.
 - **Доки коммить прямо, без ветки.** ADR, `GLOSSARY.md`, `research/` и `docs/` коммить в текущую
-  ветку (обычно `master`); ветка (`feat/`/`fix/`) — для кода. Перед коммитом сверь новые доки со
-  старыми ADR, глоссарием и кодом; нашёл противоречие — сначала грилинг (`grill-with-docs`), потом
-  коммит.
+  ветку (обычно `master`); ветка (`feat/`/`fix/`) — для кода. Исключение: доки, без которых merge
+  меняет контракт (spec/GLOSSARY/ADR о границе модуля, публичном API или `default-members`), веди
+  в code branch. Перед коммитом сверь новые доки со старыми ADR, глоссарием и кодом; нашёл
+  противоречие — сначала грилинг (`grill-with-docs`), потом коммит.
 - **Перед пушем прогони ревью — skill `code-review` (Standards + Spec).**
 - **Порядок HIL и доков.** Инструкции по проверке (runbook, команды) можно коммитить до HIL;
   заявления о результате (PASS, подтверждённый LED) — только после подтверждения HIL.
 - **После пуша выдавай инструкцию по проверке** — шаги сборки, загрузки через FEL и/или SD и
   наблюдения за LED payload'а.
+- **Перед merge перечисли acceptance issue.** Невыполненный пункт либо оставляет issue открытым,
+  либо переносится в follow-up issue с native blocking link и явной пометкой. PASS одной части
+  (например, чтения) не заменяет PASS другой (записи).
 - **После подтверждения — влей ветку в `master`, закрой issue, удали ветку.**
 - **Найденные недостатки оформляй отдельным issue** с меткой `needs-triage`.
 

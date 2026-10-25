@@ -491,6 +491,15 @@ fn prepare_dma(sdhci: &mut Sdhci, data: &SdhciData) -> bool {
     true
 }
 
+/// The IDMAC completion bit for this transfer direction.
+fn idmac_done_interrupt(flag: u32) -> u32 {
+    if flag & MMC_DATA_WRITE != 0 {
+        SMHC_IDMAC_TRANSMIT_INTERRUPT
+    } else {
+        SMHC_IDMAC_RECEIVE_INTERRUPT
+    }
+}
+
 fn wait_done(
     sdhci: &Sdhci,
     dat: Option<&SdhciData>,
@@ -510,12 +519,8 @@ fn wait_done(
 
         let done = match dat {
             Some(dat) if dma && dat.blkcnt * dat.blksz > 0 => {
-                let idmac_done = if dat.flag & MMC_DATA_WRITE != 0 {
-                    SMHC_IDMAC_TRANSMIT_INTERRUPT
-                } else {
-                    SMHC_IDMAC_RECEIVE_INTERRUPT
-                };
-                status & flag != 0 && read32(sdhci.reg + reg::IDST) & idmac_done != 0
+                status & flag != 0
+                    && read32(sdhci.reg + reg::IDST) & idmac_done_interrupt(dat.flag) != 0
             }
             _ => status & flag != 0,
         };
@@ -1139,4 +1144,25 @@ pub fn sunxi_sdhci_init(sdhci: &mut Sdhci) {
     udelay(100);
 
     sdhci_configure_start_bit_detection(sdhci, false);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_write_waits_for_the_transmit_interrupt() {
+        assert_eq!(
+            idmac_done_interrupt(MMC_DATA_WRITE),
+            SMHC_IDMAC_TRANSMIT_INTERRUPT
+        );
+    }
+
+    #[test]
+    fn a_read_waits_for_the_receive_interrupt() {
+        assert_eq!(
+            idmac_done_interrupt(MMC_DATA_READ),
+            SMHC_IDMAC_RECEIVE_INTERRUPT
+        );
+    }
 }

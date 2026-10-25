@@ -76,6 +76,16 @@ cargo test -p rawboot-image -p rawboot-fel -p xtask -p sunxi-drivers --target "$
 echo "==> cargo xtask image"
 cargo xtask image
 
+echo "==> loader carries no write feature or write symbols"
+if cargo tree -p rawboot -e features | grep -q 'sunxi-drivers feature "write"'; then
+    echo "error: rawboot resolved sunxi-drivers/write; the loader must build without it" >&2
+    exit 1
+fi
+if scripts/objdump.sh -t target/armv7a-none-eabi/release/rawboot | grep -q 'sdmmc_blk_write'; then
+    echo "error: rawboot ELF contains sdmmc_blk_write; the write path leaked into the loader" >&2
+    exit 1
+fi
+
 echo "==> cargo xtask payload"
 cargo xtask payload
 

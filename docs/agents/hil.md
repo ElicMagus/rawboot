@@ -57,6 +57,17 @@ handoff's entry, load address, size and checksum with `target/rawboot-payload.im
 passing. `HIL_REQUIRE_LED=1` makes the human LED confirmation part of the result: the script
 prompts on a TTY, or accepts `HIL_LED_CONFIRMED=1` in non-interactive runs.
 
+### Flaky SD init
+
+Cold starts with a card inserted can fail with `SD/MMC card not found` (#43).
+`scripts/hil-sd-retry.sh [image] [label]` repeats `hil-check.sh` up to
+`HIL_SD_RETRIES` times (default 3) and retries only that failure; handoff,
+payload and other assertion failures stop at once. It forces
+`HIL_SKIP_PREFLIGHT=1` and `HIL_NO_PROMPT=1` because each retry replaces the
+loader left running by the previous attempt. Set `HIL_LED_CONFIRMED=1` for the
+LED assertion, or run `hil-check.sh` directly when a clean interactive run is
+required.
+
 ### Payload image on the card
 
 The loader reads `payload.bin` from the FAT partition. Build the blink payload, then copy the
