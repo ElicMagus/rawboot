@@ -152,23 +152,24 @@ image over it destroys the loader in sector 16. Format and copy only the partiti
 (`mkfs.vfat /dev/sdX1`, mount it, copy `payload.bin`), or re-run the `dd` of the prefix afterwards.
 
 The wrapper `scripts/flash-sd.sh` runs the steps above, detects the partition start and size, and
-refuses a mounted device or one that holds `/`:
+refuses a mounted device, a GPT/multi-partition card, or one that holds `/`. Run it as your user,
+not via `sudo`: it escalates only `dd`, `mkfs` and `mount`, so cargo keeps `target/` user-owned.
 
 ```sh
 # update the loader; keep the partition and its payload
-sudo scripts/flash-sd.sh --device /dev/sdX
+scripts/flash-sd.sh --device /dev/sdX
 # also copy target/rawboot-payload.img as payload.bin
-sudo scripts/flash-sd.sh --device /dev/sdX --copy-payload
-# recreate the partition as FAT (destroys its contents), then copy the payload
-sudo scripts/flash-sd.sh --device /dev/sdX --format --yes
+scripts/flash-sd.sh --device /dev/sdX --copy-payload
+# recreate the partition as FAT32 (destroys its contents), then copy the payload
+scripts/flash-sd.sh --device /dev/sdX --format --yes
 ```
 
 `--dry-run` only prints the plan; `--skip-build` reuses the existing images; `--partition`,
 `--start-lba`, `--partition-sectors`, `--loader`, `--payload`, `--boot-cfg` and `--payload-name`
 override detection and the defaults. The same values can come from `SD_DEV`, `SD_PART`,
 `START_LBA`, `PARTITION_SECTORS`, `LOADER_IMG`, `PAYLOAD_IMG`, `BOOT_CFG`, `FORMAT_PARTITION` and
-`COPY_PAYLOAD`. The script never touches a device without confirmation (`--yes` skips it) and only
-formats the partition, never the whole disk.
+`COPY_PAYLOAD`. The script asks before every destructive action (including `--format`), refuses
+`rawboot-fel.bin` in sector 16, and only formats the partition, never the whole disk.
 
 Capture a self-boot run by starting the capture **before** the power-cycle, then apply power
 (the BROM strap is sampled at cold power-on; see [Capture a self-booting board](#capture-a-self-booting-board-no-fel)):
