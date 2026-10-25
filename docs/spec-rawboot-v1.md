@@ -79,21 +79,27 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
 
 - **Workspace shape.** The `rawboot-internal` repository is a single Cargo workspace with members
   `rawboot` (the loader), `rawboot-rt` (the runtime), `sunxi-pl` (the shared hardware layer),
-  `payload` (the blink test payload), `rawboot-image` (host-testable payload, eGON and SD boot
-  prefix tooling), `rawboot-fel` (host-side FEL USB transport and CLI) and `xtask` (host build
-  tooling). Driver modules live inside `rawboot`;
-  payload-header parsing and eGON sealing are `rawboot-image`. The hardware layer shared by loader,
-  runtime and payload — volatile accessors, GPIO and the timer — carries no startup code (ADR-0010).
-  Domain docs (`GLOSSARY.md`, `docs/adr/`) live at the repository root.
+  `sunxi-drivers` (the shared drivers above it: clock/CCU, DRAM, UART, SDHCI, SD/MMC and the
+  read-only FAT adapter), `payload` (the blink test payload), `rawboot-image` (host-testable
+  payload, eGON and SD boot prefix tooling), `rawboot-fel` (host-side FEL USB transport and CLI)
+  and `xtask` (host build tooling). Driver modules live in `sunxi-drivers`; `rawboot` keeps the
+  boot orchestration and its `print!`, and payload-header parsing and eGON sealing are
+  `rawboot-image`. The hardware layer shared by loader, runtime and payload — volatile accessors,
+  GPIO and the timer — carries no startup code (ADR-0010); the driver crate carries no startup
+  code, eGON header, linker script or allocator (ADR-0012). Domain docs (`GLOSSARY.md`,
+  `docs/adr/`) live at the repository root.
 - **Runtime crate.** Lays down the eGON header (magic `eGON.BT0`, branch word, header fields) as
   statics in a head section, defines `_start` (stack, BSS clear, data copy), and carries the linker
   script. Modernised to remove `static_mut_refs` hazards using `&raw` pointers.
-- **Loader modules.** `clk`/`ccu`, `uart`, `print`, `dram`, `sdhci`, `sdcard`, `fat`, `boot`
-  (orchestration, `BootInfo`, handoff). MMIO constants and register layouts are defined next to
-  the drivers that use them, not in a shared `regs` module. Payload-header parsing and eGON
-  sealing live in the `rawboot-image` crate, which the loader depends on with
-  `default-features = false`. The volatile accessors (`io`) and `gpio` live in `sunxi-pl` and are
-  re-exported by the loader (ADR-0010).
+- **Driver crate.** `sunxi-drivers` holds `clk`/`ccu`, `uart`, `dram`, `sdhci`, `sdcard` and
+  `fat`. Driver progress goes through the `Console` trait; the loader installs a USART0 sink, and
+  a binary that installs none still gets the driver behaviour, silently.
+- **Loader modules.** `print` and `boot` (orchestration, `BootInfo`, handoff) remain in
+  `rawboot`. MMIO constants and register layouts are defined next to the drivers that use them,
+  not in a shared `regs` module. Payload-header parsing and eGON sealing live in the
+  `rawboot-image` crate, which the loader depends on with `default-features = false`. The
+  volatile accessors (`io`) and `gpio` live in `sunxi-pl` and are re-exported by the loader
+  (ADR-0010).
 - **eGON sealing algorithm.** Seed the header checksum field with `0x5F0A6C39`, then sum
   `length_aligned / 4` little-endian 32-bit words over the padded image (32-bit wraparound) and
   write the sum back; padding is 512 for block devices or 8192 for flash; when the BROM page size

@@ -42,6 +42,13 @@ The shared hardware layer for the loader, `rawboot-rt` and payload: MMIO, GPIO, 
 carries no startup code.
 _Avoid_: HAL, driver crate, platform
 
+**`sunxi-drivers`** (driver crate):
+The Allwinner T113-S3 drivers above `sunxi-pl`: clock/CCU, DRAM, UART, SDHCI, SD/MMC and the
+read-only FAT adapter. Shared by the loader and future images; carries no startup code, eGON
+header, linker script or global allocator, and reports progress through the `Console` trait so it
+does not depend on the loader's `print!`.
+_Avoid_: HAL, BSP, platform layer
+
 **payload**:
 The image the loader boots — the user's own firmware (possibly a microkernel), including a trivial
 test image such as a blink loop. Not Linux.
