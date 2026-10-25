@@ -4,6 +4,13 @@ The loader is verified on a real T113-S3. This page is the runbook: host setup, 
 sequence, the UART capture, and how to read the result. The script from this repo is
 `scripts/hil-check.sh`; it automates the steps below.
 
+## Agent-driven runs
+
+When an agent runs these steps, it asks one `question` per physical action (power cycle,
+card insertion, FEL/BOOT, LED confirmation) and waits for the answer before starting the
+next action. It does not batch several cold starts into one prompt. After each run it
+reports PASS/FAIL, the key log lines and the next step.
+
 ## Board and wiring
 
 - SoC: Allwinner T113-S3, DDR3, 128 MiB.
