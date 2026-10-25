@@ -22,6 +22,8 @@
 //!   putting the loader on a card without touching the partition.
 //! - [`fel::FelMailbox`] is the host-written FEL request that tells the loader where the payload
 //!   image and its argument string are staged in SRAM.
+//! - [`flash`] owns the fixed DRAM addresses and the checksummed [`flash::FlashJob`] and
+//!   [`flash::FlashStatus`] blocks the host and the FEL flasher exchange (ADR-0013).
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -31,6 +33,7 @@ mod checksum;
 
 pub mod egon;
 pub mod fel;
+pub mod flash;
 pub mod payload;
 #[cfg(feature = "alloc")]
 pub mod sd;
@@ -45,6 +48,14 @@ pub use egon::{EGON_CHECKSUM_SEED, EGON_MAGIC, EgonHeader, VerifyError, verify_s
 pub use fel::{
     FEL_ARGS_BASE, FEL_ARGS_MAX_SIZE, FEL_MAILBOX_BASE, FEL_MAILBOX_MAGIC, FEL_MAILBOX_WORDS,
     FEL_PAYLOAD_BASE, FEL_PAYLOAD_MAX_SIZE, FelMailbox,
+};
+pub use flash::{
+    DDR_RESULT_ADDR, DDR_RESULT_MAGIC, DDR_STUB_LOAD_ADDR, DDR_STUB_MAX_SIZE, DRAM_TEST_ADDR,
+    DRAM_TEST_SIZE, FLASH_COMMAND_NOOP, FLASH_CONTRACT_VERSION, FLASH_JOB_ADDR, FLASH_JOB_MAGIC,
+    FLASH_JOB_SIZE, FLASH_RESULT_BAD_JOB, FLASH_RESULT_OK, FLASH_RESULT_UNKNOWN_COMMAND,
+    FLASH_STATUS_ADDR, FLASH_STATUS_MAGIC, FLASH_STATUS_SIZE, FLASH_STEP_DONE, FLASH_STEP_STARTED,
+    FLASHER_LOAD_ADDR, FLASHER_MAX_SIZE, FLASHER_STACK_TOP, FlashContractError, FlashJob,
+    FlashStatus, result_name, step_name,
 };
 #[cfg(feature = "alloc")]
 pub use payload::build;

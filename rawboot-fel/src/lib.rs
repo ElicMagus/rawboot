@@ -28,12 +28,18 @@
 //! On a real host, [`FelDevice::open`] finds `1f3a:efe8` or any `1f3c:*`
 //! device and [`FelDevice::identify`] confirms it is a T113-S3. No system
 //! `libusb` is involved.
+//!
+//! [`bringup`] adds the in-DRAM flasher path: run a returning DDR-init stub,
+//! verify DRAM, then place a job and the flasher and read the flasher's status
+//! (ADR-0013).
 
+pub mod bringup;
 pub mod device;
 pub mod error;
 pub mod protocol;
 pub mod usb;
 
+pub use bringup::BringupReport;
 pub use device::{DEFAULT_CHUNK_SIZE, FelDevice, Transport};
 pub use error::{FelError, ProtocolError, TransportError};
 pub use protocol::{CHIP_ID_T113, FelVersion, MAX_CHUNK_SIZE, Soc, T113_VECTOR};

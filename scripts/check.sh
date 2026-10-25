@@ -89,6 +89,9 @@ fi
 echo "==> cargo xtask payload"
 cargo xtask payload
 
+echo "==> cargo xtask flasher"
+cargo xtask flasher
+
 echo "==> cargo xtask sd-image"
 cargo xtask sd-image --partition-sectors 1843200
 
