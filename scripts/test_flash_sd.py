@@ -5,6 +5,7 @@
 import os
 import subprocess
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -42,6 +43,24 @@ def run(*args, env=None):
     )
 
 
+def write_tool(bin_dir, name, body):
+    path = Path(bin_dir) / name
+    path.write_text(textwrap.dedent(body), encoding="utf-8")
+    path.chmod(0o755)
+
+
+def with_fake_tools(bin_dir, lsblk_body):
+    write_tool(
+        bin_dir,
+        "findmnt",
+        """\
+        #!/bin/sh
+        echo /dev/sda1
+        """,
+    )
+    write_tool(bin_dir, "lsblk", lsblk_body)
+
+
 class FlashSdTest(unittest.TestCase):
     def setUp(self):
         fd, path = tempfile.mkstemp(prefix="rawboot-sd-test-", suffix=".img")
@@ -62,11 +81,46 @@ class FlashSdTest(unittest.TestCase):
         self.assertIn("--partition-sectors", result.stdout)
         self.assertIn("--dry-run", result.stdout)
 
-    def test_requires_a_device(self):
-        result = run()
+    def test_auto_detection_reports_when_no_candidate_is_found(self):
+        with tempfile.TemporaryDirectory() as bin_dir:
+            with_fake_tools(
+                bin_dir,
+                """\
+                #!/bin/sh
+                case "$*" in
+                    *-P*) exit 0 ;;
+                    *) echo sda ;;
+                esac
+                """,
+            )
+            result = run(env={"PATH": f"{bin_dir}:{os.environ['PATH']}"})
 
         self.assertEqual(result.returncode, 2)
-        self.assertIn("--device", result.stderr)
+        self.assertIn("no removable/USB/MMC disk", result.stderr)
+        self.assertIn("pass --device", result.stderr)
+
+    def test_multiple_candidates_need_an_explicit_device_when_not_a_tty(self):
+        with tempfile.TemporaryDirectory() as bin_dir:
+            with_fake_tools(
+                bin_dir,
+                """\
+                #!/bin/sh
+                case "$*" in
+                    *-P*)
+                        printf '%s\\n' \\
+                            'NAME="sdb" RM="1" TRAN="usb" TYPE="disk" SIZE="8G"' \\
+                            'NAME="sdc" RM="1" TRAN="usb" TYPE="disk" SIZE="16G"'
+                        ;;
+                    *MOUNTPOINT*) exit 0 ;;
+                    *) echo sda ;;
+                esac
+                """,
+            )
+            result = run(env={"PATH": f"{bin_dir}:{os.environ['PATH']}"})
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("candidate disks", result.stderr)
+        self.assertIn("multiple candidates; pass --device", result.stderr)
 
     def test_refuses_a_regular_file_without_allow_file(self):
         result = run("--device", self.image, "--dry-run")

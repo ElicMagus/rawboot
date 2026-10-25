@@ -23,20 +23,25 @@ SKIP_BUILD=${SKIP_BUILD:-0}
 ASSUME_YES=${ASSUME_YES:-0}
 DRY_RUN=${DRY_RUN:-0}
 ALLOW_FILE=${ALLOW_FILE:-0}
+LIST_DEVICES=0
 
 PREFIX_IMG=target/rawboot-sd-mbr.img
 TMP_MOUNT=
 
 usage() {
     cat <<'EOF'
-usage: scripts/flash-sd.sh --device <dev> [options]
+usage: scripts/flash-sd.sh [--device <dev>] [options]
 
 Write target/rawboot-sd-mbr.img (MBR + SD loader at sector 16) onto a card that
-already has a FAT partition starting at the same LBA. Run as your user, not with
-sudo: the script escalates only dd/mkfs/mount, so cargo keeps target/ user-owned.
+already has a FAT partition starting at the same LBA. Without --device the script
+looks for a single removable/USB/MMC disk and asks when there are several. Run as
+your user, not with sudo: it escalates only dd/mkfs/mount, so cargo keeps target/
+user-owned.
 
 Arguments:
-  --device <dev>            block device, e.g. /dev/sdX (or SD_DEV)
+  --device <dev>            block device, e.g. /dev/sdX (or SD_DEV); default:
+                            auto-detect
+  --list                    list candidate disks and exit
   --partition <dev>         partition device; default <dev>1 / <dev>p1
   --start-lba <n>           partition start; default: read from the partition
                             (file mode: 2048)
@@ -45,7 +50,7 @@ Arguments:
   --payload <path>          payload image (default target/rawboot-payload.img)
   --payload-name <name>     file name on the partition (default payload.bin)
   --boot-cfg <path>         also copy this file as boot.cfg
-  --format                  mkfs.vfat the partition (DESTROYS its contents)
+  --format                  mkfs.vfat -F 32 the partition (DESTROYS its contents)
   --copy-payload            mount the partition and copy the payload image
   --no-copy-payload         do not copy payload.bin
   --skip-build              do not run `cargo xtask image`/`payload`
@@ -59,9 +64,10 @@ PAYLOAD_IMG, BOOT_CFG, PAYLOAD_NAME, FORMAT_PARTITION, COPY_PAYLOAD,
 SKIP_BUILD, ASSUME_YES, DRY_RUN, ALLOW_FILE (flags override them).
 
 Examples:
-  scripts/flash-sd.sh --device /dev/sdX --copy-payload
+  scripts/flash-sd.sh --list
+  scripts/flash-sd.sh --copy-payload
   scripts/flash-sd.sh --device /dev/sdX --format --yes
-  scripts/flash-sd.sh --device /dev/sdX --dry-run
+  scripts/flash-sd.sh --dry-run
 EOF
 }
 
@@ -97,6 +103,91 @@ is_uint() {
 
 need_value() {
     [ "$#" -ge 2 ] || die "$1 needs a value"
+}
+
+root_disk_name() {
+    local root_src root_disk
+    root_src=$(findmnt -n -o SOURCE / 2>/dev/null) || return 1
+    root_disk=$(lsblk -sno NAME "$root_src" 2>/dev/null | tail -n 1 | tr -d '[:space:]') || return 1
+    [ -n "$root_disk" ] || return 1
+    printf '%s\n' "$root_disk"
+}
+
+# Whole removable, USB or MMC disks that are not mounted and do not hold /.
+sd_candidates() {
+    local root_disk line name rm tran type size dev mounted model
+    root_disk=$(root_disk_name) || return 1
+    while IFS= read -r line; do
+        [[ $line =~ ^NAME=\"([^\"]+)\"[[:space:]]+RM=\"([^\"]*)\"[[:space:]]+TRAN=\"([^\"]*)\"[[:space:]]+TYPE=\"([^\"]*)\"[[:space:]]+SIZE=\"([^\"]*)\" ]] ||
+            continue
+        name=${BASH_REMATCH[1]}
+        rm=${BASH_REMATCH[2]}
+        tran=${BASH_REMATCH[3]}
+        type=${BASH_REMATCH[4]}
+        size=${BASH_REMATCH[5]}
+        [ "$type" = "disk" ] || continue
+        case "$name" in
+            loop* | zram* | dm-* | sr*) continue ;;
+        esac
+        if [ "$rm" != "1" ] && [ "$tran" != "usb" ] && [ "$tran" != "mmc" ]; then
+            continue
+        fi
+        [ "$name" != "$root_disk" ] || continue
+        dev="/dev/$name"
+        mounted=$(lsblk -lnpo MOUNTPOINT "$dev" 2>/dev/null) || continue
+        if printf '%s' "$mounted" | grep -q '[^[:space:]]'; then
+            continue
+        fi
+        model=$(cat "/sys/block/$name/device/model" 2>/dev/null || true)
+        printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$size" "$tran" "$rm" "$model"
+    done < <(lsblk -dno NAME,RM,TRAN,TYPE,SIZE -P 2>/dev/null)
+}
+
+print_candidates() {
+    local i=1 line name size tran rm model
+    for line in "$@"; do
+        IFS=$'\t' read -r name size tran rm model <<< "$line"
+        if [ "$rm" = "1" ]; then
+            printf '  %d) /dev/%s  %s  %s  removable  %s\n' "$i" "$name" "$size" "$tran" "$model"
+        else
+            printf '  %d) /dev/%s  %s  %s  %s\n' "$i" "$name" "$size" "$tran" "$model"
+        fi
+        i=$((i + 1))
+    done
+}
+
+choose_device() {
+    local output choice index name size tran rm model
+    need lsblk
+    need findmnt
+    output=$(sd_candidates) || die "cannot enumerate disks; pass --device /dev/sdX"
+    CANDIDATES=()
+    if [ -n "$output" ]; then
+        mapfile -t CANDIDATES <<< "$output"
+    fi
+    if [ "${#CANDIDATES[@]}" -eq 0 ]; then
+        die "no removable/USB/MMC disk found; connect the card or pass --device /dev/sdX"
+    fi
+    if [ "${#CANDIDATES[@]}" -eq 1 ]; then
+        IFS=$'\t' read -r name size tran rm model <<< "${CANDIDATES[0]}"
+        SD_DEV=/dev/$name
+        echo "detected $SD_DEV ($size, $tran)" >&2
+        return 0
+    fi
+
+    echo "found ${#CANDIDATES[@]} candidate disks:" >&2
+    print_candidates "${CANDIDATES[@]}" >&2
+    if [ ! -t 0 ]; then
+        die "multiple candidates; pass --device /dev/sdX"
+    fi
+    printf 'Select 1-%d [1]: ' "${#CANDIDATES[@]}"
+    read -r choice
+    choice=${choice:-1}
+    is_uint "$choice" || die "invalid selection: $choice"
+    index=$((choice - 1))
+    [ "$index" -ge 0 ] && [ "$index" -lt "${#CANDIDATES[@]}" ] || die "invalid selection: $choice"
+    IFS=$'\t' read -r name size tran rm model <<< "${CANDIDATES[$index]}"
+    SD_DEV=/dev/$name
 }
 
 confirm() {
@@ -198,6 +289,10 @@ while [ "$#" -gt 0 ]; do
             ALLOW_FILE=1
             shift
             ;;
+        --list)
+            LIST_DEVICES=1
+            shift
+            ;;
         -h | --help)
             usage
             exit 0
@@ -209,10 +304,23 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-[ -n "$SD_DEV" ] || {
-    usage >&2
-    die "--device (or SD_DEV) is required"
-}
+if [ "$LIST_DEVICES" = "1" ]; then
+    need lsblk
+    need findmnt
+    output=$(sd_candidates) || die "cannot enumerate disks"
+    if [ -z "$output" ]; then
+        echo "no removable/USB/MMC disk found"
+        exit 0
+    fi
+    mapfile -t CANDIDATES <<< "$output"
+    echo "candidate disks:"
+    print_candidates "${CANDIDATES[@]}"
+    exit 0
+fi
+
+if [ -z "$SD_DEV" ]; then
+    choose_device
+fi
 
 if [ -z "$COPY_PAYLOAD" ]; then
     if [ "$FORMAT_PARTITION" = "1" ] || [ -n "$BOOT_CFG" ]; then
@@ -227,20 +335,20 @@ need stat
 need dd
 
 SD_DEV_INPUT=$SD_DEV
-[ -e "$SD_DEV_INPUT" ] || die "device not found: $SD_DEV_INPUT"
+[ -e "$SD_DEV_INPUT" ] ||
+    die "device not found: $SD_DEV_INPUT; use --list or leave --device unset"
 SD_DEV=$(readlink -f "$SD_DEV_INPUT")
 IS_BLOCK=0
 if [ -b "$SD_DEV" ]; then
     IS_BLOCK=1
 fi
 if [ "$IS_BLOCK" = "0" ] && [ "$ALLOW_FILE" != "1" ]; then
-    die "$SD_DEV is not a block device; pass --allow-file only for tests"
+    die "$SD_DEV is not a block device; use --list/--device for a card, or --allow-file for tests"
 fi
 
 if [ "$IS_BLOCK" = "1" ]; then
     need lsblk
     need findmnt
-    need blockdev
 
     dev_name=$(basename "$SD_DEV")
     if [ -e "/sys/class/block/$dev_name/partition" ]; then
@@ -283,18 +391,18 @@ if [ "$IS_BLOCK" = "1" ]; then
         die "$SD_DEV or one of its partitions is mounted; unmount it first"
     fi
 
-    root_src=$(findmnt -n -o SOURCE / 2>/dev/null) ||
-        die "cannot determine the root filesystem; refusing to write"
-    root_disk=$(lsblk -sno NAME "$root_src" 2>/dev/null | tail -n 1 | tr -d '[:space:]') ||
+    root_disk=$(root_disk_name) ||
         die "cannot determine the disk holding /; refusing to write"
-    [ -n "$root_disk" ] || die "cannot determine the disk holding /; refusing to write"
     if [ "$(readlink -f "/dev/$root_disk")" = "$SD_DEV" ]; then
         die "refusing to overwrite $SD_DEV: it holds the root filesystem"
     fi
 
-    detected_start=$(lsblk -no START "$SD_PART" 2>/dev/null | head -n 1 | tr -d '[:space:]') ||
+    part_name=$(basename "$SD_PART")
+    detected_start=$(cat "/sys/class/block/$part_name/start" 2>/dev/null) ||
         die "cannot read the start LBA of $SD_PART"
-    [ -n "$detected_start" ] ||
+    detected_start=$(printf '%s' "$detected_start" | tr -d '[:space:]')
+    is_uint "$detected_start" || die "cannot read the start LBA of $SD_PART; pass --start-lba"
+    [ "$detected_start" -gt 0 ] ||
         die "cannot read the start LBA of $SD_PART; pass --start-lba"
     if [ -n "$START_LBA" ]; then
         [ "$START_LBA" = "$detected_start" ] ||
@@ -303,12 +411,11 @@ if [ "$IS_BLOCK" = "1" ]; then
         START_LBA=$detected_start
     fi
 
-    detected_sectors=$(blockdev --getsz "$SD_PART" 2>/dev/null || true)
-    if [ -z "$detected_sectors" ]; then
-        detected_bytes=$(lsblk -bno SIZE "$SD_PART" 2>/dev/null | head -n 1 | tr -d '[:space:]') ||
-            die "cannot read the size of $SD_PART"
-        is_uint "$detected_bytes" || die "cannot read the size of $SD_PART"
-        detected_sectors=$((detected_bytes / 512))
+    detected_sectors=$(cat "/sys/class/block/$part_name/size" 2>/dev/null) ||
+        die "cannot read the size of $SD_PART"
+    detected_sectors=$(printf '%s' "$detected_sectors" | tr -d '[:space:]')
+    if ! is_uint "$detected_sectors" || [ "$detected_sectors" -le 0 ]; then
+        die "cannot read the size of $SD_PART"
     fi
     if [ -n "$PARTITION_SECTORS" ]; then
         [ "$PARTITION_SECTORS" = "$detected_sectors" ] ||
@@ -328,13 +435,9 @@ if [ "$IS_BLOCK" = "1" ]; then
         esac
     fi
 
-    disk_sectors=$(blockdev --getsz "$SD_DEV" 2>/dev/null || true)
-    if [ -z "$disk_sectors" ]; then
-        disk_bytes=$(lsblk -bno SIZE "$SD_DEV" 2>/dev/null | head -n 1 | tr -d '[:space:]') ||
-            die "cannot read the size of $SD_DEV"
-        is_uint "$disk_bytes" || die "cannot read the size of $SD_DEV"
-        disk_sectors=$((disk_bytes / 512))
-    fi
+    disk_sectors=$(cat "/sys/class/block/$dev_name/size" 2>/dev/null) ||
+        die "cannot read the size of $SD_DEV"
+    disk_sectors=$(printf '%s' "$disk_sectors" | tr -d '[:space:]')
     is_uint "$disk_sectors" || die "cannot read the size of $SD_DEV"
     if [ "$START_LBA" -gt "$disk_sectors" ]; then
         die "$SD_DEV has $disk_sectors sectors, but the prefix needs $START_LBA"
