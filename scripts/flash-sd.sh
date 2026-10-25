@@ -512,6 +512,8 @@ fi
 
 if [ "$DRY_RUN" = "1" ]; then
     echo "dry run: nothing was built or written"
-else
+elif [ "$IS_BLOCK" = "1" ]; then
     echo "done: $SD_DEV is ready for a cold power-on"
+else
+    echo "done: $SD_DEV written"
 fi
