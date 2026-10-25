@@ -355,6 +355,43 @@ cargo fel read 0x00030000 4
 not return ends in a transfer timeout. `scripts/hil-check.sh` still uses `xfel`; this CLI is
 for the manual checks above.
 
+### DDR-init stub and flasher (no SD)
+
+Issue #41 splits the FEL path into a returning DDR-init stub and a DRAM-linked flasher; #42 will
+add the SD/FAT job. Build both images and run the whole spike with the in-tree transport:
+
+```sh
+cargo xtask flasher
+cargo fel bringup target/rawboot-ddr.bin target/rawboot-flasher.bin
+```
+
+`bringup` identifies the SoC, writes the stub at `0x00028000`, executes it and reads its SRAM
+result (`0x0002d000`: magic `RBDD`, then the DRAM size in MiB), writes and reads back a pattern
+at `0x40002000`, then places a `NOOP` job at `0x40000000`, the flasher at `0x40010000`, executes
+it and reads the status at `0x40000100`. The expected tail is:
+
+```
+DRAM:       128 MiB
+pattern:    OK at 0x40002000
+status:     sequence 1, step 2 (done), result 0 (ok)
+```
+
+The addresses and the `FlashJob`/`FlashStatus` layout live in `rawboot-image/src/flash.rs`
+(ADR-0013); the CLI prints the same values. This path deliberately does **not** use `xfel ddr`:
+the stub is what initialises DRAM.
+
+- If the stub does not return, `bringup` blocks on the next FEL read until the transport timeout
+  and the board no longer answers FEL. Record the failing step and return #41 to triage; do not
+  retry `xfel ddr` as a workaround.
+- `DDR-init stub did not report success` means `exec` returned but the SRAM result is missing or
+  the driver returned size `0`; the board is still usable, re-run after checking the log.
+- `DRAM read-back ... returned ...` names the first mismatching word. Do not proceed to the
+  flasher; the DRAM window is not trustworthy.
+- A status with `result` not `0 (ok)` is still a successful round trip, but the job failed; the
+  CLI exits non-zero after printing the step and result.
+
+The stub and flasher carry no eGON header and are not interchangeable with the loader images.
+
 ### Capture a self-booting board (no FEL)
 
 When the board boots on its own — from SD or SPI, with no `xfel` step — start the capture
