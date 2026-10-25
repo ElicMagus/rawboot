@@ -205,8 +205,9 @@ and capture at 115200 8N1.
 ### Capture a self-booting board (no FEL)
 
 When the board boots on its own — from SD or SPI, with no `xfel` step — start the capture
-**before** the power-cycle and let `hil_serial.py` judge it. It drains the port, records the
-log with timestamps, and prints the unique lines plus the assertions:
+**before** the power-cycle and let `hil_serial.py` judge it. It drains the port for one second
+(`--drain`) and discards what it reads, so apply power only after that window. It then records
+the log with timestamps and prints the unique lines plus the assertions:
 
 ```sh
 setsid sg dialout -c 'python3 scripts/hil_serial.py /tmp/boot.log --seconds 10 \
