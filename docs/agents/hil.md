@@ -443,25 +443,42 @@ status:     sequence 1, step 2 (done), result 0 (ok)
 card:       payload files and loader written; MBR unchanged
 ```
 
+**One attempt per cold boot.** The DDR-init stub initialises DRAM and is not idempotent. A
+second `fel-flash` on the same power cycle can time out before the flasher starts, because the
+stub reinitialises DRAM (the same class of failure as `xfel ddr` in #23). After any attempt,
+successful or not, power-cycle the board into FEL before retrying.
+
+**Known blocker (#47).** On the current bench card (SDSC, `hc=0`, 25 MHz, CSD write-protect
+off) the card does not answer CMD24. `fel-flash` reaches `write payload` and stops with
+`truncate failed`, `file write failed` or `file flush failed`; the MBR is untouched and the read
+path plus `cargo fel bringup` still pass. Do not record #42 HIL PASS until #47 is fixed.
+
 The flasher reports a failing step and reason in the status, and `fel-flash` prints it before
 exiting non-zero. Common cases:
 
 - `SD init: SD card offline` — no card, a card that did not enumerate, or the #43 bench issue;
   insert the card and cold-start the board into FEL.
+- `read MBR: read failed` — the first card block could not be read; treat the card as offline
+  and retry after a cold start.
 - `layout: no MBR` / `layout: no FAT partition` — the card is not prepared; `fel-flash` does
   not format or create a partition. Prepare it first (out of scope), then rerun.
 - `layout: unsafe card layout` — the FAT partition starts at or inside sector 16, or the loader
   would reach into it.
 - `layout: card too small` — the MBR partition or the loader does not fit the card.
-- `write payload` / `write boot.cfg` / `write loader` `write failed` — the card write failed; the
-  MBR and partition are left in place, but do not trust the updated files until a rerun passes.
+- `write payload` / `write boot.cfg` `create file failed`, `truncate failed`, `file write
+  failed` or `file flush failed` — the card did not accept a FAT write; the MBR and partition
+  are left in place, but do not trust the updated files until a rerun passes. On the current
+  bench card this is #47.
+- `write loader` `write failed` — writing sector 16 failed; the old loader may still be there,
+  but do not boot from the card until a rerun passes.
 - `verify FAT files` / `verify loader` `read-back mismatch` — the card did not return what was
   written; rerun, and replace the card if it persists.
 - `verify loader` `MBR changed` — stop and do not boot from this card; inspect it.
 - `plan: bad plan or staged image` — the staged plan/loader/payload failed validation; rebuild
   with `cargo xtask image`/`payload`/`flasher` and rerun (without `--skip-build`).
 - `USB device disconnected` or a FEL timeout before the status — the stub or flasher did not
-  return to the BROM. Power-cycle the board into FEL and rerun; do not fall back to `xfel ddr`.
+  return to the BROM. Cold-power-cycle the board into FEL and rerun; do not fall back to
+  `xfel ddr`, and do not rerun the stub on the same power cycle.
 
 After a successful run, remove the FEL strap and cold-boot from the card. Capture it with
 `hil_serial.py` (start the capture before applying power, as in

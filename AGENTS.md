@@ -82,6 +82,8 @@ Standard commands:
   [image] [label]` retries only `SD/MMC card not found`. For in-board SD updates, run
   `cargo xtask fel-flash` with the card inserted, then cold-boot from the card and capture the
   handoff (`HIL_REQUIRE_SD=1 HIL_REQUIRE_HANDOFF=1 HIL_REQUIRE_PAYLOAD=1 HIL_REQUIRE_LED=1`).
+  Do one `fel-flash` attempt per cold boot: the DDR-init stub is not idempotent. HIL #42 is
+  currently blocked by the SD CMD24 write timeout tracked in #47.
   The runbook `docs/agents/hil.md` covers the FEL load, UART assertions, payload-image match,
   the `fel-flash` safety checks and LED confirmation. `scripts/check.sh` covers host checks only.
 
