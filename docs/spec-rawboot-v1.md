@@ -79,11 +79,11 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
 
 - **Workspace shape.** The `rawboot-internal` repository is a single Cargo workspace with members
   `rawboot` (the loader), `rawboot-rt` (the runtime), `sunxi-pl` (the shared hardware layer),
-  `payload` (the blink test payload), `rawboot-image` (host-testable payload and eGON image
-  tooling) and `xtask` (host build tooling). Driver modules live inside `rawboot`; payload-header
-  parsing and eGON sealing are `rawboot-image`. The hardware layer shared by loader, runtime and
-  payload — volatile accessors, GPIO and the timer — carries no startup code (ADR-0010). Domain
-  docs (`GLOSSARY.md`, `docs/adr/`) live at the repository root.
+  `payload` (the blink test payload), `rawboot-image` (host-testable payload, eGON and SD boot
+  prefix tooling) and `xtask` (host build tooling). Driver modules live inside `rawboot`;
+  payload-header parsing and eGON sealing are `rawboot-image`. The hardware layer shared by loader,
+  runtime and payload — volatile accessors, GPIO and the timer — carries no startup code (ADR-0010).
+  Domain docs (`GLOSSARY.md`, `docs/adr/`) live at the repository root.
 - **Runtime crate.** Lays down the eGON header (magic `eGON.BT0`, branch word, header fields) as
   statics in a head section, defines `_start` (stack, BSS clear, data copy), and carries the linker
   script. Modernised to remove `static_mut_refs` hazards using `&raw` pointers.
@@ -118,8 +118,11 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
 - **Build tooling.** A cross-platform Rust xtask assembles and eGON-seals images (`rawboot-fel.bin`,
   `rawboot-boot-sd.bin`, `rawboot.img`). The loader is linked twice from the same code:
   `rawboot-fel.bin` at `0x00028000` for `xfel`, and `rawboot-boot-sd.bin` at `0x00020000` for
-  BROM SD/SPI boot from sector 16. The existing Windows scripts and `.exe` tools are kept as a
-  working Windows path; `xfel` stays an external host tool.
+  BROM SD/SPI boot from sector 16. `cargo xtask sd-image --partition-sectors <n>` writes
+  `rawboot-sd-mbr.img`, the SD boot prefix: an MBR pointing at the FAT partition starting at
+  `--start-lba` (default 2048, 1 MiB) plus `rawboot-boot-sd.bin` at sector 16 (ADR-0011). It
+  formats nothing, copies no payload and only writes a file. The existing Windows scripts and
+  `.exe` tools are kept as a working Windows path; `xfel` stays an external host tool.
 - **Toolchain.** Target `armv7a-none-eabi` (soft-float; measured as smaller than the hard-float
   variant for this code), Rust edition 2024, pinned by `rust-toolchain.toml`.
 - **Licence.** Public domain via `Unlicense`, with SPDX headers in files. Only facts (addresses,
@@ -136,7 +139,9 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
 - **Unit seam (host, `cargo test`):** the image tooling. `seal()` must produce a BROM-valid header
   (checksum over the padded image with the `0x5F0A6C39` seed, correct 512/8192 padding, correct
   2 KB→N KB page scattering); `parse()` must accept a well-formed header and reject bad magic, bad
-  checksum, or truncated/oversized lengths. These are pure functions over `&[u8]`.
+  checksum, or truncated/oversized lengths. These are pure functions over `&[u8]`. The SD boot
+  prefix is likewise byte-in/byte-out: MBR fields, loader placement, prefix length, and rejection
+  of an unsealed, overlapping or overflowing input.
 - **Compile-time seam:** `const` assertions on `BootInfo`/image-header size and field offsets, so an
   ABI break fails the build.
 - **Hardware-in-the-loop acceptance seam:** build the blink payload with the xtask, boot the loader

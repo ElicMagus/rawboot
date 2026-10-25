@@ -9,8 +9,8 @@ versioned `BootInfo` contract. The payload is our own firmware, not Linux (no FD
 
 Cargo workspace with six members: `rawboot` (the loader), `rawboot-rt` (the runtime),
 `sunxi-pl` (the shared platform layer: MMIO, GPIO, timer), `payload` (the blink test payload
-image the loader boots), `rawboot-image` (host-testable payload/eGON image tooling) and `xtask`
-(host build tooling). `fatfs`'s `no_std` `core_io` dependency is patched to `vendor/core_io`, a
+image the loader boots), `rawboot-image` (host-testable payload/eGON and SD boot prefix
+tooling) and `xtask` (host build tooling). `fatfs`'s `no_std` `core_io` dependency is patched to `vendor/core_io`, a
 minimal stable-compatible shim. Target `armv7a-none-eabi` (soft-float), Rust edition 2024.
 
 `embed/` is an ignored snapshot of the older Rust port kept for pre-port comparison; the
@@ -37,12 +37,16 @@ Standard commands:
 - Fetch pinned upstream: `scripts/fetch-upstream.sh` (writes the C tree used by the parity
   research notes to `target/upstream/awboot-<sha>/`)
 - Check everything: `scripts/check.sh` (fmt, build, both clippy passes, host tests, SPDX
-  headers, branch-docs rule, and `cargo xtask image`/`payload` smoke builds)
+  headers, branch-docs rule, and `cargo xtask image`/`payload`/`sd-image` smoke builds)
 - Seal an image: `cargo xtask image` (builds the loader twice and writes the sealed
   `target/rawboot-fel.bin` for FEL at `0x00028000` and `target/rawboot-boot-sd.bin` for
   SD/SPI boot at `0x00020000`; the `xtask` alias pins the host triple in `.cargo/config.toml`)
 - Build the payload image: `cargo xtask payload` (builds the `payload` crate and writes
   `target/rawboot-payload.img`, its flat binary wrapped in the payload image header)
+- Build the SD boot prefix: `cargo xtask sd-image --partition-sectors <n> [--start-lba <n>]
+  [--loader <path>]` (after `cargo xtask image`; writes `target/rawboot-sd-mbr.img`, an MBR
+  pointing at the existing FAT partition plus the SD loader at sector 16, for `dd conv=notrunc`
+  onto a card; it formats nothing and copies no payload; ADR-0011)
 - HIL: run `scripts/hil-check.sh target/rawboot-fel.bin <label>` after `code-review`, on the
   code branch, before merging. The runbook `docs/agents/hil.md` covers the FEL load, UART
   assertions, payload-image match and LED confirmation. `scripts/check.sh` covers host checks

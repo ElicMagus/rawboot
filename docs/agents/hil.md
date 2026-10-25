@@ -129,16 +129,27 @@ at `0x00028000` and is written by `xfel`. Put **`target/rawboot-boot-sd.bin`** o
 the FEL image in sector 16 runs 32 KiB off and dies before UART, leaving the board silent with
 a steady LED.
 
-The card needs an MBR with a FAT partition (this runbook assumes LBA 2048, as in the #37
-bring-up) and `payload.bin` (or `boot.cfg`) in its root. Building and writing that layout is
-still manual, pending #36; write the loader at byte offset 8192 (sector 16):
+The card needs a FAT partition (this runbook assumes LBA 2048, as in the #37 bring-up) and
+`payload.bin` (or `boot.cfg`) in its root. `cargo xtask sd-image` builds the boot prefix: an MBR
+pointing at that partition plus `target/rawboot-boot-sd.bin` at sector 16, exactly 2048 sectors
+(1 MiB) by default. It does not format anything or copy the payload; both stay on the partition.
+
+Build and write the prefix over a card that already has a FAT partition at LBA 2048:
 
 ```sh
 cargo xtask image
 cargo xtask payload
-sudo dd if=target/rawboot-boot-sd.bin of=/dev/sdX bs=512 seek=16 conv=notrunc,fsync
+cargo xtask sd-image --partition-sectors 1843200
+sudo dd if=target/rawboot-sd-mbr.img of=/dev/sdX bs=512 conv=notrunc,fsync
 cp target/rawboot-payload.img /media/$USER/<partition>/payload.bin
 ```
+
+`--partition-sectors` must be the partition's actual size in sectors (read it from
+`fdisk -l /dev/sdX`); `--start-lba` defaults to 2048 and changes both the prefix length and the MBR
+entry; `--loader` overrides the default `target/rawboot-boot-sd.bin`. The prefix carries no FAT
+volume and no payload: formatting the whole device (`mkfs.vfat /dev/sdX`) or writing a full disk
+image over it destroys the loader in sector 16. Format and copy only the partition
+(`mkfs.vfat /dev/sdX1`, mount it, copy `payload.bin`), or re-run the `dd` of the prefix afterwards.
 
 Capture a self-boot run by starting the capture **before** the power-cycle, then apply power
 (the BROM strap is sampled at cold power-on; see [Capture a self-booting board](#capture-a-self-booting-board-no-fel)):
@@ -335,7 +346,8 @@ and checksum depend on the image header and the detected DRAM size.
   image; check `rawboot/build.rs` and `rawboot-rt/link*.x`.
 - A cold power-on from SD is silent and PD22 stays steady: sector 16 holds the FEL image
   (`0x00028000`) instead of `target/rawboot-boot-sd.bin` (`0x00020000`). The two images are not
-  interchangeable; rewrite sector 16.
+  interchangeable; rebuild and rewrite the prefix with `cargo xtask image` and
+  `cargo xtask sd-image --partition-sectors <n>` followed by `dd ... conv=notrunc`.
 - HIL fails with `missing SD/MMC card found` or `missing a successful SD read`: no card,
   an unreadable card, or `HIL_REQUIRE_SD=1` without a card. Insert a card and rerun, or
   unset the flag for a no-card test.

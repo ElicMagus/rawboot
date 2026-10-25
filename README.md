@@ -12,6 +12,7 @@ Cargo workspace:
 - `rawboot-rt` — the runtime (eGON header, `_start`, linker script)
 - `sunxi-pl` — the shared platform layer (MMIO, GPIO, timer) used by loader, runtime and payload
 - `payload` — the blink test payload image the loader boots
-- `rawboot-image` — host-testable payload/eGON image tooling (`build`, `parse`, `seal`)
+- `rawboot-image` — host-testable payload/eGON image and SD boot prefix tooling (`build`, `parse`,
+  `seal`, `build_sd_image`)
 
 See `GLOSSARY.md` for terminology and `docs/adr/` for architecture decisions.

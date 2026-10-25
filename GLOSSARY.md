@@ -46,6 +46,13 @@ _Avoid_: kernel, zImage
 The fixed `#[repr(C)]` header at the front of a payload image (magic, version, flags, entry, load
 address, size, checksum) that the loader parses.
 
+**SD boot prefix**:
+The host-built `target/rawboot-sd-mbr.img`: an MBR pointing at an existing FAT partition plus the
+sealed SD/SPI loader at sector 16, exactly as long as the partition start (1 MiB by default). It
+carries no FAT volume and no payload, and is written over a card with `dd conv=notrunc`; formatting
+and `payload.bin` stay on the partition.
+_Avoid_: SD image, full image
+
 **BootInfo**:
 The versioned `#[repr(C)]` descriptor the loader places in DRAM and passes to the payload in `r0`
 at handoff.
