@@ -7,10 +7,11 @@ written in 100% Rust and ported from `szemzoa/awboot`. It brings up the SoC, rea
 image from a FAT partition on an SD card over SDHCI, loads it into DRAM, and hands off through a
 versioned `BootInfo` contract. The payload is our own firmware, not Linux (no FDT, no PSCI).
 
-Cargo workspace with six members: `rawboot` (the loader), `rawboot-rt` (the runtime),
+Cargo workspace with seven members: `rawboot` (the loader), `rawboot-rt` (the runtime),
 `sunxi-pl` (the shared platform layer: MMIO, GPIO, timer), `payload` (the blink test payload
 image the loader boots), `rawboot-image` (host-testable payload/eGON and SD boot prefix
-tooling) and `xtask` (host build tooling). `fatfs`'s `no_std` `core_io` dependency is patched to `vendor/core_io`, a
+tooling), `rawboot-fel` (host-side FEL USB transport and CLI) and `xtask` (host build
+tooling). `fatfs`'s `no_std` `core_io` dependency is patched to `vendor/core_io`, a
 minimal stable-compatible shim. Target `armv7a-none-eabi` (soft-float), Rust edition 2024.
 
 `embed/` is an ignored snapshot of the older Rust port kept for pre-port comparison; the
@@ -22,13 +23,13 @@ Standard commands:
 - Build: `cargo build --release` (`xtask` and its host-only image tooling are kept out of the
   bare-metal `default-members`; `rawboot-image` is still built as the loader's no-alloc
   dependency)
-- Test (host, tooling): `cargo test -p rawboot-image -p xtask --target x86_64-unknown-linux-gnu`
+- Test (host, tooling): `cargo test -p rawboot-image -p rawboot-fel -p xtask --target x86_64-unknown-linux-gnu`
   (the workspace default target is `armv7a-none-eabi`, so host tests need an explicit
   `--target` and the package scope keeps the bare-metal members out of the host build)
 - Lint: `cargo clippy -- -D warnings` (the `no_std` crates have no host test
   target, so `--all-targets` cannot build the libtest harness on
   `armv7a-none-eabi`; the host tooling is linted with
-  `cargo clippy -p rawboot-image -p xtask --target x86_64-unknown-linux-gnu --all-targets -- -D warnings`;
+  `cargo clippy -p rawboot-image -p rawboot-fel -p xtask --target x86_64-unknown-linux-gnu --all-targets -- -D warnings`;
   the `core_io` shim is linted with
   `cargo clippy --manifest-path vendor/core_io/Cargo.toml --target-dir target/core_io-shim -- -D warnings`)
 - Format: `cargo fmt` (CI runs `cargo fmt --all -- --check`)
@@ -43,6 +44,10 @@ Standard commands:
   SD/SPI boot at `0x00020000`; the `xtask` alias pins the host triple in `.cargo/config.toml`)
 - Build the payload image: `cargo xtask payload` (builds the `payload` crate and writes
   `target/rawboot-payload.img`, its flat binary wrapped in the payload image header)
+- FEL CLI: `cargo fel version|read|write|exec ...` (host-side FEL transport over USB with no
+  system `libusb`; `version` identifies the T113-S3, `read <addr> <len>` hex-dumps or writes
+  to `--output`, `write <addr> <file>` uploads bytes, `exec <addr>` jumps; the `fel` alias
+  pins the host triple)
 - Build the SD boot prefix: `cargo xtask sd-image --partition-sectors <n> [--start-lba <n>]
   [--loader <path>]` (after `cargo xtask image`; writes `target/rawboot-sd-mbr.img`, an MBR
   pointing at the existing FAT partition plus the SD loader at sector 16, for `dd conv=notrunc`

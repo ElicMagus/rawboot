@@ -1,12 +1,21 @@
 [workspace]
 resolver = "3"
-members = ["rawboot", "rawboot-rt", "rawboot-image", "payload", "sunxi-pl", "xtask"]
+members = [
+    "rawboot",
+    "rawboot-rt",
+    "rawboot-image",
+    "rawboot-fel",
+    "payload",
+    "sunxi-pl",
+    "xtask",
+]
 # Vendored build-only shims, not workspace members.
 exclude = ["vendor/core_io"]
-# The xtask is a host tool and must not be built for the loader's bare-metal
-# default target; keep it out of the default build. `rawboot-image` is also out:
-# its default `alloc` feature is for the host tooling, and as a root package it
-# would unify into the loader's dependency and demand a global allocator.
+# The xtask and rawboot-fel are host tools and must not be built for the
+# loader's bare-metal default target; keep them out of the default build.
+# `rawboot-image` is also out: its default `alloc` feature is for the host
+# tooling, and as a root package it would unify into the loader's dependency and
+# demand a global allocator.
 default-members = ["rawboot", "rawboot-rt", "payload", "sunxi-pl"]
 
 # `fatfs` without `std` depends on `core_io` 0.1, whose generated source needs

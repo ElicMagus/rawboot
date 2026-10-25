@@ -14,5 +14,6 @@ Cargo workspace:
 - `payload` — the blink test payload image the loader boots
 - `rawboot-image` — host-testable payload/eGON image and SD boot prefix tooling (`build`, `parse`,
   `seal`, `verify_sealed`, `build_sd_image`)
+- `rawboot-fel` — host-side FEL USB transport and CLI (`version`, `read`, `write`, `exec`)
 
 See `GLOSSARY.md` for terminology and `docs/adr/` for architecture decisions.
