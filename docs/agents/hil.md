@@ -13,7 +13,9 @@ sequence, the UART capture, and how to read the result. The script from this rep
   blinks a short-long cadence instead. The script cannot see the LED, so the run ends with a human
   check.
 - FEL: USB OTG in FEL mode. The board enumerates as `1f3a:efe8` (some adapters report
-  `1f3c:*`). Enter FEL by holding the FEL/BOOT button while applying power or reset.
+  `1f3c:*`). The BROM samples the FEL strap at **cold power-on** only: remove power completely,
+  hold FEL/BOOT, then apply power. Holding FEL through a reset (or FEL+RESET) does not re-sample
+  it, so an automated rig has to switch the power rail, not just `NRST`.
 
 ## Host setup
 
@@ -126,11 +128,12 @@ committed before the run; record a PASS only after it succeeds. `cargo xtask ima
 refuses an image whose commit is not `HEAD`, so rebuild after switching branches
 (`HIL_SKIP_PROVENANCE=1` is the escape hatch).
 
-Put the board into FEL with a power-cycle (or reset while holding the FEL/BOOT button), not
-with `xfel reset`: `xfel reset` resets through the watchdog, which stays armed, and the
-loader then boots in a loop. A loader left running from a previous run also keeps printing
-on USART0, so clear it with a power-cycle before each run. On a terminal the script prints
-this and waits for Enter; piped or `HIL_NO_PROMPT=1` runs skip the prompt.
+Put the board into FEL with a cold power-cycle (power off, hold FEL/BOOT, power on), not with
+`xfel reset` or a plain reset: the strap is sampled only at power-on, and `xfel reset` resets
+through the watchdog, which stays armed, so the loader then boots in a loop. A loader left
+running from a previous run also keeps printing on USART0, so clear it with a power-cycle
+before each run. On a terminal the script prints this and waits for Enter; piped or
+`HIL_NO_PROMPT=1` runs skip the prompt.
 
 `xfel version` succeeding does **not** prove the board is idle in FEL: the FEL USB gadget can
 still answer while a loader from a previous run prints on USART0. The script's UART-quiet
