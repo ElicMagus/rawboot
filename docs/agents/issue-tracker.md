@@ -45,6 +45,9 @@ All calls use header `Authorization: token <token>`. `{B}` below is
   `POST {B}/issues` with JSON `{"title": ..., "body": ..., "labels": [<label ids>]}`
   -> the response's `number` is the issue number.
 - **Fetch an issue**: `GET {B}/issues/<N>`
+- **Fetch the brief**: `GET {B}/issues/<N>/comments`. The `## Agent Brief` comment written by
+  triage is authoritative: it carries the scope, acceptance criteria and out-of-scope items the
+  body may omit. Read it before implementing.
 - **List issues**: `GET {B}/issues?state=all&limit=50`
 - **Comment**: `POST {B}/issues/<N>/comments` with `{"body": ...}`
 - **Apply labels**: `POST {B}/issues/<N>/labels` with `{"labels": [<label ids>]}`

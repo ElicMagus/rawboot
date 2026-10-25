@@ -33,6 +33,10 @@ sequence, the UART capture, and how to read the result. The script from this rep
 
 ## Load and capture
 
+> Only the FEL image is built today: the loader is linked at `0x00028000`, and `cargo xtask
+> image` writes `target/rawboot-fel.bin`. Booting the loader from SD/SPI needs an image linked
+> at `0x00020000`, which does not exist yet — see #37.
+
 Build the loader, then run the script. The loader is linked for SRAM at `0x00028000`; it
 initialises DRAM itself, so `xfel ddr` is **not** part of the procedure.
 
@@ -194,6 +198,21 @@ initialised DRAM itself.
 If the UART is captured by hand, drain it before `xfel exec` (for example with
 `python3 -c 'import serial; s=serial.Serial("/dev/ttyUSB0",115200); s.reset_input_buffer()'`)
 and capture at 115200 8N1.
+
+### Capture a self-booting board (no FEL)
+
+When the board boots on its own — from SD or SPI, with no `xfel` step — start the capture
+**before** the power-cycle and let `hil_serial.py` judge it. It drains the port, records the
+log with timestamps, and prints the unique lines plus the assertions:
+
+```sh
+setsid sg dialout -c 'python3 scripts/hil_serial.py /tmp/boot.log --seconds 10 \
+    --require-handoff --payload target/rawboot-payload.img' &
+```
+
+`sg dialout` is only needed when the shell has not picked up the `dialout` group. The raw log
+grows fast on a busy board (it can reach megabytes); read the `hil_serial.py` summary instead
+of dumping the file.
 
 ## Expected log
 
