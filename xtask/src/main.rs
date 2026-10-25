@@ -2,9 +2,9 @@
 
 //! `cargo xtask` — host build tooling for rawboot.
 //!
-//! `image` builds the loader, converts the ELF to a flat binary with the
-//! toolchain's `llvm-objcopy`, and eGON-seals it for BROM. The result is a
-//! FEL/SD loader image, loadable with `xfel`.
+//! `image` builds the loader twice, converts each ELF to a flat binary with the
+//! toolchain's `llvm-objcopy`, and eGON-seals it for BROM: the FEL variant at
+//! `0x00028000` and the SD/SPI boot variant at `0x00020000`.
 //!
 //! `payload` builds the payload crate and wraps its flat binary in the rawboot
 //! image header, producing the image the loader parses.
@@ -21,10 +21,40 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// The loader's target triple, matching the workspace default target.
 const TARGET: &str = "armv7a-none-eabi";
 
-/// FEL load address of the loader (matches `rawboot-rt`'s `RAM` origin).
+/// FEL load address of the loader (matches `rawboot-rt`'s FEL link script).
 const FEL_LOAD_ADDR: u32 = 0x0002_8000;
 
+/// SD/SPI load address BROM uses for a boot image (matches the boot link script).
+const SD_LOAD_ADDR: u32 = 0x0002_0000;
+
 const USAGE: &str = "usage: cargo xtask image | cargo xtask payload";
+
+/// One of the two loader images: same code, different link address.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LoaderVariant {
+    /// Loaded with `xfel write 0x00028000`.
+    Fel,
+    /// Written to sector 16 for BROM to load at `0x00020000`.
+    BootSd,
+}
+
+impl LoaderVariant {
+    const ALL: [Self; 2] = [Self::Fel, Self::BootSd];
+
+    fn image_name(self) -> &'static str {
+        match self {
+            Self::Fel => "rawboot-fel.bin",
+            Self::BootSd => "rawboot-boot-sd.bin",
+        }
+    }
+
+    fn load_addr(self) -> u32 {
+        match self {
+            Self::Fel => FEL_LOAD_ADDR,
+            Self::BootSd => SD_LOAD_ADDR,
+        }
+    }
+}
 
 fn main() {
     if let Err(err) = run() {
@@ -42,32 +72,45 @@ fn run() -> Result<()> {
     }
 }
 
-/// Build the loader and seal it into a FEL/SD image.
+/// Build the loader for both load addresses and seal each into its image.
 fn image() -> Result<()> {
     let root = workspace_root();
-    let (elf, raw) = release_bin(&root, "rawboot");
 
-    build_loader(&root)?;
-    objcopy(&elf, &raw)?;
+    for variant in LoaderVariant::ALL {
+        let (elf, raw) = release_bin(&root, "rawboot");
 
-    let image = fs::read(&raw)?;
-    let sealed = seal(&image, SealOptions::BLOCK)
-        .map_err(|e| format!("sealing `{}`: {e:?}", raw.display()))?;
-    xtask::verify_sealed_egon(&sealed)
-        .map_err(|e| format!("assembled loader image is not BROM-valid: {e}"))?;
+        build_loader(&root, variant)?;
+        verify_elf_load_addr(&elf, variant.load_addr())?;
+        objcopy(&elf, &raw)?;
 
-    let sealed_path = root.join("target").join("rawboot-fel.bin");
-    fs::write(&sealed_path, &sealed)
-        .map_err(|e| format!("writing `{}`: {e}", sealed_path.display()))?;
-    write_build_stamp(&root, &sealed_path)?;
+        let image = fs::read(&raw)?;
+        let sealed = seal(&image, SealOptions::BLOCK)
+            .map_err(|e| format!("sealing `{}`: {e:?}", raw.display()))?;
+        xtask::verify_sealed_egon(&sealed)
+            .map_err(|e| format!("assembled loader image is not BROM-valid: {e}"))?;
 
-    println!("sealed {} bytes -> {}", sealed.len(), sealed_path.display());
-    println!("load: {}", fel_load_command(&sealed_path));
+        let sealed_path = root.join("target").join(variant.image_name());
+        fs::write(&sealed_path, &sealed)
+            .map_err(|e| format!("writing `{}`: {e}", sealed_path.display()))?;
+        write_build_stamp(&root, &sealed_path)?;
+
+        println!(
+            "sealed {} bytes -> {} (linked at {:#010x})",
+            sealed.len(),
+            sealed_path.display(),
+            variant.load_addr()
+        );
+        if variant == LoaderVariant::BootSd {
+            println!("sd: write the image to sector 16 of the boot medium");
+        } else {
+            println!("load: {}", fel_load_command(&sealed_path));
+        }
+    }
     Ok(())
 }
 
-/// Record the tree the FEL image came from, so `hil-check.sh` can refuse an
-/// image that no longer matches `HEAD` (for example after switching branches).
+/// Record the tree an image came from, so a HIL run can refuse an image that no
+/// longer matches `HEAD` (for example after switching branches).
 fn write_build_stamp(root: &Path, image: &Path) -> Result<()> {
     let commit = git_line(root, &["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".into());
     let branch =
@@ -107,8 +150,49 @@ fn fel_load_command(image: &Path) -> String {
     )
 }
 
-fn build_loader(root: &Path) -> Result<()> {
-    build_bin(root, "rawboot")
+fn build_loader(root: &Path, variant: LoaderVariant) -> Result<()> {
+    match variant {
+        LoaderVariant::Fel => build_bin(root, "rawboot", &[]),
+        LoaderVariant::BootSd => build_bin(root, "rawboot", &["--features", "boot-sd"]),
+    }
+}
+
+/// Fail the build if the linker placed the loader anywhere but the variant's
+/// origin, so a wrong or missing link script never reaches the board.
+fn verify_elf_load_addr(elf: &Path, expected: u32) -> Result<()> {
+    let output = Command::new(llvm_objdump()?)
+        .args(["-h"])
+        .arg(elf)
+        .output()
+        .map_err(|e| format!("running llvm-objdump: {e}"))?;
+    if !output.status.success() {
+        return Err(format!("llvm-objdump failed: {}", output.status).into());
+    }
+
+    let sections = String::from_utf8_lossy(&output.stdout);
+    let actual = parse_head_vma(&sections)
+        .ok_or_else(|| format!("cannot read `.head` VMA from `{}`", elf.display()))?;
+    if actual != expected {
+        return Err(format!(
+            "`{}` is linked at {actual:#010x}, expected {expected:#010x}",
+            elf.display()
+        )
+        .into());
+    }
+    Ok(())
+}
+
+/// The VMA of the `.head` section in `llvm-objdump -h` output.
+fn parse_head_vma(sections: &str) -> Option<u32> {
+    sections.lines().find_map(|line| {
+        let mut fields = line.split_whitespace();
+        fields.next()?;
+        if fields.next()? != ".head" {
+            return None;
+        }
+        let _size = fields.next()?;
+        u32::from_str_radix(fields.next()?, 16).ok()
+    })
 }
 
 /// Build the payload crate and wrap its flat binary in the rawboot image header.
@@ -116,7 +200,7 @@ fn payload() -> Result<()> {
     let root = workspace_root();
     let (elf, raw) = release_bin(&root, "payload");
 
-    build_bin(&root, "payload")?;
+    build_bin(&root, "payload", &[])?;
     objcopy(&elf, &raw)?;
 
     let raw_bytes = fs::read(&raw)?;
@@ -142,11 +226,12 @@ fn release_bin(root: &Path, bin: &str) -> (PathBuf, PathBuf) {
 }
 
 /// Build a workspace binary for the loader's target.
-fn build_bin(root: &Path, bin: &str) -> Result<()> {
+fn build_bin(root: &Path, bin: &str, extra_args: &[&str]) -> Result<()> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let status = Command::new(cargo)
         .current_dir(root)
         .args(["build", "--release", "--bin", bin, "--target", TARGET])
+        .args(extra_args)
         .status()
         .map_err(|e| format!("running cargo build: {e}"))?;
     if !status.success() {
@@ -171,6 +256,15 @@ fn objcopy(elf: &Path, raw: &Path) -> Result<()> {
 /// Locate `llvm-objcopy` in the active toolchain's `llvm-tools` component, so
 /// the build works on any host without a separately installed `cargo-binutils`.
 fn llvm_objcopy() -> Result<PathBuf> {
+    llvm_tool(&["rust-objcopy", "llvm-objcopy"])
+}
+
+/// Locate `llvm-objdump` next to `llvm-objcopy`.
+fn llvm_objdump() -> Result<PathBuf> {
+    llvm_tool(&["llvm-objdump"])
+}
+
+fn llvm_tool(candidates: &[&str]) -> Result<PathBuf> {
     let sysroot = rustc_output(&["--print", "sysroot"])?;
     let version = rustc_output(&["-vV"])?;
     let host = version
@@ -182,14 +276,14 @@ fn llvm_objcopy() -> Result<PathBuf> {
         .join("rustlib")
         .join(host)
         .join("bin");
-    for name in ["rust-objcopy", "llvm-objcopy"] {
+    for name in candidates {
         let candidate = bin.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
         if candidate.is_file() {
             return Ok(candidate);
         }
     }
     Err(format!(
-        "no rust-objcopy in {}; install the `llvm-tools` rustup component",
+        "none of {candidates:?} in {}; install the `llvm-tools` rustup component",
         bin.display()
     )
     .into())
@@ -233,5 +327,27 @@ mod tests {
             build_stamp_path(Path::new("target/rawboot-fel.bin")),
             PathBuf::from("target/rawboot-fel.bin.build")
         );
+    }
+
+    #[test]
+    fn both_variants_target_their_origins() {
+        assert_eq!(LoaderVariant::Fel.load_addr(), 0x0002_8000);
+        assert_eq!(LoaderVariant::BootSd.load_addr(), 0x0002_0000);
+        assert_eq!(LoaderVariant::Fel.image_name(), "rawboot-fel.bin");
+        assert_eq!(LoaderVariant::BootSd.image_name(), "rawboot-boot-sd.bin");
+    }
+
+    #[test]
+    fn parses_the_head_vma_from_objdump_output() {
+        let output = "\
+Sections:
+Idx Name            Size     VMA      LMA      Type
+  0                 00000000 00000000 00000000
+  1 .head           00000080 00020000 00020000 TEXT
+  2 .text           0000c550 00020080 00020080 TEXT
+";
+
+        assert_eq!(parse_head_vma(output), Some(0x0002_0000));
+        assert_eq!(parse_head_vma("Sections:\n"), None);
     }
 }
