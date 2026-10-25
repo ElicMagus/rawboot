@@ -36,6 +36,7 @@ SECTIONS
 
   .stack (NOLOAD) :
   {
+    . = ORIGIN(DRAM) + LENGTH(DRAM) - 0x4000;
     . = ALIGN(8);
     _sstack = .;
     . = ORIGIN(DRAM) + LENGTH(DRAM);

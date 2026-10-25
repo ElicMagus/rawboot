@@ -294,6 +294,7 @@ fn flasher() -> Result<()> {
             output: "rawboot-ddr.bin",
             load_addr: DDR_STUB_LOAD_ADDR,
             max_size: DDR_STUB_MAX_SIZE,
+            stack_start: None,
             stack_top: None,
             bss_limit: Some(DDR_RESULT_ADDR),
         },
@@ -302,6 +303,7 @@ fn flasher() -> Result<()> {
             output: "rawboot-flasher.bin",
             load_addr: FLASHER_LOAD_ADDR,
             max_size: FLASHER_MAX_SIZE,
+            stack_start: Some(FLASHER_STACK_TOP - FLASHER_STACK_SIZE),
             stack_top: Some(FLASHER_STACK_TOP),
             bss_limit: Some(FLASHER_STACK_TOP - FLASHER_STACK_SIZE),
         },
@@ -310,6 +312,9 @@ fn flasher() -> Result<()> {
         build_bin(&root, image.bin, &[])?;
         verify_elf_section_vma(&elf, ".text", image.load_addr)?;
         verify_elf_symbol(&elf, "_start", image.load_addr)?;
+        if let Some(stack_start) = image.stack_start {
+            verify_elf_symbol(&elf, "_sstack", stack_start)?;
+        }
         if let Some(stack_top) = image.stack_top {
             verify_elf_symbol(&elf, "_estack", stack_top)?;
         }
@@ -355,6 +360,7 @@ struct FlasherImage {
     output: &'static str,
     load_addr: u32,
     max_size: u32,
+    stack_start: Option<u32>,
     stack_top: Option<u32>,
     bss_limit: Option<u32>,
 }
