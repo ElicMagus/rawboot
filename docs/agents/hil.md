@@ -409,6 +409,14 @@ and checksum depend on the image header and the detected DRAM size.
 - HIL fails with `missing SD/MMC card found` or `missing a successful SD read`: no card,
   an unreadable card, or `HIL_REQUIRE_SD=1` without a card. Insert a card and rerun, or
   unset the flag for a no-card test.
+- `SMHC: cmd1 timeout (rint=0x00000100, flag=0x00000004)` followed by `SD/MMC card not
+  found` on a cold power-on with the card already inserted: the card did not answer CMD1 in
+  time. The pre-`#38` baseline shows the same timeout (issue #43). Insert the card after the
+  board is in FEL (hot-plug) or re-exec the loader without removing power
+  (`HIL_SKIP_PREFLIGHT=1`), then rerun. A passing run can still log an earlier `cmd1 timeout`
+  before `SD/MMC card found`, because the driver retries. A card with a valid boot prefix in
+  sector 16 also makes the BROM occasionally boot from SD instead of sampling FEL on a cold
+  power-on; remove the card when you need a deterministic FEL entry.
 - HIL fails with `missing a payload handoff`: `HIL_REQUIRE_HANDOFF=1` was set but the loader
   stayed in its `S=0x` loop. Check that `payload.bin` is present and valid, and that the card
   path succeeded.
