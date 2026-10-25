@@ -7,3 +7,5 @@ publish = false
 
 [dependencies]
 rawboot-image = { path = "../rawboot-image" }
+# The host FEL transport: `fel-flash` speaks to the board without `xfel`.
+rawboot-fel = { path = "../rawboot-fel" }

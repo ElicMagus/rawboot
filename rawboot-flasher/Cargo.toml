@@ -12,10 +12,13 @@ publish = false
 # Neither carries an eGON header (ADR-0013).
 [dependencies]
 rawboot-image = { path = "../rawboot-image", default-features = false }
-# The loader's own DRAM driver; the write path stays off for the flasher
-# skeleton (ADR-0012).
-sunxi-drivers = { path = "../sunxi-drivers", default-features = false }
+# The loader's own SD/FAT drivers. The flasher enables the write path; the
+# loader still builds `sunxi-drivers` without it (ADR-0005, ADR-0014).
+sunxi-drivers = { path = "../sunxi-drivers", default-features = false, features = ["write"] }
 sunxi-pl = { path = "../sunxi-pl" }
+# The `FileSystem` type returned by `sunxi-drivers::fat`; the flasher only names
+# it to write and verify files before unmounting.
+fatfs = { version = "0.3.6", default-features = false, features = ["core_io"] }
 
 [lib]
 test = false

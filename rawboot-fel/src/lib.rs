@@ -39,7 +39,7 @@ pub mod error;
 pub mod protocol;
 pub mod usb;
 
-pub use bringup::BringupReport;
+pub use bringup::{BringupReport, FlashSdReport};
 pub use device::{DEFAULT_CHUNK_SIZE, FelDevice, Transport};
 pub use error::{FelError, ProtocolError, TransportError};
 pub use protocol::{CHIP_ID_T113, FelVersion, MAX_CHUNK_SIZE, Soc, T113_VECTOR};

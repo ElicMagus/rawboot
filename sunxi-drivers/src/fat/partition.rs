@@ -11,8 +11,10 @@
 pub const BLOCK_SIZE: u64 = 512;
 
 const BLOCK_SIZE_USIZE: usize = BLOCK_SIZE as usize;
-const SIGNATURE_OFFSET: usize = BLOCK_SIZE_USIZE - 2;
-const BOOT_SIGNATURE: [u8; 2] = [0x55, 0xaa];
+/// Offset of the `55 AA` boot signature in the first sector.
+pub const SIGNATURE_OFFSET: usize = BLOCK_SIZE_USIZE - 2;
+/// The `55 AA` boot signature.
+pub const BOOT_SIGNATURE: [u8; 2] = [0x55, 0xaa];
 const MBR_PARTITION_TABLE: usize = 446;
 const MBR_PARTITION_ENTRIES: usize = 4;
 pub const MAX_CANDIDATES: usize = 1 + MBR_PARTITION_ENTRIES;
@@ -24,6 +26,51 @@ pub struct Partition {
     pub base_lba: u64,
     /// Volume length in bytes.
     pub len_bytes: u64,
+}
+
+/// One FAT partition-table entry, before any clamping to the card size.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MbrFatPartition {
+    /// First SD block of the partition.
+    pub base_lba: u64,
+    /// Sectors the MBR declares for the partition.
+    pub sectors: u32,
+    /// MBR partition type byte.
+    pub partition_type: u8,
+}
+
+/// Returns the first FAT partition in the MBR in the same priority order as
+/// [`candidates`]: FAT32 before FAT12/16, then table order.
+///
+/// The extent is not clamped to the card, so a caller that is about to write
+/// can check the declared partition against the real capacity.
+pub fn first_fat_partition(sector0: &[u8; BLOCK_SIZE_USIZE]) -> Option<MbrFatPartition> {
+    if sector0[SIGNATURE_OFFSET..] != BOOT_SIGNATURE {
+        return None;
+    }
+
+    for priority in [2, 1] {
+        for index in 0..MBR_PARTITION_ENTRIES {
+            let entry = MBR_PARTITION_TABLE + index * 16;
+            let partition_type = sector0[entry + 4];
+            if fat_type_priority(partition_type) != Some(priority) {
+                continue;
+            }
+
+            let base_lba = le32(sector0, entry + 8) as u64;
+            let sectors = le32(sector0, entry + 12);
+            if base_lba == 0 || sectors == 0 {
+                continue;
+            }
+            return Some(MbrFatPartition {
+                base_lba,
+                sectors,
+                partition_type,
+            });
+        }
+    }
+
+    None
 }
 
 /// Lists candidate FAT volumes described by the card's first block.
@@ -131,4 +178,54 @@ fn le32(buf: &[u8; BLOCK_SIZE_USIZE], offset: usize) -> u32 {
         buf[offset + 2],
         buf[offset + 3],
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mbr(entries: &[(u8, u32, u32)]) -> [u8; BLOCK_SIZE_USIZE] {
+        let mut sector = [0u8; BLOCK_SIZE_USIZE];
+        for (index, (partition_type, base_lba, sectors)) in entries.iter().enumerate() {
+            let entry = MBR_PARTITION_TABLE + index * 16;
+            sector[entry + 4] = *partition_type;
+            sector[entry + 8..entry + 12].copy_from_slice(&base_lba.to_le_bytes());
+            sector[entry + 12..entry + 16].copy_from_slice(&sectors.to_le_bytes());
+        }
+        sector[SIGNATURE_OFFSET..].copy_from_slice(&BOOT_SIGNATURE);
+        sector
+    }
+
+    #[test]
+    fn prefers_fat32_over_fat16_regardless_of_table_order() {
+        let sector = mbr(&[(0x06, 100, 200), (0x0c, 2048, 4096)]);
+
+        let partition = first_fat_partition(&sector).expect("a FAT partition");
+        assert_eq!(partition.base_lba, 2048);
+        assert_eq!(partition.sectors, 4096);
+        assert_eq!(partition.partition_type, 0x0c);
+    }
+
+    #[test]
+    fn skips_empty_and_non_fat_entries() {
+        let sector = mbr(&[(0x83, 100, 200), (0x0c, 0, 200), (0x06, 300, 0)]);
+
+        assert_eq!(first_fat_partition(&sector), None);
+    }
+
+    #[test]
+    fn requires_the_mbr_signature() {
+        let mut sector = mbr(&[(0x0c, 2048, 4096)]);
+        sector[SIGNATURE_OFFSET] = 0;
+
+        assert_eq!(first_fat_partition(&sector), None);
+    }
+
+    #[test]
+    fn returns_a_declared_extent_without_clamping_the_card_size() {
+        let sector = mbr(&[(0x0c, 2048, 10_000_000)]);
+
+        let partition = first_fat_partition(&sector).expect("a FAT partition");
+        assert_eq!(partition.sectors, 10_000_000);
+    }
 }

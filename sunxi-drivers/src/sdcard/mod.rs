@@ -229,6 +229,31 @@ pub struct Sdcard_data {
     pub online: bool,
 }
 
+impl Sdcard_data {
+    /// A fresh, offline card context for `hci`.
+    pub fn new(hci: Sdhci) -> Self {
+        Self {
+            card: Sdcard {
+                version: 0,
+                ocr: 0,
+                rca: 0,
+                cid: [0u32; 4],
+                csd: [0u32; 4],
+                extcsd: [0u8; 512],
+                high_capacity: 0,
+                tran_speed: 0,
+                dsr_imp: 0,
+                read_bl_len: 0,
+                write_bl_len: 0,
+                capacity: 0,
+            },
+            hci,
+            buf: [0u8; 512],
+            online: false,
+        }
+    }
+}
+
 /// Why a card write was rejected or failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SdError {

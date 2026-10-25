@@ -95,3 +95,7 @@ DRAM, кладёт NOOP-job и прошивальщик, выполняет ег
   `result 0 (ok)`. Если stub не возвращается, факт фиксируется в #41, и задача возвращается в
   triage; откат на `xfel ddr` не считается решением.
 - В `GLOSSARY.md` появляются «DDR-init stub», «flasher» и «flash job/status».
+
+> Обновление #42: SD-команда добавлена без смены раскладки job/status, но с отдельным
+> `FlashPlan` и staging-областями в DRAM; `rawboot-flasher` больше не входит в
+> `default-members`, чтобы `sunxi-drivers/write` не унифицировался в лоадер. См. ADR-0014.

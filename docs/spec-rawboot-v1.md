@@ -79,8 +79,9 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
 
 - **Workspace shape.** The `rawboot-internal` repository is a single Cargo workspace with members
   `rawboot` (the loader), `rawboot-rt` (the runtime), `sunxi-pl` (the shared hardware layer),
-  `sunxi-drivers` (the shared drivers above it: clock/CCU, DRAM, UART, SDHCI, SD/MMC and the
-  read-only FAT adapter), `payload` (the blink test payload), `rawboot-image` (host-testable
+  `sunxi-drivers` (the shared drivers above it: clock/CCU, DRAM, UART, SDHCI, SD/MMC and the FAT
+  adapter, read-only in the loader and writable by the flasher), `payload` (the blink test
+  payload), `rawboot-image` (host-testable
   payload, eGON, SD boot prefix and flash job/status tooling), `rawboot-fel` (host-side FEL USB
   transport and CLI), `rawboot-flasher` (the FEL-callable DDR-init stub and DRAM-linked flasher)
   and `xtask` (host build tooling). Driver modules live in `sunxi-drivers`; `rawboot` keeps the
@@ -130,7 +131,10 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
   `rawboot-sd-mbr.img`, the SD boot prefix: an MBR pointing at the FAT partition starting at
   `--start-lba` (default 2048, 1 MiB) plus `rawboot-boot-sd.bin` at sector 16 (ADR-0011). It
   formats nothing, copies no payload and only writes a file. `cargo xtask flasher` builds the
-  returning DDR-init stub and the DRAM-linked flasher (ADR-0013). The existing Windows scripts
+  returning DDR-init stub and the DRAM-linked flasher (ADR-0013). `cargo xtask fel-flash` builds
+  or reuses those artifacts and writes `payload.bin`, an optional `boot.cfg` and the sealed SD
+  loader to a card left in the board over FEL, leaving the MBR and partition in place and
+  reading everything back (ADR-0014). The existing Windows scripts
   and `.exe` tools are kept as a working Windows path. `rawboot-fel` (CLI `cargo fel`) talks to
   the BROM's FEL USB protocol directly for manual bring-up; `cargo fel bringup` runs the stub,
   checks DRAM and reads a flash status. `xfel` stays the external tool used by
@@ -154,11 +158,15 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
   2 KB→N KB page scattering); `parse()` must accept a well-formed header and reject bad magic, bad
   checksum, or truncated/oversized lengths. These are pure functions over `&[u8]`. The SD boot
   prefix is likewise byte-in/byte-out: MBR fields, loader placement, prefix length, and rejection
-  of an unsealed, overlapping or overflowing input.
+  of an unsealed, overlapping or overflowing input. The FEL SD path is checked the same way:
+  `FlashPlan` round-trips and rejects bad lengths/checksums, `check_sd_layout` rejects a partition
+  at or inside sector 16, a loader that reaches into the partition and a partition past the card,
+  and `fat::file_matches` compares a written file byte by byte.
 - **FEL transport seam (host, `cargo test`):** `rawboot-fel` frames the BROM's `AWUC`/FEL
   requests and validates its replies over a `Transport` trait. Scripted bulk frames cover
-  version/read/write/exec, 64 KiB chunking, short transfers and transport failures; the board
-  check remains the final word.
+  version/read/write/exec, 64 KiB chunking, short transfers and transport failures, the order in
+  which `flash_sd_card` stages the plan, payload, `boot.cfg` and loader, and its refusals before
+  the device is touched; the board check remains the final word.
 - **Compile-time seam:** `const` assertions on `BootInfo`/image-header size and field offsets, so an
   ABI break fails the build.
 - **Hardware-in-the-loop acceptance seam:** build the blink payload with the xtask, boot the loader

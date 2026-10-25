@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use rawboot_image::FlashContractError;
+use rawboot_image::{FlashContractError, VerifyError};
 
 /// A failure below the FEL protocol: a USB bulk transfer did not complete.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,6 +141,8 @@ pub enum FelError {
         /// Detected DRAM size in MiB, or zero.
         size_mib: u32,
     },
+    /// The SD loader is not a sealed eGON image.
+    LoaderNotSealed(VerifyError),
     /// A word written to DRAM did not read back.
     DramMismatch {
         /// Address of the first mismatching word.
@@ -158,6 +160,13 @@ pub enum FelError {
         expected: u32,
         /// Sequence in the status the flasher wrote.
         actual: u32,
+    },
+    /// The detected DRAM is smaller than the fixed staging window.
+    DramTooSmall {
+        /// Detected DRAM size in MiB.
+        size_mib: u32,
+        /// Bytes the staging layout requires.
+        required: u64,
     },
 }
 
@@ -204,6 +213,7 @@ impl fmt::Display for FelError {
                 f,
                 "DDR-init stub did not report success (result magic {magic:#010x}, {size_mib} MiB)"
             ),
+            Self::LoaderNotSealed(error) => write!(f, "SD loader is not sealed: {error}"),
             Self::DramMismatch {
                 address,
                 expected,
@@ -216,6 +226,10 @@ impl fmt::Display for FelError {
             Self::StatusSequence { expected, actual } => write!(
                 f,
                 "flasher answered job sequence {actual}, expected {expected}"
+            ),
+            Self::DramTooSmall { size_mib, required } => write!(
+                f,
+                "DRAM is {size_mib} MiB; the flasher staging window needs {required} bytes"
             ),
         }
     }
