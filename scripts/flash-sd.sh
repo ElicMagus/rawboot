@@ -317,6 +317,17 @@ if [ "$IS_BLOCK" = "1" ]; then
         PARTITION_SECTORS=$detected_sectors
     fi
 
+    if [ "$FORMAT_PARTITION" != "1" ]; then
+        fstype=$(lsblk -no FSTYPE "$SD_PART" 2>/dev/null) ||
+            die "cannot read the filesystem type of $SD_PART"
+        fstype=$(printf '%s' "$fstype" | tr -d '[:space:]')
+        case "$fstype" in
+            vfat | msdos | fat) ;;
+            '') die "$SD_PART has no FAT filesystem; create one or use --format" ;;
+            *) die "$SD_PART is '$fstype', not FAT; use --format (destroys its contents) or format it manually" ;;
+        esac
+    fi
+
     disk_sectors=$(blockdev --getsz "$SD_DEV" 2>/dev/null || true)
     if [ -z "$disk_sectors" ]; then
         disk_bytes=$(lsblk -bno SIZE "$SD_DEV" 2>/dev/null | head -n 1 | tr -d '[:space:]') ||
@@ -447,6 +458,7 @@ if [ "$FORMAT_PARTITION" = "1" ]; then
         MKFS=(sudo "${MKFS[@]}")
     fi
     run "${MKFS[@]}"
+    run sync
 fi
 
 if [ "$COPY_PAYLOAD" = "1" ]; then
