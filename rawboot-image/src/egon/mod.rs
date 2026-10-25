@@ -31,4 +31,4 @@ pub use header::{EGON_CHECKSUM_SEED, EGON_MAGIC, EgonHeader};
 pub use seal::{
     BROM_PAGE_SIZE, PADDING_BLOCK, PADDING_FLASH, Padding, PageSize, SealError, SealOptions, seal,
 };
-pub use verify::{HeaderError, verify_sealed};
+pub use verify::{VerifyError, verify_sealed};

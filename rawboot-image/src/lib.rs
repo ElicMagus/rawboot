@@ -41,7 +41,7 @@ pub use checksum::image_checksum;
 pub use egon::{
     BROM_PAGE_SIZE, PADDING_BLOCK, PADDING_FLASH, Padding, PageSize, SealError, SealOptions, seal,
 };
-pub use egon::{EGON_CHECKSUM_SEED, EGON_MAGIC, EgonHeader, HeaderError, verify_sealed};
+pub use egon::{EGON_CHECKSUM_SEED, EGON_MAGIC, EgonHeader, VerifyError, verify_sealed};
 pub use fel::{
     FEL_ARGS_BASE, FEL_ARGS_MAX_SIZE, FEL_MAILBOX_BASE, FEL_MAILBOX_MAGIC, FEL_MAILBOX_WORDS,
     FEL_PAYLOAD_BASE, FEL_PAYLOAD_MAX_SIZE, FelMailbox,

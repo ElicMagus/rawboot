@@ -3,9 +3,9 @@
 //! Byte-in/byte-out tests for the SD boot prefix: MBR and loader placement.
 
 use rawboot_image::{
-    DEFAULT_START_LBA, EgonHeader, HeaderError, MBR_SIGNATURE, PARTITION_TABLE_OFFSET,
+    DEFAULT_START_LBA, EgonHeader, MBR_SIGNATURE, PARTITION_ENTRY_SIZE, PARTITION_TABLE_OFFSET,
     PARTITION_TYPE_FAT32, SD_LOADER_OFFSET, SECTOR_SIZE, SdImageError, SdImageOptions, SealOptions,
-    build_sd_image, read_u32_le, seal,
+    VerifyError, build_sd_image, read_u32_le, seal,
 };
 
 const DEFAULT_PARTITION_SECTORS: u32 = 1_843_200;
@@ -19,7 +19,7 @@ fn options(start_lba: u32, partition_sectors: u32) -> SdImageOptions {
 }
 
 fn mbr_entry(image: &[u8]) -> &[u8] {
-    &image[PARTITION_TABLE_OFFSET..PARTITION_TABLE_OFFSET + 16]
+    &image[PARTITION_TABLE_OFFSET..PARTITION_TABLE_OFFSET + PARTITION_ENTRY_SIZE]
 }
 
 #[test]
@@ -31,7 +31,7 @@ fn builds_a_one_mib_prefix_with_the_mbr_and_loader() {
     )
     .unwrap();
 
-    assert_eq!(image.len(), 2048 * SECTOR_SIZE);
+    assert_eq!(image.len(), DEFAULT_START_LBA as usize * SECTOR_SIZE);
     assert_eq!(&image[510..512], &MBR_SIGNATURE);
     assert!(image[440..446].iter().all(|&b| b == 0), "disk signature");
 
@@ -104,7 +104,7 @@ fn rejects_an_unsealed_loader() {
             &unsealed,
             options(DEFAULT_START_LBA, DEFAULT_PARTITION_SECTORS)
         ),
-        Err(SdImageError::LoaderNotSealed(HeaderError::BadLength))
+        Err(SdImageError::LoaderNotSealed(VerifyError::BadLength))
     );
 }
 

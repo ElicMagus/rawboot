@@ -11,7 +11,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::bytes::write_u32_le;
-use crate::egon::{HeaderError, verify_sealed};
+use crate::egon::{VerifyError, verify_sealed};
 
 /// The 512-byte logical sector BROM and MBR use.
 pub const SECTOR_SIZE: usize = 512;
@@ -78,7 +78,7 @@ pub enum SdImageError {
     /// The loader is empty, so there is nothing to place at sector 16.
     LoaderEmpty,
     /// The loader is not a sealed eGON image (see [`crate::egon::verify_sealed`]).
-    LoaderNotSealed(HeaderError),
+    LoaderNotSealed(VerifyError),
     /// `SD_LOADER_OFFSET + loader.len()` reaches the partition start, so the loader and the
     /// partition would overlap.
     LoaderOverlapsPartition,
@@ -93,19 +93,16 @@ pub enum SdImageError {
 impl core::fmt::Display for SdImageError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SdImageError::LoaderEmpty => {
-                f.write_str("loader image is empty (build one with `cargo xtask image`)")
+            SdImageError::LoaderEmpty => f.write_str("loader image is empty"),
+            SdImageError::LoaderNotSealed(err) => {
+                write!(f, "loader is not a sealed eGON image: {err}")
             }
-            SdImageError::LoaderNotSealed(err) => write!(
-                f,
-                "loader is not a sealed eGON image: {err} (build one with `cargo xtask image`)"
-            ),
             SdImageError::LoaderOverlapsPartition => {
-                f.write_str("loader at sector 16 reaches into the partition, raise `--start-lba`")
+                f.write_str("loader at sector 16 reaches into the partition")
             }
-            SdImageError::ZeroStartLba => f.write_str("`--start-lba` must be non-zero"),
+            SdImageError::ZeroStartLba => f.write_str("partition start LBA must be non-zero"),
             SdImageError::ZeroPartitionSectors => {
-                f.write_str("`--partition-sectors` must be non-zero")
+                f.write_str("partition sector count must be non-zero")
             }
             SdImageError::SizeOverflow => {
                 f.write_str("image size or partition end overflows the sector address width")
@@ -116,8 +113,8 @@ impl core::fmt::Display for SdImageError {
 
 impl core::error::Error for SdImageError {}
 
-impl From<HeaderError> for SdImageError {
-    fn from(err: HeaderError) -> Self {
+impl From<VerifyError> for SdImageError {
+    fn from(err: VerifyError) -> Self {
         Self::LoaderNotSealed(err)
     }
 }
@@ -172,7 +169,6 @@ fn write_mbr(image: &mut [u8], options: SdImageOptions) {
     write_u32_le(mbr, entry::START_LBA, options.start_lba);
     write_u32_le(mbr, entry::SECTOR_COUNT, options.partition_sectors);
 
-    image[DISK_SIGNATURE_OFFSET..DISK_SIGNATURE_OFFSET + 4].fill(0);
     image[MBR_SIGNATURE_OFFSET..MBR_SIGNATURE_OFFSET + 2].copy_from_slice(&MBR_SIGNATURE);
 }
 

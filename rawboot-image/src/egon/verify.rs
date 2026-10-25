@@ -11,7 +11,7 @@ use super::header::{EGON_CHECKSUM_SEED, EGON_MAGIC, EgonHeader};
 
 /// Why an assembled loader image is not a valid eGON image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HeaderError {
+pub enum VerifyError {
     /// The image is shorter than the 48-byte eGON header.
     TooShort,
     /// The `eGON.BT0` magic is not at its required offset.
@@ -22,33 +22,33 @@ pub enum HeaderError {
     BadChecksum,
 }
 
-impl fmt::Display for HeaderError {
+impl fmt::Display for VerifyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let msg = match self {
-            HeaderError::TooShort => "image shorter than the eGON header",
-            HeaderError::BadMagic => "missing `eGON.BT0` magic at offset 0x04",
-            HeaderError::BadLength => "header length does not match the image length",
-            HeaderError::BadChecksum => "eGON checksum mismatch",
+            VerifyError::TooShort => "image shorter than the eGON header",
+            VerifyError::BadMagic => "missing `eGON.BT0` magic at offset 0x04",
+            VerifyError::BadLength => "header length does not match the image length",
+            VerifyError::BadChecksum => "eGON checksum mismatch",
         };
         f.write_str(msg)
     }
 }
 
-impl core::error::Error for HeaderError {}
+impl core::error::Error for VerifyError {}
 
 /// Check that `image` is a block-sealed eGON image BROM would accept: the magic
 /// sits at its required offset, the length field matches the padded image (no
 /// page scattering, so the two coincide), and the checksum is the seeded sum over
 /// the whole image.
-pub fn verify_sealed(image: &[u8]) -> Result<(), HeaderError> {
+pub fn verify_sealed(image: &[u8]) -> Result<(), VerifyError> {
     if image.len() < EgonHeader::SIZE {
-        return Err(HeaderError::TooShort);
+        return Err(VerifyError::TooShort);
     }
     if &image[EgonHeader::MAGIC_OFFSET..EgonHeader::MAGIC_OFFSET + 8] != EGON_MAGIC {
-        return Err(HeaderError::BadMagic);
+        return Err(VerifyError::BadMagic);
     }
     if read_u32_le(image, EgonHeader::LENGTH_OFFSET) as usize != image.len() {
-        return Err(HeaderError::BadLength);
+        return Err(VerifyError::BadLength);
     }
 
     let stored = read_u32_le(image, EgonHeader::CHECKSUM_OFFSET);
@@ -56,7 +56,7 @@ pub fn verify_sealed(image: &[u8]) -> Result<(), HeaderError> {
         .wrapping_sub(stored)
         .wrapping_add(EGON_CHECKSUM_SEED);
     if stored != seeded {
-        return Err(HeaderError::BadChecksum);
+        return Err(VerifyError::BadChecksum);
     }
 
     Ok(())
@@ -81,8 +81,20 @@ mod tests {
     fn rejects_an_unsealed_loader() {
         assert_eq!(
             verify_sealed(&EgonHeader::PLACEHOLDER.to_bytes()),
-            Err(HeaderError::BadLength)
+            Err(VerifyError::BadLength)
         );
+    }
+
+    #[test]
+    fn rejects_bad_magic() {
+        let mut image = sealed();
+        image[EgonHeader::MAGIC_OFFSET + 1] ^= 0xFF;
+        assert_eq!(verify_sealed(&image), Err(VerifyError::BadMagic));
+    }
+
+    #[test]
+    fn rejects_a_truncated_image() {
+        assert_eq!(verify_sealed(&[0u8; 8]), Err(VerifyError::TooShort));
     }
 
     #[test]
@@ -90,7 +102,7 @@ mod tests {
         let mut image = sealed();
         let last = image.len() - 1;
         image[last] ^= 0xFF;
-        assert_eq!(verify_sealed(&image), Err(HeaderError::BadChecksum));
+        assert_eq!(verify_sealed(&image), Err(VerifyError::BadChecksum));
     }
 
     #[test]
@@ -98,6 +110,6 @@ mod tests {
         let mut image = sealed();
         let wrong = image.len() as u32 - 512;
         write_u32_le(&mut image, EgonHeader::LENGTH_OFFSET, wrong);
-        assert_eq!(verify_sealed(&image), Err(HeaderError::BadLength));
+        assert_eq!(verify_sealed(&image), Err(VerifyError::BadLength));
     }
 }
