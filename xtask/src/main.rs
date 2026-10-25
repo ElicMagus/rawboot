@@ -8,13 +8,21 @@
 //!
 //! `payload` builds the payload crate and wraps its flat binary in the rawboot
 //! image header, producing the image the loader parses.
+//!
+//! `sd-image` wraps the sealed SD/SPI loader in an MBR boot prefix that points at
+//! an existing FAT partition, so sector 16 holds a loader BROM can start without
+//! disturbing the partition or its `payload.bin`.
 
 use std::error::Error;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use rawboot_image::{DEFAULT_LOAD_ADDR, ImageOptions, SealOptions, seal};
+use rawboot_image::{
+    DEFAULT_LOAD_ADDR, DEFAULT_START_LBA, ImageOptions, SdImageOptions, SealOptions,
+    build_sd_image, seal,
+};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -27,7 +35,7 @@ const FEL_LOAD_ADDR: u32 = 0x0002_8000;
 /// SD/SPI load address BROM uses for a boot image (matches the boot link script).
 const SD_LOAD_ADDR: u32 = 0x0002_0000;
 
-const USAGE: &str = "usage: cargo xtask image | cargo xtask payload";
+const USAGE: &str = "usage: cargo xtask image | cargo xtask payload | cargo xtask sd-image --partition-sectors <n> [--start-lba <n>] [--loader <path>]";
 
 /// One of the two loader images: same code, different link address.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -64,9 +72,11 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    match std::env::args().nth(1).as_deref() {
+    let mut args = std::env::args().skip(1);
+    match args.next().as_deref() {
         Some("image") => image(),
         Some("payload") => payload(),
+        Some("sd-image") => sd_image(args),
         Some(other) => Err(format!("unknown command `{other}`\n{USAGE}").into()),
         None => Err(format!("missing command\n{USAGE}").into()),
     }
@@ -219,6 +229,84 @@ fn payload() -> Result<()> {
     Ok(())
 }
 
+/// Build the SD boot prefix: an MBR pointing at the existing FAT partition and
+/// the sealed SD/SPI loader at sector 16.
+fn sd_image(args: impl Iterator<Item = String>) -> Result<()> {
+    let root = workspace_root();
+    let args = parse_sd_image_args(args)?;
+    let loader_path = args
+        .loader
+        .unwrap_or_else(|| root.join("target").join("rawboot-boot-sd.bin"));
+
+    let loader = fs::read(&loader_path).map_err(|e| match e.kind() {
+        ErrorKind::NotFound => format!(
+            "`{}` not found; run `cargo xtask image` first",
+            loader_path.display()
+        ),
+        _ => format!("reading `{}`: {e}", loader_path.display()),
+    })?;
+    let image = build_sd_image(&loader, args.options)
+        .map_err(|e| format!("building `{}`: {e}", loader_path.display()))?;
+
+    let image_path = root.join("target").join("rawboot-sd-mbr.img");
+    fs::write(&image_path, &image)
+        .map_err(|e| format!("writing `{}`: {e}", image_path.display()))?;
+
+    println!(
+        "sd prefix: {} bytes -> {} ({} loader bytes at sector 16, partition LBA {} +{} sectors)",
+        image.len(),
+        image_path.display(),
+        loader.len(),
+        args.options.start_lba,
+        args.options.partition_sectors
+    );
+    Ok(())
+}
+
+#[derive(Debug)]
+struct SdImageArgs {
+    options: SdImageOptions,
+    loader: Option<PathBuf>,
+}
+
+fn parse_sd_image_args(mut args: impl Iterator<Item = String>) -> Result<SdImageArgs> {
+    let mut start_lba = DEFAULT_START_LBA;
+    let mut partition_sectors = None;
+    let mut loader = None;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--start-lba" => {
+                start_lba = parse_u32(&arg, take_value(&mut args, &arg)?)?;
+            }
+            "--partition-sectors" => {
+                partition_sectors = Some(parse_u32(&arg, take_value(&mut args, &arg)?)?);
+            }
+            "--loader" => loader = Some(PathBuf::from(take_value(&mut args, &arg)?)),
+            other => return Err(format!("unexpected argument `{other}`\n{USAGE}").into()),
+        }
+    }
+
+    let partition_sectors =
+        partition_sectors.ok_or_else(|| format!("missing `--partition-sectors`\n{USAGE}"))?;
+
+    Ok(SdImageArgs {
+        options: SdImageOptions::new(start_lba, partition_sectors),
+        loader,
+    })
+}
+
+fn take_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<String> {
+    args.next()
+        .ok_or_else(|| format!("`{flag}` needs a value\n{USAGE}").into())
+}
+
+fn parse_u32(flag: &str, value: String) -> Result<u32> {
+    value.parse::<u32>().map_err(|_| {
+        format!("`{flag}` expects an unsigned 32-bit integer, got `{value}`\n{USAGE}").into()
+    })
+}
+
 /// The release ELF of a workspace binary and the flat binary `objcopy` produces.
 fn release_bin(root: &Path, bin: &str) -> (PathBuf, PathBuf) {
     let out_dir = root.join("target").join(TARGET).join("release");
@@ -349,5 +437,76 @@ Idx Name            Size     VMA      LMA      Type
 
         assert_eq!(parse_head_vma(output), Some(0x0002_0000));
         assert_eq!(parse_head_vma("Sections:\n"), None);
+    }
+
+    fn args(items: &[&str]) -> impl Iterator<Item = String> {
+        items
+            .iter()
+            .map(|item| item.to_string())
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    #[test]
+    fn sd_image_defaults_to_lba_2048_and_the_boot_sd_loader() {
+        let parsed = parse_sd_image_args(args(&["--partition-sectors", "1843200"])).unwrap();
+
+        assert_eq!(parsed.options.start_lba, 2048);
+        assert_eq!(parsed.options.partition_sectors, 1_843_200);
+        assert_eq!(parsed.loader, None);
+    }
+
+    #[test]
+    fn sd_image_accepts_overrides() {
+        let parsed = parse_sd_image_args(args(&[
+            "--start-lba",
+            "4096",
+            "--loader",
+            "custom.bin",
+            "--partition-sectors",
+            "100",
+        ]))
+        .unwrap();
+
+        assert_eq!(parsed.options, SdImageOptions::new(4096, 100));
+        assert_eq!(parsed.loader, Some(PathBuf::from("custom.bin")));
+    }
+
+    #[test]
+    fn sd_image_requires_partition_sectors() {
+        let err = parse_sd_image_args(args(&[])).unwrap_err().to_string();
+
+        assert!(err.contains("--partition-sectors"), "{err}");
+        assert!(err.contains("usage:"), "{err}");
+    }
+
+    #[test]
+    fn sd_image_rejects_a_flag_without_a_value() {
+        let err = parse_sd_image_args(args(&["--partition-sectors"]))
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("`--partition-sectors` needs a value"), "{err}");
+        assert!(err.contains("usage:"), "{err}");
+    }
+
+    #[test]
+    fn sd_image_rejects_a_non_numeric_size() {
+        let err = parse_sd_image_args(args(&["--partition-sectors", "many"]))
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("unsigned 32-bit integer"), "{err}");
+        assert!(err.contains("usage:"), "{err}");
+    }
+
+    #[test]
+    fn sd_image_rejects_an_unknown_argument() {
+        let err = parse_sd_image_args(args(&["--partition-sectors", "1", "--wat"]))
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("unexpected argument `--wat`"), "{err}");
+        assert!(err.contains("usage:"), "{err}");
     }
 }
