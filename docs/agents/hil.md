@@ -151,6 +151,25 @@ volume and no payload: formatting the whole device (`mkfs.vfat /dev/sdX`) or wri
 image over it destroys the loader in sector 16. Format and copy only the partition
 (`mkfs.vfat /dev/sdX1`, mount it, copy `payload.bin`), or re-run the `dd` of the prefix afterwards.
 
+The wrapper `scripts/flash-sd.sh` runs the steps above, detects the partition start and size, and
+refuses a mounted device or one that holds `/`:
+
+```sh
+# update the loader; keep the partition and its payload
+sudo scripts/flash-sd.sh --device /dev/sdX
+# also copy target/rawboot-payload.img as payload.bin
+sudo scripts/flash-sd.sh --device /dev/sdX --copy-payload
+# recreate the partition as FAT32 (destroys its contents), then copy the payload
+sudo scripts/flash-sd.sh --device /dev/sdX --format --yes
+```
+
+`--dry-run` only prints the plan; `--skip-build` reuses the existing images; `--partition`,
+`--start-lba`, `--partition-sectors`, `--loader`, `--payload`, `--boot-cfg` and `--payload-name`
+override detection and the defaults. The same values can come from `SD_DEV`, `SD_PART`,
+`START_LBA`, `PARTITION_SECTORS`, `LOADER_IMG`, `PAYLOAD_IMG`, `BOOT_CFG`, `FORMAT_PARTITION` and
+`COPY_PAYLOAD`. The script never touches a device without confirmation (`--yes` skips it) and only
+formats the partition, never the whole disk.
+
 Capture a self-boot run by starting the capture **before** the power-cycle, then apply power
 (the BROM strap is sampled at cold power-on; see [Capture a self-booting board](#capture-a-self-booting-board-no-fel)):
 

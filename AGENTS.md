@@ -47,6 +47,10 @@ Standard commands:
   [--loader <path>]` (after `cargo xtask image`; writes `target/rawboot-sd-mbr.img`, an MBR
   pointing at the existing FAT partition plus the SD loader at sector 16, for `dd conv=notrunc`
   onto a card; it formats nothing and copies no payload; ADR-0011)
+- Prepare an SD card: `scripts/flash-sd.sh --device /dev/sdX [--copy-payload] [--format]`
+  (builds and writes the boot prefix, optionally formats/repopulates only the partition; runs
+  `--dry-run` without touching anything; refuses mounted or root disks; runbook
+  `docs/agents/hil.md`)
 - HIL: run `scripts/hil-check.sh target/rawboot-fel.bin <label>` after `code-review`, on the
   code branch, before merging. The runbook `docs/agents/hil.md` covers the FEL load, UART
   assertions, payload-image match and LED confirmation. `scripts/check.sh` covers host checks
