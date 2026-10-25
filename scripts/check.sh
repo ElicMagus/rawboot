@@ -73,4 +73,7 @@ cargo xtask image
 echo "==> cargo xtask payload"
 cargo xtask payload
 
+echo "==> cargo xtask sd-image"
+cargo xtask sd-image --partition-sectors 1843200
+
 echo "all checks passed"
