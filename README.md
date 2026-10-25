@@ -13,6 +13,6 @@ Cargo workspace:
 - `sunxi-pl` — the shared platform layer (MMIO, GPIO, timer) used by loader, runtime and payload
 - `payload` — the blink test payload image the loader boots
 - `rawboot-image` — host-testable payload/eGON image and SD boot prefix tooling (`build`, `parse`,
-  `seal`, `build_sd_image`)
+  `seal`, `verify_sealed`, `build_sd_image`)
 
 See `GLOSSARY.md` for terminology and `docs/adr/` for architecture decisions.
