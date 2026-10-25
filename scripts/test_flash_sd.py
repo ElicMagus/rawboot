@@ -75,6 +75,7 @@ class FlashSdTest(unittest.TestCase):
         self.assertIn("not a block device", result.stderr)
 
     def test_dry_run_plans_the_dd_and_writes_nothing(self):
+        before = Path(self.image).read_bytes()
         result = run(
             "--device",
             self.image,
@@ -89,6 +90,45 @@ class FlashSdTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, self.output(result))
         self.assertIn("dd if=target/rawboot-sd-mbr.img", self.output(result))
         self.assertIn("nothing was built or written", result.stdout)
+        self.assertEqual(Path(self.image).read_bytes(), before)
+
+    def test_rejects_the_fel_loader(self):
+        result = run(
+            "--device",
+            self.image,
+            "--allow-file",
+            "--dry-run",
+            "--loader",
+            "target/rawboot-fel.bin",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("rawboot-boot-sd.bin", result.stderr)
+
+    def test_rejects_a_non_boolean_environment_value(self):
+        result = run(
+            "--device",
+            self.image,
+            "--allow-file",
+            "--dry-run",
+            env={"COPY_PAYLOAD": "no"},
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("COPY_PAYLOAD must be 0 or 1", result.stderr)
+
+    def test_rejects_a_path_as_payload_name(self):
+        result = run(
+            "--device",
+            self.image,
+            "--allow-file",
+            "--dry-run",
+            "--payload-name",
+            "../payload.bin",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("plain file name", result.stderr)
 
     def test_reads_the_partition_size_from_a_file(self):
         result = run("--device", self.image, "--allow-file", "--dry-run")

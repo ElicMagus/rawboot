@@ -32,7 +32,8 @@ usage() {
 usage: scripts/flash-sd.sh --device <dev> [options]
 
 Write target/rawboot-sd-mbr.img (MBR + SD loader at sector 16) onto a card that
-already has a FAT partition starting at the same LBA.
+already has a FAT partition starting at the same LBA. Run as your user, not with
+sudo: the script escalates only dd/mkfs/mount, so cargo keeps target/ user-owned.
 
 Arguments:
   --device <dev>            block device, e.g. /dev/sdX (or SD_DEV)
@@ -58,8 +59,8 @@ PAYLOAD_IMG, BOOT_CFG, PAYLOAD_NAME, FORMAT_PARTITION, COPY_PAYLOAD,
 SKIP_BUILD, ASSUME_YES, DRY_RUN, ALLOW_FILE (flags override them).
 
 Examples:
-  sudo scripts/flash-sd.sh --device /dev/sdX --copy-payload
-  sudo scripts/flash-sd.sh --device /dev/sdX --format --yes
+  scripts/flash-sd.sh --device /dev/sdX --copy-payload
+  scripts/flash-sd.sh --device /dev/sdX --format --yes
   scripts/flash-sd.sh --device /dev/sdX --dry-run
 EOF
 }
@@ -221,11 +222,6 @@ if [ -z "$COPY_PAYLOAD" ]; then
     fi
 fi
 
-[ -n "$PAYLOAD_NAME" ] || die "--payload-name must not be empty"
-case "$PAYLOAD_NAME" in
-    */*) die "--payload-name must be a file name, not a path" ;;
-esac
-
 need readlink
 need stat
 need dd
@@ -234,7 +230,9 @@ SD_DEV_INPUT=$SD_DEV
 [ -e "$SD_DEV_INPUT" ] || die "device not found: $SD_DEV_INPUT"
 SD_DEV=$(readlink -f "$SD_DEV_INPUT")
 IS_BLOCK=0
-[ -b "$SD_DEV" ] && IS_BLOCK=1
+if [ -b "$SD_DEV" ]; then
+    IS_BLOCK=1
+fi
 if [ "$IS_BLOCK" = "0" ] && [ "$ALLOW_FILE" != "1" ]; then
     die "$SD_DEV is not a block device; pass --allow-file only for tests"
 fi
@@ -249,6 +247,21 @@ if [ "$IS_BLOCK" = "1" ]; then
         die "$SD_DEV is a partition; pass the whole disk (for example /dev/sdX)"
     fi
 
+    pttype=$(lsblk -dno PTTYPE "$SD_DEV" 2>/dev/null) ||
+        die "cannot read the partition table type of $SD_DEV"
+    pttype=$(printf '%s' "$pttype" | tr -d '[:space:]')
+    case "$pttype" in
+        dos) ;;
+        '') die "$SD_DEV has no MBR; create a DOS/MBR FAT partition first" ;;
+        *) die "$SD_DEV uses $pttype; the SD prefix writes an MBR, so use a DOS/MBR card" ;;
+    esac
+
+    part_types=$(lsblk -lnpo TYPE "$SD_DEV" 2>/dev/null) ||
+        die "cannot list the partitions of $SD_DEV"
+    part_count=$(printf '%s\n' "$part_types" | grep -c '^part$' || true)
+    [ "$part_count" -eq 1 ] ||
+        die "$SD_DEV must have exactly one partition, found $part_count"
+
     case "$dev_name" in
         mmcblk* | nvme* | loop*) default_part="${SD_DEV}p1" ;;
         *) default_part="${SD_DEV}1" ;;
@@ -258,24 +271,29 @@ if [ "$IS_BLOCK" = "1" ]; then
     SD_PART=$(readlink -f "$part_input")
     [ -b "$SD_PART" ] || die "partition is not a block device: $SD_PART"
 
-    parent=$(lsblk -no PKNAME "$SD_PART" 2>/dev/null | head -n 1 | tr -d '[:space:]' || true)
+    parent=$(lsblk -no PKNAME "$SD_PART" 2>/dev/null | head -n 1 | tr -d '[:space:]') ||
+        die "cannot find the parent disk of $SD_PART"
     [ -n "$parent" ] || die "cannot find the parent disk of $SD_PART"
     [ "$(readlink -f "/dev/$parent")" = "$SD_DEV" ] ||
         die "$SD_PART is not a partition of $SD_DEV"
 
-    if [ -n "$(lsblk -lnpo MOUNTPOINT "$SD_DEV" | tr -d '[:space:]')" ]; then
+    mounted=$(lsblk -lnpo MOUNTPOINT "$SD_DEV" 2>/dev/null) ||
+        die "cannot inspect the mounts of $SD_DEV"
+    if printf '%s' "$mounted" | grep -q '[^[:space:]]'; then
         die "$SD_DEV or one of its partitions is mounted; unmount it first"
     fi
 
-    root_src=$(findmnt -n -o SOURCE / 2>/dev/null || true)
-    if [ -n "$root_src" ]; then
-        root_parent=$(lsblk -no PKNAME "$root_src" 2>/dev/null | head -n 1 | tr -d '[:space:]' || true)
-        if [ -n "$root_parent" ] && [ "$(readlink -f "/dev/$root_parent")" = "$SD_DEV" ]; then
-            die "refusing to overwrite $SD_DEV: it holds the root filesystem"
-        fi
+    root_src=$(findmnt -n -o SOURCE / 2>/dev/null) ||
+        die "cannot determine the root filesystem; refusing to write"
+    root_disk=$(lsblk -sno NAME "$root_src" 2>/dev/null | tail -n 1 | tr -d '[:space:]') ||
+        die "cannot determine the disk holding /; refusing to write"
+    [ -n "$root_disk" ] || die "cannot determine the disk holding /; refusing to write"
+    if [ "$(readlink -f "/dev/$root_disk")" = "$SD_DEV" ]; then
+        die "refusing to overwrite $SD_DEV: it holds the root filesystem"
     fi
 
-    detected_start=$(lsblk -no START "$SD_PART" 2>/dev/null | head -n 1 | tr -d '[:space:]' || true)
+    detected_start=$(lsblk -no START "$SD_PART" 2>/dev/null | head -n 1 | tr -d '[:space:]') ||
+        die "cannot read the start LBA of $SD_PART"
     [ -n "$detected_start" ] ||
         die "cannot read the start LBA of $SD_PART; pass --start-lba"
     if [ -n "$START_LBA" ]; then
@@ -287,7 +305,8 @@ if [ "$IS_BLOCK" = "1" ]; then
 
     detected_sectors=$(blockdev --getsz "$SD_PART" 2>/dev/null || true)
     if [ -z "$detected_sectors" ]; then
-        detected_bytes=$(lsblk -bno SIZE "$SD_PART" 2>/dev/null | head -n 1 | tr -d '[:space:]' || true)
+        detected_bytes=$(lsblk -bno SIZE "$SD_PART" 2>/dev/null | head -n 1 | tr -d '[:space:]') ||
+            die "cannot read the size of $SD_PART"
         is_uint "$detected_bytes" || die "cannot read the size of $SD_PART"
         detected_sectors=$((detected_bytes / 512))
     fi
@@ -299,8 +318,20 @@ if [ "$IS_BLOCK" = "1" ]; then
     fi
 
     disk_sectors=$(blockdev --getsz "$SD_DEV" 2>/dev/null || true)
-    if is_uint "$disk_sectors" && [ "$START_LBA" -gt "$disk_sectors" ]; then
+    if [ -z "$disk_sectors" ]; then
+        disk_bytes=$(lsblk -bno SIZE "$SD_DEV" 2>/dev/null | head -n 1 | tr -d '[:space:]') ||
+            die "cannot read the size of $SD_DEV"
+        is_uint "$disk_bytes" || die "cannot read the size of $SD_DEV"
+        disk_sectors=$((disk_bytes / 512))
+    fi
+    is_uint "$disk_sectors" || die "cannot read the size of $SD_DEV"
+    if [ "$START_LBA" -gt "$disk_sectors" ]; then
         die "$SD_DEV has $disk_sectors sectors, but the prefix needs $START_LBA"
+    fi
+
+    removable=$(lsblk -dno RM "$SD_DEV" 2>/dev/null || true)
+    if [ "$removable" = "0" ]; then
+        echo "warning: $SD_DEV reports removable=0; check it is the card, not a system disk" >&2
     fi
 else
     part_real=$(readlink -f "$SD_PART" 2>/dev/null || true)
@@ -323,6 +354,26 @@ if ! is_uint "$START_LBA" || [ "$START_LBA" -le 0 ]; then
 fi
 if ! is_uint "$PARTITION_SECTORS" || [ "$PARTITION_SECTORS" -le 0 ]; then
     die "partition size must be a positive sector count, got '$PARTITION_SECTORS'"
+fi
+for name in FORMAT_PARTITION COPY_PAYLOAD SKIP_BUILD ASSUME_YES DRY_RUN ALLOW_FILE; do
+    value=${!name}
+    case "$value" in
+        0 | 1) ;;
+        *) die "$name must be 0 or 1, got '$value'" ;;
+    esac
+done
+case "$PAYLOAD_NAME" in
+    '' | . | .. | */*) die "--payload-name must be a plain file name, got '$PAYLOAD_NAME'" ;;
+esac
+case "$(basename "$LOADER_IMG")" in
+    rawboot-fel.bin)
+        die "rawboot-fel.bin is linked at 0x00028000 and will not boot from sector 16; use rawboot-boot-sd.bin"
+        ;;
+esac
+
+if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+    echo "warning: running as root; cargo builds create root-owned target/ files" >&2
+    echo "warning: prefer running this script as your user; it uses sudo only for the device" >&2
 fi
 
 if [ "$DRY_RUN" != "1" ]; then
@@ -366,10 +417,19 @@ if [ "$COPY_PAYLOAD" = "1" ]; then
     echo "payload:    $PAYLOAD_NAME <- $PAYLOAD_IMG"
 fi
 if [ "$FORMAT_PARTITION" = "1" ]; then
-    echo "format:     $SD_PART as FAT (contents will be lost)"
+    echo "format:     $SD_PART as FAT32 (contents will be lost)"
 fi
 
-confirm "Write the SD boot prefix to $SD_DEV?"
+# Ask for every destructive action before writing anything, so declining a
+# later step cannot leave a half-written card.
+if [ "$FORMAT_PARTITION" = "1" ]; then
+    confirm "Format $SD_PART as FAT32? This destroys its contents."
+fi
+if [ "$COPY_PAYLOAD" = "1" ]; then
+    confirm "Write the SD boot prefix to $SD_DEV and copy $PAYLOAD_NAME to $SD_PART?"
+else
+    confirm "Write the SD boot prefix to $SD_DEV?"
+fi
 
 DD=(dd if="$PREFIX_IMG" of="$SD_DEV" bs=512 'conv=notrunc,fsync' status=progress)
 if [ "${EUID:-$(id -u)}" -ne 0 ] && [ ! -w "$SD_DEV" ]; then
@@ -379,8 +439,7 @@ run "${DD[@]}"
 run sync
 
 if [ "$FORMAT_PARTITION" = "1" ]; then
-    confirm "Format $SD_PART as FAT? This destroys its contents."
-    MKFS=(mkfs.vfat "$SD_PART")
+    MKFS=(mkfs.vfat -F 32 "$SD_PART")
     if [ "${EUID:-$(id -u)}" -ne 0 ]; then
         MKFS=(sudo "${MKFS[@]}")
     fi
@@ -388,26 +447,13 @@ if [ "$FORMAT_PARTITION" = "1" ]; then
 fi
 
 if [ "$COPY_PAYLOAD" = "1" ]; then
-    existing_mount=$(findmnt -n -o TARGET --source "$SD_PART" 2>/dev/null || true)
     if [ "$DRY_RUN" = "1" ]; then
-        if [ -n "$existing_mount" ]; then
-            show cp "$PAYLOAD_IMG" "$existing_mount/$PAYLOAD_NAME"
-            if [ -n "$BOOT_CFG" ]; then
-                show cp "$BOOT_CFG" "$existing_mount/boot.cfg"
-            fi
-        else
-            show mount "$SD_PART" "<temporary directory>"
-            show cp "$PAYLOAD_IMG" "<mount>/$PAYLOAD_NAME"
-            if [ -n "$BOOT_CFG" ]; then
-                show cp "$BOOT_CFG" "<mount>/boot.cfg"
-            fi
-            show umount "<temporary directory>"
-        fi
-    elif [ -n "$existing_mount" ]; then
-        cp "$PAYLOAD_IMG" "$existing_mount/$PAYLOAD_NAME"
+        show mount "$SD_PART" "<temporary directory>"
+        show cp "$PAYLOAD_IMG" "<mount>/$PAYLOAD_NAME"
         if [ -n "$BOOT_CFG" ]; then
-            cp "$BOOT_CFG" "$existing_mount/boot.cfg"
+            show cp "$BOOT_CFG" "<mount>/boot.cfg"
         fi
+        show umount "<temporary directory>"
     else
         TMP_MOUNT=$(mktemp -d "${TMPDIR:-/tmp}/rawboot-sd.XXXXXX")
         MOUNT=(mount "$SD_PART" "$TMP_MOUNT")
@@ -415,7 +461,8 @@ if [ "$COPY_PAYLOAD" = "1" ]; then
             MOUNT=(sudo "${MOUNT[@]}")
         fi
         "${MOUNT[@]}"
-        fstype=$(findmnt -n -o FSTYPE --target "$TMP_MOUNT" 2>/dev/null || true)
+        fstype=$(findmnt -n -o FSTYPE --target "$TMP_MOUNT" 2>/dev/null) ||
+            die "cannot determine the filesystem type of $SD_PART"
         case "$fstype" in
             vfat | msdos | fat) ;;
             *) die "$SD_PART is '$fstype', not FAT; use --format or copy payload manually" ;;
@@ -441,6 +488,11 @@ if [ "$COPY_PAYLOAD" = "1" ]; then
         rmdir "$TMP_MOUNT"
         TMP_MOUNT=
     fi
+fi
+
+if [ "$IS_BLOCK" = "1" ]; then
+    echo "note: start the UART capture before the cold power-on; see docs/agents/hil.md"
+    echo "note: never run mkfs.vfat on $SD_DEV; it destroys the loader in sector 16"
 fi
 
 if [ "$DRY_RUN" = "1" ]; then
