@@ -12,7 +12,7 @@ entry!(main);
 use rawboot_rt::cpu::udelay;
 use sunxi_pl::cpu::wfe;
 
-use crate::io::{read32, write32};
+use crate::io::read32;
 mod boot;
 pub mod ccu;
 pub mod clk;
@@ -41,19 +41,7 @@ fn main() -> ! {
         print!("CLK: init timeout at 0x{:08x}\r\n", clk_fail);
     }
     clk::sunxi_clk_dump();
-    /* ?? */
-    let mut reg32 = read32(0x070901f4);
-    if (reg32 & 0x1f) != 0 {
-        reg32 = (reg32 & 0xffffff8f) | 0x40;
-        reg32 = (reg32 & 0xffffff8f) | 0xc0;
-        reg32 = (reg32 & 0xffffff8e) | 0xc0;
-        write32(0x070901f4, reg32);
-        // print!("fix vccio detect value:0x{:X?}\r\n", reg32);
-    }
 
-    let addr = 0x0200180Cu32;
-    let val = (1 << 16) | (1 << 0);
-    write32(addr, val);
     let mut dram = dram::DramPara::default();
     let dram_size = dram.init_dram();
 
