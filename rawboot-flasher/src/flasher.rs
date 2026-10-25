@@ -15,13 +15,15 @@ use rawboot_image::{
     FLASH_ARGS_ADDR, FLASH_COMMAND_FLASH_SD, FLASH_COMMAND_NOOP, FLASH_JOB_ADDR, FLASH_JOB_SIZE,
     FLASH_LOADER_ADDR, FLASH_LOADER_START_LBA, FLASH_PAYLOAD_ADDR, FLASH_PLAN_ADDR,
     FLASH_PLAN_SIZE, FLASH_RESULT_BAD_JOB, FLASH_RESULT_BAD_PLAN, FLASH_RESULT_CARD_TOO_SMALL,
-    FLASH_RESULT_MBR_CHANGED, FLASH_RESULT_NO_FAT, FLASH_RESULT_NO_MBR, FLASH_RESULT_OK,
-    FLASH_RESULT_READ_FAILED, FLASH_RESULT_SD_OFFLINE, FLASH_RESULT_UNKNOWN_COMMAND,
-    FLASH_RESULT_UNSAFE_LAYOUT, FLASH_RESULT_VERIFY_FAILED, FLASH_RESULT_WRITE_FAILED,
-    FLASH_SECTOR_SIZE, FLASH_STATUS_ADDR, FLASH_STEP_DONE, FLASH_STEP_LAYOUT, FLASH_STEP_PLAN,
-    FLASH_STEP_READ_MBR, FLASH_STEP_SD_INIT, FLASH_STEP_VERIFY_FAT, FLASH_STEP_VERIFY_LOADER,
-    FLASH_STEP_WRITE_ARGS, FLASH_STEP_WRITE_LOADER, FLASH_STEP_WRITE_PAYLOAD, FlashJob,
-    FlashLayoutError, FlashPlan, FlashStatus, check_sd_layout, verify_sealed,
+    FLASH_RESULT_FILE_CREATE, FLASH_RESULT_FILE_FLUSH, FLASH_RESULT_FILE_TRUNCATE,
+    FLASH_RESULT_FILE_WRITE, FLASH_RESULT_MBR_CHANGED, FLASH_RESULT_NO_FAT, FLASH_RESULT_NO_MBR,
+    FLASH_RESULT_OK, FLASH_RESULT_READ_FAILED, FLASH_RESULT_SD_OFFLINE,
+    FLASH_RESULT_UNKNOWN_COMMAND, FLASH_RESULT_UNSAFE_LAYOUT, FLASH_RESULT_VERIFY_FAILED,
+    FLASH_RESULT_WRITE_FAILED, FLASH_SECTOR_SIZE, FLASH_STATUS_ADDR, FLASH_STEP_DONE,
+    FLASH_STEP_LAYOUT, FLASH_STEP_PLAN, FLASH_STEP_READ_MBR, FLASH_STEP_SD_INIT,
+    FLASH_STEP_VERIFY_FAT, FLASH_STEP_VERIFY_LOADER, FLASH_STEP_WRITE_ARGS,
+    FLASH_STEP_WRITE_LOADER, FLASH_STEP_WRITE_PAYLOAD, FlashJob, FlashLayoutError, FlashPlan,
+    FlashStatus, check_sd_layout, verify_sealed,
 };
 use sunxi_drivers::clk;
 use sunxi_drivers::fat::{self, ARGS_FILE, PAYLOAD_FILE, block::SdCardIo, partition};
@@ -219,11 +221,13 @@ fn replace_and_verify(
     payload: &[u8],
     args: &[u8],
 ) -> (u32, u32) {
-    if fat::create_or_replace_file(fs, PAYLOAD_FILE, payload).is_err() {
-        return (FLASH_STEP_WRITE_PAYLOAD, FLASH_RESULT_WRITE_FAILED);
+    if let Err(error) = fat::create_or_replace_file(fs, PAYLOAD_FILE, payload) {
+        return (FLASH_STEP_WRITE_PAYLOAD, write_result(error));
     }
-    if plan.has_args() && fat::create_or_replace_file(fs, ARGS_FILE, args).is_err() {
-        return (FLASH_STEP_WRITE_ARGS, FLASH_RESULT_WRITE_FAILED);
+    if plan.has_args()
+        && let Err(error) = fat::create_or_replace_file(fs, ARGS_FILE, args)
+    {
+        return (FLASH_STEP_WRITE_ARGS, write_result(error));
     }
 
     if !fat::file_matches(fs, PAYLOAD_FILE, payload).unwrap_or(false) {
@@ -234,6 +238,15 @@ fn replace_and_verify(
     }
 
     (FLASH_STEP_DONE, FLASH_RESULT_OK)
+}
+
+fn write_result(error: fat::WriteError) -> u32 {
+    match error {
+        fat::WriteError::Create(_) => FLASH_RESULT_FILE_CREATE,
+        fat::WriteError::Truncate(_) => FLASH_RESULT_FILE_TRUNCATE,
+        fat::WriteError::Write(_) => FLASH_RESULT_FILE_WRITE,
+        fat::WriteError::Flush(_) => FLASH_RESULT_FILE_FLUSH,
+    }
 }
 
 /// Write the loader at sector 16, read it back, and confirm the MBR is unchanged.

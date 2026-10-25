@@ -32,8 +32,9 @@ job/status, но SD он ещё не трогал. Карту обновляли
 Новые шаги статуса (`plan`, `SD init`, `layout`, `read MBR`, `write payload`, `write boot.cfg`,
 `verify FAT files`, `write loader`, `verify loader`) и результаты (`bad plan`, `SD card offline`,
 `no MBR`, `no FAT partition`, `unsafe card layout`, `card too small`, `read failed`,
-`write failed`, `read-back mismatch`, `MBR changed`) позволяют хосту напечатать шаг и причину
-сбоя. Успешный статус по-прежнему `done`/`ok`.
+`write failed`, `create file failed`, `truncate failed`, `file write failed`, `file flush
+failed`, `read-back mismatch`, `MBR changed`) позволяют хосту напечатать шаг и причину сбоя.
+Успешный статус по-прежнему `done`/`ok`.
 
 ## Порядок и safety
 
@@ -94,3 +95,9 @@ job/status, но SD он ещё не трогал. Карту обновляли
 - `sunxi-drivers` получает `fat::file_matches` для host-тестируемого read-back.
 - HIL: после успешного `fel-flash` холодная загрузка с карты должна дойти до handoff, а PD22 —
   мигать payload'у. До прогона это не заявляется.
+- HIL #42 показал блокер записи: на стендовой SDSC-карте (`hc=0`, 25 МГц, CSD write-protect
+  выключен) карта не отвечает на CMD24; `fel-flash` останавливается на `write payload`
+  (`truncate`/`file write`/`file flush failed`), MBR не трогается, чтение и `cargo fel
+  bringup` проходят. Дефект вынесен в #47; до его исправления HIL #42 не считается PASS.
+- Повторный DDR-init stub без снятия питания виснет (повторная инициализация DRAM, как #23).
+  Каждую попытку `fel-flash` делать после холодного старта; это записано в runbook.

@@ -221,6 +221,14 @@ pub const FLASH_RESULT_VERIFY_FAILED: u32 = 10;
 pub const FLASH_RESULT_MBR_CHANGED: u32 = 11;
 /// A card read failed.
 pub const FLASH_RESULT_READ_FAILED: u32 = 12;
+/// Creating a FAT file failed.
+pub const FLASH_RESULT_FILE_CREATE: u32 = 13;
+/// Truncating a FAT file failed.
+pub const FLASH_RESULT_FILE_TRUNCATE: u32 = 14;
+/// Writing FAT file data failed.
+pub const FLASH_RESULT_FILE_WRITE: u32 = 15;
+/// Flushing FAT file data failed.
+pub const FLASH_RESULT_FILE_FLUSH: u32 = 16;
 /// The flasher has read the job and is executing it.
 pub const FLASH_STEP_STARTED: u32 = 1;
 /// The flasher has written its final status.
@@ -759,6 +767,10 @@ const RESULT_NAMES: &[(u32, &str)] = &[
     (FLASH_RESULT_VERIFY_FAILED, "read-back mismatch"),
     (FLASH_RESULT_MBR_CHANGED, "MBR changed"),
     (FLASH_RESULT_READ_FAILED, "read failed"),
+    (FLASH_RESULT_FILE_CREATE, "create file failed"),
+    (FLASH_RESULT_FILE_TRUNCATE, "truncate failed"),
+    (FLASH_RESULT_FILE_WRITE, "file write failed"),
+    (FLASH_RESULT_FILE_FLUSH, "file flush failed"),
 ];
 
 /// A human-readable name for a status step, for logs.
