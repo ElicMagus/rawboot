@@ -24,6 +24,20 @@ A four-word block in FEL-mode SRAM (magic `RBFM`, payload image address, image s
 pointer) that the host writes before starting the loader over FEL. When present, the loader boots
 the uploaded payload image instead of reading `payload.bin` from the SD card.
 
+**DDR-init stub** (image `rawboot-ddr-init`):
+A small FEL-callable program loaded into SRAM at `0x00028000` that initialises DRAM with the shared
+driver, leaves its result in SRAM and returns to the BROM, so FEL stays usable. It carries no eGON
+header and is not a second-stage loader (ADR-0013).
+
+**flasher** (crate `rawboot-flasher`):
+The FEL-callable program linked into DRAM at `0x40010000` that reads a flash job, performs it, writes
+a flash status and returns to the BROM. In #41 it only answers a `NOOP` job; SD/FAT work is #42.
+Carries no eGON header.
+
+**flash job/status**:
+The checksummed, versioned `FlashJob`/`FlashStatus` blocks at fixed DRAM addresses that the host and
+the flasher exchange (`RBFJ`/`RBFS`, magic, version, size, checksum, sequence, step, result).
+
 **eGON**:
 Allwinner's boot-image header (magic `eGON.BT0`, seed-checksummed with `0x5F0A6C39`) prepended to a
 stage binary so BROM accepts it.

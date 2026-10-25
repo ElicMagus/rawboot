@@ -1,0 +1,34 @@
+[package]
+name = "rawboot-flasher"
+version = "0.1.0"
+edition = "2024"
+license = "Unlicense"
+publish = false
+
+# Two FEL-callable images that share the loader's drivers and the job/status
+# contract in `rawboot-image`:
+# - `rawboot-ddr-init` initialises DRAM and returns to the BROM;
+# - `rawboot-flasher` is linked into DRAM, runs one job and returns to the BROM.
+# Neither carries an eGON header (ADR-0013).
+[dependencies]
+rawboot-image = { path = "../rawboot-image", default-features = false }
+# The loader's own DRAM driver; the write path stays off for the flasher
+# skeleton (ADR-0012).
+sunxi-drivers = { path = "../sunxi-drivers", default-features = false }
+sunxi-pl = { path = "../sunxi-pl" }
+
+[lib]
+test = false
+doctest = false
+
+[[bin]]
+name = "rawboot-ddr-init"
+path = "src/bin/ddr_init.rs"
+test = false
+doctest = false
+
+[[bin]]
+name = "rawboot-flasher"
+path = "src/bin/flasher.rs"
+test = false
+doctest = false

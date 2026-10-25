@@ -20,8 +20,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use rawboot_image::{
-    DEFAULT_LOAD_ADDR, DEFAULT_START_LBA, ImageOptions, SdImageOptions, SealOptions,
-    build_sd_image, seal, verify_sealed,
+    DDR_RESULT_ADDR, DDR_STUB_LOAD_ADDR, DDR_STUB_MAX_SIZE, DEFAULT_LOAD_ADDR, DEFAULT_START_LBA,
+    FLASHER_LOAD_ADDR, FLASHER_MAX_SIZE, FLASHER_STACK_SIZE, FLASHER_STACK_TOP, ImageOptions,
+    SdImageOptions, SealOptions, build_sd_image, seal, verify_sealed,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -35,7 +36,7 @@ const FEL_LOAD_ADDR: u32 = 0x0002_8000;
 /// SD/SPI load address BROM uses for a boot image (matches the boot link script).
 const SD_LOAD_ADDR: u32 = 0x0002_0000;
 
-const USAGE: &str = "usage: cargo xtask image | cargo xtask payload | cargo xtask sd-image --partition-sectors <n> [--start-lba <n>] [--loader <path>]";
+const USAGE: &str = "usage: cargo xtask image | cargo xtask payload | cargo xtask flasher | cargo xtask sd-image --partition-sectors <n> [--start-lba <n>] [--loader <path>]";
 
 /// One of the two loader images: same code, different link address.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -76,6 +77,7 @@ fn run() -> Result<()> {
     match args.next().as_deref() {
         Some("image") => image(),
         Some("payload") => payload(),
+        Some("flasher") => flasher(),
         Some("sd-image") => sd_image(args),
         Some(other) => Err(format!("unknown command `{other}`\n{USAGE}").into()),
         None => Err(format!("missing command\n{USAGE}").into()),
@@ -90,7 +92,7 @@ fn image() -> Result<()> {
         let (elf, raw) = release_bin(&root, "rawboot");
 
         build_loader(&root, variant)?;
-        verify_elf_load_addr(&elf, variant.load_addr())?;
+        verify_elf_section_vma(&elf, ".head", variant.load_addr())?;
         objcopy(&elf, &raw)?;
 
         let image = fs::read(&raw)?;
@@ -167,9 +169,9 @@ fn build_loader(root: &Path, variant: LoaderVariant) -> Result<()> {
     }
 }
 
-/// Fail the build if the linker placed the loader anywhere but the variant's
-/// origin, so a wrong or missing link script never reaches the board.
-fn verify_elf_load_addr(elf: &Path, expected: u32) -> Result<()> {
+/// Fail the build if the linker placed `section` anywhere but `expected`, so a
+/// wrong or missing link script never reaches the board.
+fn verify_elf_section_vma(elf: &Path, section: &str, expected: u32) -> Result<()> {
     let output = Command::new(llvm_objdump()?)
         .args(["-h"])
         .arg(elf)
@@ -180,11 +182,11 @@ fn verify_elf_load_addr(elf: &Path, expected: u32) -> Result<()> {
     }
 
     let sections = String::from_utf8_lossy(&output.stdout);
-    let actual = parse_head_vma(&sections)
-        .ok_or_else(|| format!("cannot read `.head` VMA from `{}`", elf.display()))?;
+    let actual = parse_section_vma(&sections, section)
+        .ok_or_else(|| format!("cannot read `{section}` VMA from `{}`", elf.display()))?;
     if actual != expected {
         return Err(format!(
-            "`{}` is linked at {actual:#010x}, expected {expected:#010x}",
+            "`{}` has `{section}` at {actual:#010x}, expected {expected:#010x}",
             elf.display()
         )
         .into());
@@ -192,12 +194,64 @@ fn verify_elf_load_addr(elf: &Path, expected: u32) -> Result<()> {
     Ok(())
 }
 
-/// The VMA of the `.head` section in `llvm-objdump -h` output.
-fn parse_head_vma(sections: &str) -> Option<u32> {
+/// Fail the build if `symbol` is not at `expected`.
+fn verify_elf_symbol(elf: &Path, symbol: &str, expected: u32) -> Result<()> {
+    let actual = elf_symbol_value(elf, symbol)?;
+    if actual != expected {
+        return Err(format!(
+            "`{}` has `{symbol}` at {actual:#010x}, expected {expected:#010x}",
+            elf.display()
+        )
+        .into());
+    }
+    Ok(())
+}
+
+/// Fail the build if `symbol` lies above `limit`.
+fn verify_elf_symbol_at_most(elf: &Path, symbol: &str, limit: u32) -> Result<()> {
+    let actual = elf_symbol_value(elf, symbol)?;
+    if actual > limit {
+        return Err(format!(
+            "`{}` has `{symbol}` at {actual:#010x}, above {limit:#010x}",
+            elf.display()
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn elf_symbol_value(elf: &Path, symbol: &str) -> Result<u32> {
+    let output = Command::new(llvm_objdump()?)
+        .args(["-t"])
+        .arg(elf)
+        .output()
+        .map_err(|e| format!("running llvm-objdump: {e}"))?;
+    if !output.status.success() {
+        return Err(format!("llvm-objdump failed: {}", output.status).into());
+    }
+
+    let symbols = String::from_utf8_lossy(&output.stdout);
+    parse_symbol_value(&symbols, symbol)
+        .ok_or_else(|| format!("cannot read `{symbol}` from `{}`", elf.display()).into())
+}
+
+/// The value of one symbol in `llvm-objdump -t` output.
+fn parse_symbol_value(symbols: &str, symbol: &str) -> Option<u32> {
+    symbols.lines().find_map(|line| {
+        if line.split_whitespace().last()? != symbol {
+            return None;
+        }
+        let mut fields = line.split_whitespace();
+        u32::from_str_radix(fields.next()?, 16).ok()
+    })
+}
+
+/// The VMA of one section in `llvm-objdump -h` output.
+fn parse_section_vma(sections: &str, section: &str) -> Option<u32> {
     sections.lines().find_map(|line| {
         let mut fields = line.split_whitespace();
         fields.next()?;
-        if fields.next()? != ".head" {
+        if fields.next()? != section {
             return None;
         }
         let _size = fields.next()?;
@@ -227,6 +281,88 @@ fn payload() -> Result<()> {
         image_path.display()
     );
     Ok(())
+}
+
+/// Build the two FEL-callable flasher images: the returning DDR-init stub and
+/// the DRAM-linked minimal flasher. Neither is an eGON image.
+fn flasher() -> Result<()> {
+    let root = workspace_root();
+
+    for image in [
+        FlasherImage {
+            bin: "rawboot-ddr-init",
+            output: "rawboot-ddr.bin",
+            load_addr: DDR_STUB_LOAD_ADDR,
+            max_size: DDR_STUB_MAX_SIZE,
+            stack_start: None,
+            stack_top: None,
+            bss_limit: Some(DDR_RESULT_ADDR),
+        },
+        FlasherImage {
+            bin: "rawboot-flasher",
+            output: "rawboot-flasher.bin",
+            load_addr: FLASHER_LOAD_ADDR,
+            max_size: FLASHER_MAX_SIZE,
+            stack_start: Some(FLASHER_STACK_TOP - FLASHER_STACK_SIZE),
+            stack_top: Some(FLASHER_STACK_TOP),
+            bss_limit: Some(FLASHER_STACK_TOP - FLASHER_STACK_SIZE),
+        },
+    ] {
+        let (elf, _) = release_bin(&root, image.bin);
+        build_bin(&root, image.bin, &[])?;
+        verify_elf_section_vma(&elf, ".text", image.load_addr)?;
+        verify_elf_symbol(&elf, "_start", image.load_addr)?;
+        if let Some(stack_start) = image.stack_start {
+            verify_elf_symbol(&elf, "_sstack", stack_start)?;
+        }
+        if let Some(stack_top) = image.stack_top {
+            verify_elf_symbol(&elf, "_estack", stack_top)?;
+        }
+        if let Some(bss_limit) = image.bss_limit {
+            verify_elf_symbol_at_most(&elf, "_ebss", bss_limit)?;
+        }
+
+        let output = root.join("target").join(image.output);
+        objcopy(&elf, &output)?;
+
+        let bytes = fs::read(&output)?;
+        if bytes.starts_with(b"eGON") {
+            return Err(format!(
+                "`{}` starts with an eGON header; a FEL-callable image must not",
+                output.display()
+            )
+            .into());
+        }
+        if bytes.len() > image.max_size as usize {
+            return Err(format!(
+                "`{}` is {} bytes, larger than its {}-byte window",
+                output.display(),
+                bytes.len(),
+                image.max_size
+            )
+            .into());
+        }
+
+        println!(
+            "{} {} bytes -> {} (linked at {:#010x}, no eGON header)",
+            image.bin,
+            bytes.len(),
+            output.display(),
+            image.load_addr
+        );
+    }
+
+    Ok(())
+}
+
+struct FlasherImage {
+    bin: &'static str,
+    output: &'static str,
+    load_addr: u32,
+    max_size: u32,
+    stack_start: Option<u32>,
+    stack_top: Option<u32>,
+    bss_limit: Option<u32>,
 }
 
 /// Build the SD boot prefix: an MBR pointing at the existing FAT partition and
@@ -441,8 +577,23 @@ Idx Name            Size     VMA      LMA      Type
   2 .text           0000c550 00020080 00020080 TEXT
 ";
 
-        assert_eq!(parse_head_vma(output), Some(0x0002_0000));
-        assert_eq!(parse_head_vma("Sections:\n"), None);
+        assert_eq!(parse_section_vma(output, ".head"), Some(0x0002_0000));
+        assert_eq!(parse_section_vma(output, ".text"), Some(0x0002_0080));
+        assert_eq!(parse_section_vma("Sections:\n", ".head"), None);
+    }
+
+    #[test]
+    fn parses_a_symbol_value_from_objdump_output() {
+        let output = "\
+SYMBOL TABLE:
+40010000 g     F .text\t0000001c _start
+40050000 g       .stack\t00000000 _estack
+40010580 g       .bss\t00000000 _sbss
+";
+
+        assert_eq!(parse_symbol_value(output, "_start"), Some(0x4001_0000));
+        assert_eq!(parse_symbol_value(output, "_estack"), Some(0x4005_0000));
+        assert_eq!(parse_symbol_value(output, "_missing"), None);
     }
 
     fn args(items: &[&str]) -> impl Iterator<Item = String> {

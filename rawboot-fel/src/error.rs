@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Unlicense
 
-//! Errors from USB transport, FEL framing and device identification.
+//! Errors from USB transport, FEL framing, device identification and the
+//! in-DRAM flasher bring-up.
 
 use std::fmt;
+
+use rawboot_image::FlashContractError;
 
 /// A failure below the FEL protocol: a USB bulk transfer did not complete.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,6 +110,55 @@ pub enum FelError {
         /// Bytes the read asked for.
         length: usize,
     },
+    /// A FEL-callable image is empty.
+    EmptyImage {
+        /// Which image was rejected.
+        what: &'static str,
+    },
+    /// A FEL-callable image carries an eGON header.
+    UnexpectedEgon {
+        /// Which image was rejected.
+        what: &'static str,
+    },
+    /// The DDR-init stub is larger than its FEL SRAM window.
+    StubTooLarge {
+        /// Bytes supplied.
+        size: usize,
+        /// Largest accepted size.
+        max: u32,
+    },
+    /// The flasher is larger than its DRAM window.
+    FlasherTooLarge {
+        /// Bytes supplied.
+        size: usize,
+        /// Largest accepted size.
+        max: u32,
+    },
+    /// The DDR-init stub did not leave a valid result in SRAM.
+    DdrInitFailed {
+        /// Magic read after `exec`, or zero when the stub never wrote it.
+        magic: u32,
+        /// Detected DRAM size in MiB, or zero.
+        size_mib: u32,
+    },
+    /// A word written to DRAM did not read back.
+    DramMismatch {
+        /// Address of the first mismatching word.
+        address: u32,
+        /// Pattern the host wrote.
+        expected: u32,
+        /// Value the device returned.
+        actual: u32,
+    },
+    /// A job or status block violates the shared contract.
+    FlashContract(FlashContractError),
+    /// The flasher answered a different job than the host submitted.
+    StatusSequence {
+        /// Sequence in the job the host wrote.
+        expected: u32,
+        /// Sequence in the status the flasher wrote.
+        actual: u32,
+    },
 }
 
 impl fmt::Display for FelError {
@@ -135,6 +187,36 @@ impl fmt::Display for FelError {
             Self::OutOfMemory { length } => {
                 write!(f, "cannot allocate a {length}-byte read buffer")
             }
+            Self::EmptyImage { what } => write!(f, "{what} is empty"),
+            Self::UnexpectedEgon { what } => write!(
+                f,
+                "{what} starts with an eGON header; a FEL-callable image must not"
+            ),
+            Self::StubTooLarge { size, max } => write!(
+                f,
+                "DDR-init stub is {size} bytes, larger than the {max}-byte SRAM window"
+            ),
+            Self::FlasherTooLarge { size, max } => write!(
+                f,
+                "flasher is {size} bytes, larger than the {max}-byte DRAM window"
+            ),
+            Self::DdrInitFailed { magic, size_mib } => write!(
+                f,
+                "DDR-init stub did not report success (result magic {magic:#010x}, {size_mib} MiB)"
+            ),
+            Self::DramMismatch {
+                address,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "DRAM read-back at {address:#010x} returned {actual:#010x}, expected {expected:#010x}"
+            ),
+            Self::FlashContract(error) => write!(f, "flash contract: {error}"),
+            Self::StatusSequence { expected, actual } => write!(
+                f,
+                "flasher answered job sequence {actual}, expected {expected}"
+            ),
         }
     }
 }
@@ -158,5 +240,11 @@ impl From<TransportError> for FelError {
 impl From<ProtocolError> for FelError {
     fn from(error: ProtocolError) -> Self {
         Self::Protocol(error)
+    }
+}
+
+impl From<FlashContractError> for FelError {
+    fn from(error: FlashContractError) -> Self {
+        Self::FlashContract(error)
     }
 }

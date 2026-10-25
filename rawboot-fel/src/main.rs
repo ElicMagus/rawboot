@@ -8,10 +8,11 @@
 use std::env;
 use std::error::Error as StdError;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use rawboot_fel::{FelDevice, UsbTransport};
+use rawboot_image::{DRAM_TEST_ADDR, result_name, step_name};
 
 type Result<T> = std::result::Result<T, Box<dyn StdError>>;
 
@@ -20,8 +21,9 @@ const USAGE: &str = "usage:
   rawboot-fel read <address> <length> [--output <path>]
   rawboot-fel write <address> <file>
   rawboot-fel exec <address>
+  rawboot-fel bringup <ddr-stub> <flasher> [--sequence <n>]
 
-<address> is decimal or 0x-hex; <length> is decimal or 0x-hex.";
+<address> and <n> are decimal or 0x-hex; <length> is decimal or 0x-hex.";
 
 fn main() -> ExitCode {
     match run() {
@@ -40,6 +42,7 @@ fn run() -> Result<()> {
         Some("read") => read(args),
         Some("write") => write(args),
         Some("exec") => exec(args),
+        Some("bringup") => bringup(args),
         Some("-h" | "--help" | "help") => {
             println!("{USAGE}");
             Ok(())
@@ -119,6 +122,55 @@ fn exec(mut args: impl Iterator<Item = String>) -> Result<()> {
     open()?.exec(address)?;
     println!("executed at {address:#010x}");
     Ok(())
+}
+
+/// Run the #41 spike: DDR-init stub, DRAM read-back, no-op job and status.
+fn bringup(mut args: impl Iterator<Item = String>) -> Result<()> {
+    let stub_path = PathBuf::from(next_arg(&mut args, "ddr stub path")?);
+    let flasher_path = PathBuf::from(next_arg(&mut args, "flasher path")?);
+    let mut sequence = 1u32;
+    while let Some(argument) = args.next() {
+        match argument.as_str() {
+            "--sequence" => {
+                sequence = parse_number(&next_arg(&mut args, "--sequence value")?)?;
+            }
+            other => return Err(format!("unexpected argument `{other}`\n{USAGE}").into()),
+        }
+    }
+
+    let stub = read_file(&stub_path)?;
+    let flasher = read_file(&flasher_path)?;
+
+    let mut fel = open()?;
+    let (_, soc) = fel.identify()?;
+    println!("SoC:        {}", soc.name());
+
+    let report = fel.bringup(&stub, &flasher, sequence)?;
+    println!("DRAM:       {} MiB", report.dram_size_mib);
+    println!("pattern:    OK at {DRAM_TEST_ADDR:#010x}");
+    println!(
+        "status:     sequence {}, step {} ({}), result {} ({})",
+        report.status.sequence,
+        report.status.step,
+        step_name(report.status.step),
+        report.status.result,
+        result_name(report.status.result)
+    );
+
+    if !report.status.is_ok() {
+        return Err(format!(
+            "flasher returned {} ({})",
+            report.status.result,
+            result_name(report.status.result)
+        )
+        .into());
+    }
+
+    Ok(())
+}
+
+fn read_file(path: &Path) -> Result<Vec<u8>> {
+    fs::read(path).map_err(|error| format!("reading `{}`: {error}", path.display()).into())
 }
 
 fn open() -> Result<FelDevice<UsbTransport>> {

@@ -220,6 +220,16 @@ name = "rawboot-fel"
 version = "0.1.0"
 dependencies = [
  "nusb",
+ "rawboot-image",
+]
+
+[[package]]
+name = "rawboot-flasher"
+version = "0.1.0"
+dependencies = [
+ "rawboot-image",
+ "sunxi-drivers",
+ "sunxi-pl",
 ]
 
 [[package]]

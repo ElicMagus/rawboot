@@ -81,7 +81,8 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
   `rawboot` (the loader), `rawboot-rt` (the runtime), `sunxi-pl` (the shared hardware layer),
   `sunxi-drivers` (the shared drivers above it: clock/CCU, DRAM, UART, SDHCI, SD/MMC and the
   read-only FAT adapter), `payload` (the blink test payload), `rawboot-image` (host-testable
-  payload, eGON and SD boot prefix tooling), `rawboot-fel` (host-side FEL USB transport and CLI)
+  payload, eGON, SD boot prefix and flash job/status tooling), `rawboot-fel` (host-side FEL USB
+  transport and CLI), `rawboot-flasher` (the FEL-callable DDR-init stub and DRAM-linked flasher)
   and `xtask` (host build tooling). Driver modules live in `sunxi-drivers`; `rawboot` keeps the
   boot orchestration and its `print!`, and payload-header parsing and eGON sealing are
   `rawboot-image`. The hardware layer shared by loader, runtime and payload — volatile accessors,
@@ -128,9 +129,11 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
   BROM SD/SPI boot from sector 16. `cargo xtask sd-image --partition-sectors <n>` writes
   `rawboot-sd-mbr.img`, the SD boot prefix: an MBR pointing at the FAT partition starting at
   `--start-lba` (default 2048, 1 MiB) plus `rawboot-boot-sd.bin` at sector 16 (ADR-0011). It
-  formats nothing, copies no payload and only writes a file. The existing Windows scripts and
-  `.exe` tools are kept as a working Windows path. `rawboot-fel` (CLI `cargo fel`) talks to the
-  BROM's FEL USB protocol directly for manual bring-up; `xfel` stays the external tool used by
+  formats nothing, copies no payload and only writes a file. `cargo xtask flasher` builds the
+  returning DDR-init stub and the DRAM-linked flasher (ADR-0013). The existing Windows scripts
+  and `.exe` tools are kept as a working Windows path. `rawboot-fel` (CLI `cargo fel`) talks to
+  the BROM's FEL USB protocol directly for manual bring-up; `cargo fel bringup` runs the stub,
+  checks DRAM and reads a flash status. `xfel` stays the external tool used by
   `scripts/hil-check.sh`.
 - **Toolchain.** Target `armv7a-none-eabi` (soft-float; measured as smaller than the hard-float
   variant for this code), Rust edition 2024, pinned by `rust-toolchain.toml`.

@@ -7,12 +7,13 @@ written in 100% Rust and ported from `szemzoa/awboot`. It brings up the SoC, rea
 image from a FAT partition on an SD card over SDHCI, loads it into DRAM, and hands off through a
 versioned `BootInfo` contract. The payload is our own firmware, not Linux (no FDT, no PSCI).
 
-Cargo workspace with eight members: `rawboot` (the loader), `rawboot-rt` (the runtime),
+Cargo workspace with nine members: `rawboot` (the loader), `rawboot-rt` (the runtime),
 `sunxi-pl` (the shared platform layer: MMIO, GPIO, timer), `sunxi-drivers` (the shared
 driver crate above `sunxi-pl`: clock, DRAM, UART, SDHCI, SD/MMC, FAT), `payload` (the blink
-test payload image the loader boots), `rawboot-image` (host-testable payload/eGON and SD boot
-prefix tooling), `rawboot-fel` (host-side FEL USB transport and CLI) and `xtask` (host build
-tooling). `fatfs`'s `no_std` `core_io` dependency is patched to `vendor/core_io`, a
+test payload image the loader boots), `rawboot-image` (host-testable payload/eGON, SD boot
+prefix and flash job/status tooling), `rawboot-fel` (host-side FEL USB transport and CLI),
+`rawboot-flasher` (the FEL-callable DDR-init stub and DRAM-linked flasher) and `xtask` (host
+build tooling). `fatfs`'s `no_std` `core_io` dependency is patched to `vendor/core_io`, a
 minimal stable-compatible shim. Target `armv7a-none-eabi` (soft-float), Rust edition 2024.
 
 `embed/` is an ignored snapshot of the older Rust port kept for pre-port comparison; the
@@ -45,16 +46,20 @@ Standard commands:
   research notes to `target/upstream/awboot-<sha>/`)
 - Check everything: `scripts/check.sh` (fmt, build, both clippy passes, host tests, SPDX
   headers, branch-docs rule, the loader no-write guard, and
-  `cargo xtask image`/`payload`/`sd-image` smoke builds)
+  `cargo xtask image`/`payload`/`flasher`/`sd-image` smoke builds)
 - Seal an image: `cargo xtask image` (builds the loader twice and writes the sealed
   `target/rawboot-fel.bin` for FEL at `0x00028000` and `target/rawboot-boot-sd.bin` for
   SD/SPI boot at `0x00020000`; the `xtask` alias pins the host triple in `.cargo/config.toml`)
 - Build the payload image: `cargo xtask payload` (builds the `payload` crate and writes
   `target/rawboot-payload.img`, its flat binary wrapped in the payload image header)
-- FEL CLI: `cargo fel version|read|write|exec ...` (host-side FEL transport over USB with no
-  system `libusb`; `version` identifies the T113-S3, `read <addr> <len>` hex-dumps or writes
-  to `--output`, `write <addr> <file>` uploads bytes, `exec <addr>` jumps; the `fel` alias
-  pins the host triple)
+- Build the FEL flasher images: `cargo xtask flasher` (writes `target/rawboot-ddr.bin`, the
+  returning DDR-init stub at `0x00028000`, and `target/rawboot-flasher.bin`, linked at
+  `0x40010000` in DRAM; both carry no eGON header; ADR-0013)
+- FEL CLI: `cargo fel version|read|write|exec|bringup ...` (host-side FEL transport over USB
+  with no system `libusb`; `version` identifies the T113-S3, `read <addr> <len>` hex-dumps or
+  writes to `--output`, `write <addr> <file>` uploads bytes, `exec <addr>` jumps, `bringup
+  <ddr-stub> <flasher>` runs the returning stub, checks a DRAM pattern and reads the flasher
+  status; the `fel` alias pins the host triple)
 - Build the SD boot prefix: `cargo xtask sd-image --partition-sectors <n> [--start-lba <n>]
   [--loader <path>]` (after `cargo xtask image`; writes `target/rawboot-sd-mbr.img`, an MBR
   pointing at the existing FAT partition plus the SD loader at sector 16, for `dd conv=notrunc`
