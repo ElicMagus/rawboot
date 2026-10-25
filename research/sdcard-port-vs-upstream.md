@@ -114,6 +114,10 @@ per ADR-0007.
   T113-S3 board instance is not SPI; no SPI host is instantiated.
 - **eMMC board instance.** Only `sdhci0` is instantiated. An eMMC on `sdhci2` is outside
   the T113-S3 SD feature and remains deferred.
+- **Reset timeout (#43).** `sdmmc_detect` stops an attempt when `sdhci_reset` reports a
+  timeout; upstream ignores the reset result because its reset returns immediately. The
+  polling reset and the CMD0 init sequence live in `sdhci`; see
+  `research/sd-cold-start-brom.md`.
 - **No host seam.** As decided by the parent issue, there is no host test for the card
   driver; parity is checked by this static table plus HIL on T113-S3.
 

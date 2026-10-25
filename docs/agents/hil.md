@@ -69,6 +69,24 @@ loader left running by the previous attempt. Set
 `hil-check.sh` directly when a clean interactive run is required. If FEL stops
 answering between attempts, power-cycle the board into FEL and rerun.
 
+#### Cold-start acceptance (#43)
+
+Issue #43 changes the first attempt: `sdhci_reset` waits for the controller reset
+bits to clear, and CMD0 carries the SMHC init sequence. The acceptance is
+statistical and must be run on the board; see `research/sd-cold-start-brom.md`
+for the reasoning. Build the branch and repeat this at least ten times:
+
+1. Remove power, insert the card, hold FEL/BOOT, then apply power.
+2. Run `HIL_REQUIRE_SD=1 scripts/hil-check.sh target/rawboot-fel.bin cold<N>`.
+3. Every run must print `SD/MMC card found` and a successful `SD: read ...` line.
+
+Then repeat the two recovery paths: insert the card after the board is in FEL
+and load the loader; and re-exec the loader over FEL without removing power
+(`HIL_SKIP_PREFLIGHT=1`). Finally, remove the card and confirm
+`SD/MMC card not found` without a hang or an unbounded retry loop. A run that
+still fails keeps the `cmd1 timeout` line as the visible MMC-fallback symptom;
+the SD-path failure (CMD8 or ACMD41) is the one to report on #43.
+
 ### Payload image on the card
 
 The loader reads `payload.bin` from the FAT partition. Build the blink payload, then copy the
@@ -422,13 +440,15 @@ and checksum depend on the image header and the detected DRAM size.
   an unreadable card, or `HIL_REQUIRE_SD=1` without a card. Insert a card and rerun, or
   unset the flag for a no-card test.
 - `SMHC: cmd1 timeout (rint=0x00000100, flag=0x00000004)` followed by `SD/MMC card not
-  found` on a cold power-on with the card already inserted: the card did not answer CMD1 in
-  time. The pre-`#38` baseline shows the same timeout (issue #43). Insert the card after the
-  board is in FEL (hot-plug) or re-exec the loader without removing power
-  (`HIL_SKIP_PREFLIGHT=1`), then rerun. A passing run can still log an earlier `cmd1 timeout`
-  before `SD/MMC card found`, because the driver retries. A card with a valid boot prefix in
-  sector 16 also makes the BROM occasionally boot from SD instead of sampling FEL on a cold
-  power-on; remove the card when you need a deterministic FEL entry.
+  found` on a cold power-on with the card already inserted: CMD1 is the MMC fallback, so
+  the SD path already failed silently (CMD8 or ACMD41). The pre-`#38` baseline shows the
+  same timeout (issue #43). Insert the card after the board is in FEL (hot-plug) or re-exec
+  the loader without removing power (`HIL_SKIP_PREFLIGHT=1`), then rerun. A passing run can
+  still log an earlier `cmd1 timeout` before `SD/MMC card found`, because the driver retries.
+  If the cold-start change from #43 is under test and this still happens, keep the UART log
+  and add it to the issue rather than treating the retry as a pass. A card with a valid boot
+  prefix in sector 16 also makes the BROM occasionally boot from SD instead of sampling FEL
+  on a cold power-on; remove the card when you need a deterministic FEL entry.
 - HIL fails with `missing a payload handoff`: `HIL_REQUIRE_HANDOFF=1` was set but the loader
   stayed in its `S=0x` loop. Check that `payload.bin` is present and valid, and that the card
   path succeeded.

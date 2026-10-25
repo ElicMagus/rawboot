@@ -30,7 +30,8 @@ Reference numbers in square brackets map to the **Sources** section at the end.
 The in-scope behaviour of `sunxi_sdhci.c` is now ported: IDMAC above 64 bytes, PIO at or
 below 64 bytes, upstream command flags, clock/delay setup, and start-bit detection. The
 deliberate differences are the Rust type/API expression, the absent eMMC board instance, the
-unimplemented upstream `sdhci_set_voltage` declaration, and logging through `print!`.
+unimplemented upstream `sdhci_set_voltage` declaration, logging through `print!`, and the
+#43 cold-start reset/CMD0-init additions taken from mainline Linux.
 
 The full SD/MMC *card* protocol parity remains issue #20; #19 only adapts `sdcard` to the new
 host API and fixes the state-passing needed to exercise a read.
@@ -69,8 +70,8 @@ Clock selectors and bus widths use the upstream numeric values:
 | `wait_done` [1:391-418] | same name | Same timeout/error checks and the DMA completion condition (`rint` flag plus `idst` receive bit); returns `Result<u32, u32>`. |
 | `read_bytes` [1:420-478] | same name | Same FIFO-empty spin, FIFO-level drain, data-over/auto-stop completion, leftover check. |
 | `write_bytes` [1:480-523] | same name | Same FIFO-full spin, word push, completion and leftover check. |
-| `sdhci_transfer` [1:525-645] | same name | Same stop shortcut, response flags, hold register at `>= MMC_CLK_50M`, data setup, `rint` clear, **64-byte IDMAC/PIO split**, completion waits, busy wait, response order and IDMA cleanup. |
-| `sdhci_reset` [1:647-651] | same name | Same `HARDWARE_RESET` write. |
+| `sdhci_transfer` [1:525-645] | same name | Same stop shortcut, response flags, hold register at `>= MMC_CLK_50M`, data setup, `rint` clear, **64-byte IDMAC/PIO split**, completion waits, busy wait, response order and IDMA cleanup; plus `SEND_INIT_SEQUENCE` on CMD0 (deliberate, #43). |
+| `sdhci_reset` [1:647-651] | same name | Writes `HARDWARE_RESET` and polls `GCTRL` until the self-clearing bits are gone (250 ms bound); deliberate divergence from upstream, #43. |
 | `sdhci_set_width` [1:653-694] | same name | Same width constants, DDR gating, start-bit detection, DDR re-calibration. |
 | `init_default_timing` [1:696-715] | same name | Same `TM5_OUT_PH*` / `TM5_IN_PH*` tables. |
 | `config_delay` [1:717-787] | same name | Same `drv_dl`, `ntsr` sample delay, hardware skew mode, and `samp_dl` calibration for `> MMC_CLK_400K`. |
@@ -134,6 +135,14 @@ Clock selectors and bus widths use the upstream numeric values:
   in `Sdhci` instead of writing past the array.
 - **FIFO level refresh.** `read_bytes` re-reads `status` after the FIFO-empty spin before
   computing the level, rather than using the value sampled before the spin.
+- **Reset completion.** `sdhci_reset` polls `GCTRL` until the `HARDWARE_RESET` bits clear
+  (250 ms bound), as mainline Linux `sunxi_mmc_reset_host` does. Upstream returns right
+  after the write, so the clock/timing programming can race an in-progress reset after
+  BROM hands over. Adopted for #43; see `research/sd-cold-start-brom.md`.
+- **CMD0 init sequence.** `sdhci_transfer` sets `SEND_INIT_SEQUENCE` for
+  `MMC_GO_IDLE_STATE`, as mainline Linux does. The SMHC hardware then supplies the
+  74+ clocks the SD physical layer requires before CMD0; upstream relies on the caller's
+  post-CMD0 delay instead. Adopted for #43; see `research/sd-cold-start-brom.md`.
 
 ### Not required
 
