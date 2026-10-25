@@ -168,8 +168,10 @@ scripts/flash-sd.sh --device /dev/sdX --format --yes
 `--start-lba`, `--partition-sectors`, `--loader`, `--payload`, `--boot-cfg` and `--payload-name`
 override detection and the defaults. The same values can come from `SD_DEV`, `SD_PART`,
 `START_LBA`, `PARTITION_SECTORS`, `LOADER_IMG`, `PAYLOAD_IMG`, `BOOT_CFG`, `FORMAT_PARTITION` and
-`COPY_PAYLOAD`. The script asks before every destructive action (including `--format`), refuses
-`rawboot-fel.bin` in sector 16, and only formats the partition, never the whole disk.
+`COPY_PAYLOAD`. The script asks before every destructive action unless `--yes` is passed (the
+`--format --yes` example skips both prompts), refuses `rawboot-fel.bin` in sector 16, requires the
+partition to already be FAT unless `--format` is given, and only formats the partition, never the
+whole disk.
 
 Capture a self-boot run by starting the capture **before** the power-cycle, then apply power
 (the BROM strap is sampled at cold power-on; see [Capture a self-booting board](#capture-a-self-booting-board-no-fel)):
