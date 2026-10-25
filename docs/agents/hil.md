@@ -152,14 +152,16 @@ image over it destroys the loader in sector 16. Format and copy only the partiti
 (`mkfs.vfat /dev/sdX1`, mount it, copy `payload.bin`), or re-run the `dd` of the prefix afterwards.
 
 The wrapper `scripts/flash-sd.sh` runs the steps above, detects the partition start and size, and
-refuses a mounted device, a GPT/multi-partition card, or one that holds `/`. Run it as your user,
-not via `sudo`: it escalates only `dd`, `mkfs` and `mount`, so cargo keeps `target/` user-owned.
+refuses a mounted device, a GPT/multi-partition card, or one that holds `/`. Without `--device` it
+picks the only removable/USB/MMC disk and asks when several are present; `--list` shows them. Run
+it as your user, not via `sudo`: it escalates only `dd`, `mkfs` and `mount`, so cargo keeps
+`target/` user-owned.
 
 ```sh
+# see which cards/disks the script can pick
+scripts/flash-sd.sh --list
 # update the loader; keep the partition and its payload
-scripts/flash-sd.sh --device /dev/sdX
-# also copy target/rawboot-payload.img as payload.bin
-scripts/flash-sd.sh --device /dev/sdX --copy-payload
+scripts/flash-sd.sh --copy-payload
 # recreate the partition as FAT32 (destroys its contents), then copy the payload
 scripts/flash-sd.sh --device /dev/sdX --format --yes
 ```
