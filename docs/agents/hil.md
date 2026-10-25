@@ -8,8 +8,10 @@ sequence, the UART capture, and how to read the result. The script from this rep
 
 When an agent runs these steps, it asks one `question` per physical action (power cycle,
 card insertion, FEL/BOOT, LED confirmation) and waits for the answer before starting the
-next action. It does not batch several cold starts into one prompt. After each run it
-reports PASS/FAIL, the key log lines and the next step.
+next action. It does not batch several cold starts into one prompt. Immediately after the
+answer it asks a confirmation question "Уверен?" with "Да" and "Нет" and acts only on "Да";
+on "Нет" it returns to the step question. This guards against an accidental selection.
+After each run it reports PASS/FAIL, the key log lines and the next step.
 
 ## Board and wiring
 
