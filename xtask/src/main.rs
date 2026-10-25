@@ -21,7 +21,7 @@ use std::process::Command;
 
 use rawboot_image::{
     DEFAULT_LOAD_ADDR, DEFAULT_START_LBA, ImageOptions, SdImageOptions, SealOptions,
-    build_sd_image, seal,
+    build_sd_image, seal, verify_sealed,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -96,7 +96,7 @@ fn image() -> Result<()> {
         let image = fs::read(&raw)?;
         let sealed = seal(&image, SealOptions::BLOCK)
             .map_err(|e| format!("sealing `{}`: {e:?}", raw.display()))?;
-        xtask::verify_sealed_egon(&sealed)
+        verify_sealed(&sealed)
             .map_err(|e| format!("assembled loader image is not BROM-valid: {e}"))?;
 
         let sealed_path = root.join("target").join(variant.image_name());
@@ -234,17 +234,9 @@ fn payload() -> Result<()> {
 fn sd_image(args: impl Iterator<Item = String>) -> Result<()> {
     let root = workspace_root();
     let args = parse_sd_image_args(args)?;
-    let loader_path = args
-        .loader
-        .unwrap_or_else(|| root.join("target").join("rawboot-boot-sd.bin"));
+    let loader_path = args.loader.unwrap_or_else(|| default_sd_loader(&root));
 
-    let loader = fs::read(&loader_path).map_err(|e| match e.kind() {
-        ErrorKind::NotFound => format!(
-            "`{}` not found; run `cargo xtask image` first",
-            loader_path.display()
-        ),
-        _ => format!("reading `{}`: {e}", loader_path.display()),
-    })?;
+    let loader = read_loader(&loader_path)?;
     let image = build_sd_image(&loader, args.options)
         .map_err(|e| format!("building `{}`: {e}", loader_path.display()))?;
 
@@ -261,6 +253,20 @@ fn sd_image(args: impl Iterator<Item = String>) -> Result<()> {
         args.options.partition_sectors
     );
     Ok(())
+}
+
+fn default_sd_loader(root: &Path) -> PathBuf {
+    root.join("target").join("rawboot-boot-sd.bin")
+}
+
+fn read_loader(path: &Path) -> Result<Vec<u8>> {
+    Ok(fs::read(path).map_err(|e| match e.kind() {
+        ErrorKind::NotFound => format!(
+            "`{}` not found; run `cargo xtask image` first",
+            path.display()
+        ),
+        _ => format!("reading `{}`: {e}", path.display()),
+    })?)
 }
 
 #[derive(Debug)]
@@ -448,12 +454,29 @@ Idx Name            Size     VMA      LMA      Type
     }
 
     #[test]
-    fn sd_image_defaults_to_lba_2048_and_the_boot_sd_loader() {
+    fn sd_image_defaults_to_lba_2048_and_no_loader_override() {
         let parsed = parse_sd_image_args(args(&["--partition-sectors", "1843200"])).unwrap();
 
-        assert_eq!(parsed.options.start_lba, 2048);
+        assert_eq!(parsed.options.start_lba, DEFAULT_START_LBA);
         assert_eq!(parsed.options.partition_sectors, 1_843_200);
         assert_eq!(parsed.loader, None);
+    }
+
+    #[test]
+    fn default_sd_loader_points_at_the_boot_sd_image() {
+        assert_eq!(
+            default_sd_loader(Path::new("repo")),
+            PathBuf::from("repo/target/rawboot-boot-sd.bin")
+        );
+    }
+
+    #[test]
+    fn missing_loader_hints_at_the_image_command() {
+        let err = read_loader(Path::new("target/does-not-exist-rawboot-boot-sd.bin"))
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("cargo xtask image"), "{err}");
     }
 
     #[test]

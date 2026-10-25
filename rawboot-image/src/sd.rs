@@ -43,6 +43,16 @@ pub const PARTITION_TYPE_FAT32: u8 = 0x0C;
 /// `CHS start/end` used for a partition that does not need a usable CHS address.
 const CHS_MAX: [u8; 3] = [0xFE, 0xFF, 0xFF];
 
+/// Offsets inside an MBR partition-table entry.
+mod entry {
+    pub const BOOT_FLAG: usize = 0;
+    pub const START_CHS: usize = 1;
+    pub const PARTITION_TYPE: usize = 4;
+    pub const END_CHS: usize = 5;
+    pub const START_LBA: usize = 8;
+    pub const SECTOR_COUNT: usize = 12;
+}
+
 /// How [`build_sd_image`] lays out the prefix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SdImageOptions {
@@ -65,8 +75,10 @@ impl SdImageOptions {
 /// Why an SD boot prefix could not be built.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SdImageError {
-    /// The loader is empty or is not a sealed eGON image (see [`crate::egon::verify_sealed`]).
-    LoaderNotSealed,
+    /// The loader is empty, so there is nothing to place at sector 16.
+    LoaderEmpty,
+    /// The loader is not a sealed eGON image (see [`crate::egon::verify_sealed`]).
+    LoaderNotSealed(HeaderError),
     /// `SD_LOADER_OFFSET + loader.len()` reaches the partition start, so the loader and the
     /// partition would overlap.
     LoaderOverlapsPartition,
@@ -74,32 +86,39 @@ pub enum SdImageError {
     ZeroStartLba,
     /// The partition sector count is zero.
     ZeroPartitionSectors,
-    /// The prefix length does not fit the sector address width.
+    /// The prefix length or the partition's last sector does not fit the sector address width.
     SizeOverflow,
 }
 
 impl core::fmt::Display for SdImageError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let msg = match self {
-            SdImageError::LoaderNotSealed => {
-                "loader is not a sealed eGON image (build one with `cargo xtask image`)"
+        match self {
+            SdImageError::LoaderEmpty => {
+                f.write_str("loader image is empty (build one with `cargo xtask image`)")
             }
+            SdImageError::LoaderNotSealed(err) => write!(
+                f,
+                "loader is not a sealed eGON image: {err} (build one with `cargo xtask image`)"
+            ),
             SdImageError::LoaderOverlapsPartition => {
-                "loader at sector 16 reaches into the partition, raise `--start-lba`"
+                f.write_str("loader at sector 16 reaches into the partition, raise `--start-lba`")
             }
-            SdImageError::ZeroStartLba => "`--start-lba` must be non-zero",
-            SdImageError::ZeroPartitionSectors => "`--partition-sectors` must be non-zero",
-            SdImageError::SizeOverflow => "image size overflows the sector address width",
-        };
-        f.write_str(msg)
+            SdImageError::ZeroStartLba => f.write_str("`--start-lba` must be non-zero"),
+            SdImageError::ZeroPartitionSectors => {
+                f.write_str("`--partition-sectors` must be non-zero")
+            }
+            SdImageError::SizeOverflow => {
+                f.write_str("image size or partition end overflows the sector address width")
+            }
+        }
     }
 }
 
 impl core::error::Error for SdImageError {}
 
 impl From<HeaderError> for SdImageError {
-    fn from(_: HeaderError) -> Self {
-        Self::LoaderNotSealed
+    fn from(err: HeaderError) -> Self {
+        Self::LoaderNotSealed(err)
     }
 }
 
@@ -120,11 +139,20 @@ pub fn build_sd_image(loader: &[u8], options: SdImageOptions) -> Result<Vec<u8>,
         .start_lba
         .checked_mul(SECTOR_SIZE as u32)
         .ok_or(SdImageError::SizeOverflow)? as usize;
+    options
+        .start_lba
+        .checked_add(options.partition_sectors - 1)
+        .ok_or(SdImageError::SizeOverflow)?;
+    if loader.is_empty() {
+        return Err(SdImageError::LoaderEmpty);
+    }
     let loader_end = SD_LOADER_OFFSET
         .checked_add(loader.len())
         .ok_or(SdImageError::SizeOverflow)?;
 
     verify_sealed(loader)?;
+    // Ending exactly at the partition start is fine: the loader fills the prefix up to the
+    // partition without writing a byte into it.
     if loader_end > image_len {
         return Err(SdImageError::LoaderOverlapsPartition);
     }
@@ -136,13 +164,13 @@ pub fn build_sd_image(loader: &[u8], options: SdImageOptions) -> Result<Vec<u8>,
 }
 
 fn write_mbr(image: &mut [u8], options: SdImageOptions) {
-    let entry = &mut image[PARTITION_TABLE_OFFSET..PARTITION_TABLE_OFFSET + PARTITION_ENTRY_SIZE];
-    entry[0] = 0x00;
-    entry[1..4].copy_from_slice(&CHS_MAX);
-    entry[4] = PARTITION_TYPE_FAT32;
-    entry[5..8].copy_from_slice(&CHS_MAX);
-    write_u32_le(entry, 8, options.start_lba);
-    write_u32_le(entry, 12, options.partition_sectors);
+    let mbr = &mut image[PARTITION_TABLE_OFFSET..PARTITION_TABLE_OFFSET + PARTITION_ENTRY_SIZE];
+    mbr[entry::BOOT_FLAG] = 0x00;
+    mbr[entry::START_CHS..entry::START_CHS + CHS_MAX.len()].copy_from_slice(&CHS_MAX);
+    mbr[entry::PARTITION_TYPE] = PARTITION_TYPE_FAT32;
+    mbr[entry::END_CHS..entry::END_CHS + CHS_MAX.len()].copy_from_slice(&CHS_MAX);
+    write_u32_le(mbr, entry::START_LBA, options.start_lba);
+    write_u32_le(mbr, entry::SECTOR_COUNT, options.partition_sectors);
 
     image[DISK_SIGNATURE_OFFSET..DISK_SIGNATURE_OFFSET + 4].fill(0);
     image[MBR_SIGNATURE_OFFSET..MBR_SIGNATURE_OFFSET + 2].copy_from_slice(&MBR_SIGNATURE);

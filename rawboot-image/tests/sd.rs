@@ -3,11 +3,11 @@
 //! Byte-in/byte-out tests for the SD boot prefix: MBR and loader placement.
 
 use rawboot_image::{
-    EgonHeader, MBR_SIGNATURE, PARTITION_TABLE_OFFSET, PARTITION_TYPE_FAT32, SD_LOADER_OFFSET,
-    SECTOR_SIZE, SdImageError, SdImageOptions, SealOptions, build_sd_image, read_u32_le, seal,
+    DEFAULT_START_LBA, EgonHeader, HeaderError, MBR_SIGNATURE, PARTITION_TABLE_OFFSET,
+    PARTITION_TYPE_FAT32, SD_LOADER_OFFSET, SECTOR_SIZE, SdImageError, SdImageOptions, SealOptions,
+    build_sd_image, read_u32_le, seal,
 };
 
-const DEFAULT_START_LBA: u32 = 2048;
 const DEFAULT_PARTITION_SECTORS: u32 = 1_843_200;
 
 fn sealed_loader() -> Vec<u8> {
@@ -104,7 +104,7 @@ fn rejects_an_unsealed_loader() {
             &unsealed,
             options(DEFAULT_START_LBA, DEFAULT_PARTITION_SECTORS)
         ),
-        Err(SdImageError::LoaderNotSealed)
+        Err(SdImageError::LoaderNotSealed(HeaderError::BadLength))
     );
 }
 
@@ -112,7 +112,7 @@ fn rejects_an_unsealed_loader() {
 fn rejects_an_empty_loader() {
     assert_eq!(
         build_sd_image(&[], options(DEFAULT_START_LBA, DEFAULT_PARTITION_SECTORS)),
-        Err(SdImageError::LoaderNotSealed)
+        Err(SdImageError::LoaderEmpty)
     );
 }
 
@@ -136,6 +136,14 @@ fn rejects_zero_partition_sectors() {
 fn rejects_an_overflowing_image_length() {
     assert_eq!(
         build_sd_image(&sealed_loader(), options(0x0080_0000, 1)),
+        Err(SdImageError::SizeOverflow)
+    );
+}
+
+#[test]
+fn rejects_a_partition_that_ends_past_the_sector_address_width() {
+    assert_eq!(
+        build_sd_image(&sealed_loader(), options(2, u32::MAX)),
         Err(SdImageError::SizeOverflow)
     );
 }
