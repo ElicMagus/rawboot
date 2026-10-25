@@ -77,19 +77,22 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
 
 ## Implementation Decisions
 
-- **Workspace shape.** The `rawboot-internal` repository becomes a single Cargo workspace with members
-  `rawboot` (the loader, renamed from `app`) and `rawboot-rt` (the runtime, absorbed from the
-  separate `rt` repository). `regs` and `drivers` are modules inside `rawboot`, not separate
-  crates. The hardware layer shared by loader, runtime and payload — volatile accessors, GPIO and
-  the timer — lives in the separate `sunxi-pl` crate, without startup code (ADR-0010). Domain docs
-  (`GLOSSARY.md`, `docs/adr/`) live at the repository root.
+- **Workspace shape.** The `rawboot-internal` repository is a single Cargo workspace with members
+  `rawboot` (the loader), `rawboot-rt` (the runtime), `sunxi-pl` (the shared hardware layer),
+  `payload` (the blink test payload), `rawboot-image` (host-testable payload and eGON image
+  tooling) and `xtask` (host build tooling). Driver modules live inside `rawboot`; payload-header
+  parsing and eGON sealing are `rawboot-image`. The hardware layer shared by loader, runtime and
+  payload — volatile accessors, GPIO and the timer — carries no startup code (ADR-0010). Domain
+  docs (`GLOSSARY.md`, `docs/adr/`) live at the repository root.
 - **Runtime crate.** Lays down the eGON header (magic `eGON.BT0`, branch word, header fields) as
   statics in a head section, defines `_start` (stack, BSS clear, data copy), and carries the linker
   script. Modernised to remove `static_mut_refs` hazards using `&raw` pointers.
-- **Loader modules.** `regs` (named MMIO constants/structs from the datasheet), `clk`/`ccu`, `uart`,
-  `dram` (already ported and tested), `sdhci`, `sdcard`, `fat`, `image` (header parse + eGON
-  seal), `boot` (orchestration, `BootInfo`, handoff). The volatile accessors (`io`) and `gpio` live
-  in `sunxi-pl` and are re-exported by the loader (ADR-0010).
+- **Loader modules.** `clk`/`ccu`, `uart`, `print`, `dram`, `sdhci`, `sdcard`, `fat`, `boot`
+  (orchestration, `BootInfo`, handoff). MMIO constants and register layouts are defined next to
+  the drivers that use them, not in a shared `regs` module. Payload-header parsing and eGON
+  sealing live in the `rawboot-image` crate, which the loader depends on with
+  `default-features = false`. The volatile accessors (`io`) and `gpio` live in `sunxi-pl` and are
+  re-exported by the loader (ADR-0010).
 - **eGON sealing algorithm.** Seed the header checksum field with `0x5F0A6C39`, then sum
   `length_aligned / 4` little-endian 32-bit words over the padded image (32-bit wraparound) and
   write the sum back; padding is 512 for block devices or 8192 for flash; when the BROM page size
