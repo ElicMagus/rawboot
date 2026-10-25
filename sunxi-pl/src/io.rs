@@ -57,15 +57,21 @@ pub fn write64(addr: u32, value: u64) {
 ///
 /// Deliberately not inline: upstream keeps it as an out-of-line function so the
 /// same instructions are reused across the many call sites.
+#[cfg(target_arch = "arm")]
 #[inline(never)]
 pub fn sdelay(loops: u32) {
     unsafe {
         core::arch::asm!(
-            "1:",
+            "2:",
             "subs {loops}, {loops}, #1",
-            "bne 1b",
+            "bne 2b",
             loops = inout(reg) loops => _,
             options(nomem, nostack),
         );
     }
 }
+
+/// Host builds have no cycle-counted delay; the FAT tests never call this.
+#[cfg(not(target_arch = "arm"))]
+#[inline(never)]
+pub fn sdelay(_loops: u32) {}

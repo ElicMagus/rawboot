@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Unlicense
 
-//! Read-only FAT access over the SD/MMC driver.
+//! FAT access over the SD/MMC driver.
 //!
 //! [`mount`] locates and mounts a FAT volume through [`block::BlockDevice`].
 //! [`read_boot_files`] is the loader's convenience on top of it: a fixed
-//! `payload.bin` path plus an optional `boot.cfg`, into caller-owned buffers,
-//! so the module never allocates.
+//! `payload.bin` path plus an optional `boot.cfg`, into caller-owned buffers.
+//! [`create_or_replace_file`] writes or replaces a file in the volume's root
+//! from a caller-owned buffer. Neither path allocates.
 use crate::console::info;
 
 pub mod block;
@@ -13,12 +14,14 @@ pub mod partition;
 
 use core::fmt;
 
+#[cfg(feature = "write")]
+use core_io::Write;
 use core_io::{Error, ErrorKind, Read, Seek, SeekFrom};
 use fatfs::{FileSystem, FsOptions};
 
 use crate::sdcard::{Sdcard_data, sdmmc_blk_read};
 
-use block::BlockDevice;
+use block::{BlockDevice, BlockIo, SdCardIo};
 use partition::{BLOCK_SIZE, MAX_CANDIDATES, Partition};
 
 /// The fixed payload path on the FAT volume.
@@ -37,6 +40,7 @@ pub struct BootFiles {
 }
 
 /// Why one of the boot files could not be read.
+#[derive(Debug)]
 pub enum FileError {
     /// The file exists but cannot be opened.
     Open(Error),
@@ -58,7 +62,34 @@ impl fmt::Display for FileError {
     }
 }
 
+/// Why a file could not be created, replaced, or flushed.
+#[cfg(feature = "write")]
+#[derive(Debug)]
+pub enum WriteError {
+    /// The root directory could not create or open the entry.
+    Create(Error),
+    /// The existing contents could not be discarded.
+    Truncate(Error),
+    /// The caller's bytes could not be written in full.
+    Write(Error),
+    /// The final dirty block could not be written to the card.
+    Flush(Error),
+}
+
+#[cfg(feature = "write")]
+impl fmt::Display for WriteError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Create(err) => write!(f, "cannot create: {err}"),
+            Self::Truncate(err) => write!(f, "cannot truncate: {err}"),
+            Self::Write(err) => write!(f, "cannot write: {err}"),
+            Self::Flush(err) => write!(f, "cannot flush: {err}"),
+        }
+    }
+}
+
 /// Why the boot files could not be read.
+#[derive(Debug)]
 pub enum FatError {
     /// The SD/MMC card did not initialise.
     CardOffline,
@@ -125,6 +156,25 @@ pub fn read_boot_files(
     })
 }
 
+/// Creates `name` in the volume's root or replaces its contents with `data`.
+///
+/// `data` belongs to the caller, so a flashing image can hand over its staged
+/// bytes without an allocator or a copy. The file is truncated first, then
+/// written and flushed; a failure at any step is returned with the step name.
+/// The caller still owns `fs` and should unmount it after the write.
+#[cfg(feature = "write")]
+pub fn create_or_replace_file<B: BlockIo>(
+    fs: &FileSystem<BlockDevice<B>>,
+    name: &str,
+    data: &[u8],
+) -> Result<(), WriteError> {
+    let root = fs.root_dir();
+    let mut file = root.create_file(name).map_err(WriteError::Create)?;
+    file.truncate().map_err(WriteError::Truncate)?;
+    file.write_all(data).map_err(WriteError::Write)?;
+    file.flush().map_err(WriteError::Flush)
+}
+
 fn read_file(file: &mut (impl Read + Seek), buf: &mut [u8]) -> Result<usize, FileError> {
     let size = file.seek(SeekFrom::End(0)).map_err(FileError::Read)?;
     if size > buf.len() as u64 {
@@ -153,7 +203,9 @@ fn read_args_file(file: &mut (impl Read + Seek), buf: &mut [u8]) -> Result<usize
 
 /// Mounts the first FAT volume on `sd`, probing a bare volume and then the MBR
 /// partitions.
-pub fn mount(sd: &mut Sdcard_data) -> Result<(FileSystem<BlockDevice<'_>>, Partition), FatError> {
+pub fn mount(
+    sd: &mut Sdcard_data,
+) -> Result<(FileSystem<BlockDevice<SdCardIo<'_>>>, Partition), FatError> {
     let candidates = find_candidates(sd)?;
     let mut chosen = None;
     let mut last_error = None;
@@ -161,7 +213,7 @@ pub fn mount(sd: &mut Sdcard_data) -> Result<(FileSystem<BlockDevice<'_>>, Parti
     // Probe candidates in order; a bare-volume false positive falls through to
     // the MBR entries. The probe's filesystem is dropped before the real mount.
     for partition in candidates.into_iter().flatten() {
-        let device = BlockDevice::new(sd, partition);
+        let device = BlockDevice::new(SdCardIo::new(sd), partition);
         match FileSystem::new(device, FsOptions::new()) {
             Ok(fs) => {
                 drop(fs);
@@ -179,9 +231,19 @@ pub fn mount(sd: &mut Sdcard_data) -> Result<(FileSystem<BlockDevice<'_>>, Parti
         });
     };
 
-    let device = BlockDevice::new(sd, partition);
-    let fs = FileSystem::new(device, FsOptions::new()).map_err(FatError::Mount)?;
+    let fs = mount_partition(SdCardIo::new(sd), partition)?;
     Ok((fs, partition))
+}
+
+/// Mounts a FAT volume at `partition` on an arbitrary block device.
+///
+/// The loader reaches this through [`mount`]; host tests supply an in-memory
+/// [`BlockIo`].
+pub fn mount_partition<B: BlockIo>(
+    io: B,
+    partition: Partition,
+) -> Result<FileSystem<BlockDevice<B>>, FatError> {
+    FileSystem::new(BlockDevice::new(io, partition), FsOptions::new()).map_err(FatError::Mount)
 }
 
 fn find_candidates(sd: &mut Sdcard_data) -> Result<[Option<Partition>; MAX_CANDIDATES], FatError> {
@@ -196,3 +258,6 @@ fn find_candidates(sd: &mut Sdcard_data) -> Result<[Option<Partition>; MAX_CANDI
 
     Ok(partition::candidates(&sector, sd.card.capacity))
 }
+
+#[cfg(all(test, feature = "write"))]
+mod tests;

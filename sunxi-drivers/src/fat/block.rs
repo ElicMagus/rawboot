@@ -1,37 +1,128 @@
 // SPDX-License-Identifier: Unlicense
 
-//! Read-only block-device adapter for `fatfs`.
+//! Block-device adapter for `fatfs`.
 //!
-//! `fatfs` seeks and reads arbitrary byte ranges; the SD card hands out whole
-//! blocks. This adapter turns the latter into the former and offsets every
-//! access by the FAT partition's start block.
+//! `fatfs` seeks and reads or writes arbitrary byte ranges; the SD card hands
+//! out whole blocks. This adapter turns the latter into the former, offsets
+//! every access by the FAT partition's start block, and keeps one dirty block
+//! cached until a sequential write completes or the caller flushes.
+//!
+//! [`BlockIo`] is the seam that keeps the adapter testable on the host: the SD
+//! card provides an implementation backed by SDHCI, and a test supplies an
+//! in-memory one.
 
 use core::cmp::min;
 
 use core_io::{Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 
+#[cfg(feature = "write")]
+use crate::sdcard::{SdError, sdmmc_blk_write};
 use crate::sdcard::{Sdcard_data, sdmmc_blk_read};
 
 use super::partition::{BLOCK_SIZE, Partition};
 
 const BLOCK_SIZE_USIZE: usize = BLOCK_SIZE as usize;
 
-pub struct BlockDevice<'a> {
+/// A device made of [`BLOCK_SIZE`]-byte blocks.
+pub trait BlockIo {
+    /// Reads whole blocks into `buf`, which must be a multiple of the block
+    /// size.
+    fn read_blocks(&mut self, lba: u64, buf: &mut [u8]) -> core::result::Result<(), BlockError>;
+
+    /// Writes whole blocks from `buf`, which must be a multiple of the block
+    /// size.
+    #[cfg(feature = "write")]
+    fn write_blocks(&mut self, lba: u64, buf: &[u8]) -> core::result::Result<(), BlockError>;
+}
+
+/// Why a block access failed, with the range that failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockError {
+    /// The card did not initialise.
+    Offline,
+    /// A block read failed.
+    Read { lba: u64, blocks: u64 },
+    /// A block write failed.
+    Write { lba: u64, blocks: u64 },
+}
+
+impl BlockError {
+    fn to_io(self) -> Error {
+        match self {
+            Self::Offline => Error::new(ErrorKind::Other, "SD/MMC card is not online"),
+            Self::Read { .. } => Error::new(ErrorKind::Other, "SD block read failed"),
+            Self::Write { .. } => Error::new(ErrorKind::Other, "SD block write failed"),
+        }
+    }
+}
+
+/// [`BlockIo`] over the SD/MMC driver.
+pub struct SdCardIo<'a> {
     sd: &'a mut Sdcard_data,
+}
+
+impl<'a> SdCardIo<'a> {
+    pub fn new(sd: &'a mut Sdcard_data) -> Self {
+        Self { sd }
+    }
+}
+
+impl BlockIo for SdCardIo<'_> {
+    fn read_blocks(&mut self, lba: u64, buf: &mut [u8]) -> core::result::Result<(), BlockError> {
+        let blocks = (buf.len() / BLOCK_SIZE_USIZE) as u64;
+        if blocks == 0 {
+            return Ok(());
+        }
+        if !self.sd.online {
+            return Err(BlockError::Offline);
+        }
+        if sdmmc_blk_read(self.sd, buf.as_mut_ptr(), lba, blocks) != blocks {
+            return Err(BlockError::Read { lba, blocks });
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "write")]
+    fn write_blocks(&mut self, lba: u64, buf: &[u8]) -> core::result::Result<(), BlockError> {
+        let blocks = (buf.len() / BLOCK_SIZE_USIZE) as u64;
+        if blocks == 0 {
+            return Ok(());
+        }
+        sdmmc_blk_write(self.sd, buf.as_ptr(), lba, blocks).map_err(|err| match err {
+            SdError::Offline => BlockError::Offline,
+            SdError::Write { blkno, blkcnt } => BlockError::Write {
+                lba: blkno,
+                blocks: blkcnt,
+            },
+        })
+    }
+}
+
+/// A byte-addressable view of a [`BlockIo`] partition with a write-back block
+/// cache.
+///
+/// Reads never bypass an unflushed cache, and switching blocks flushes the
+/// previous one first. [`Write::flush`] is the only place a dirty block is
+/// written, so callers must flush before unmounting or handing the card to
+/// another driver.
+pub struct BlockDevice<B: BlockIo> {
+    io: B,
     partition: Partition,
     offset: u64,
     cached_lba: Option<u64>,
     cache: [u8; BLOCK_SIZE_USIZE],
+    dirty: bool,
 }
 
-impl<'a> BlockDevice<'a> {
-    pub fn new(sd: &'a mut Sdcard_data, partition: Partition) -> Self {
+impl<B: BlockIo> BlockDevice<B> {
+    pub fn new(io: B, partition: Partition) -> Self {
         Self {
-            sd,
+            io,
             partition,
             offset: 0,
             cached_lba: None,
             cache: [0; BLOCK_SIZE_USIZE],
+            dirty: false,
         }
     }
 
@@ -43,23 +134,46 @@ impl<'a> BlockDevice<'a> {
         self.partition.base_lba + offset / BLOCK_SIZE
     }
 
-    fn read_block(&mut self, lba: u64) -> Result<&[u8; BLOCK_SIZE_USIZE]> {
-        if self.cached_lba != Some(lba) {
-            let read = sdmmc_blk_read(self.sd, self.cache.as_mut_ptr(), lba, 1);
-            if read != 1 {
-                return Err(read_error());
-            }
-            self.cached_lba = Some(lba);
+    #[cfg(feature = "write")]
+    fn flush_cache(&mut self) -> Result<()> {
+        if !self.dirty {
+            return Ok(());
         }
+        let lba = self.cached_lba.expect("a dirty cache always has a block");
+        self.io
+            .write_blocks(lba, &self.cache)
+            .map_err(BlockError::to_io)?;
+        self.dirty = false;
+        Ok(())
+    }
+
+    /// Without the `write` feature the device is read-only, so the cache can
+    /// never be dirty and there is nothing to flush.
+    #[cfg(not(feature = "write"))]
+    fn flush_cache(&mut self) -> Result<()> {
+        debug_assert!(!self.dirty, "a read-only device cannot cache a write");
+        Ok(())
+    }
+
+    fn ensure_block(&mut self, lba: u64) -> Result<()> {
+        if self.cached_lba != Some(lba) {
+            self.flush_cache()?;
+            self.io
+                .read_blocks(lba, &mut self.cache)
+                .map_err(BlockError::to_io)?;
+            self.cached_lba = Some(lba);
+            self.dirty = false;
+        }
+        Ok(())
+    }
+
+    fn read_block(&mut self, lba: u64) -> Result<&[u8; BLOCK_SIZE_USIZE]> {
+        self.ensure_block(lba)?;
         Ok(&self.cache)
     }
 }
 
-fn read_error() -> Error {
-    Error::new(ErrorKind::Other, "SD block read failed")
-}
-
-impl Read for BlockDevice<'_> {
+impl<B: BlockIo> Read for BlockDevice<B> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         let len = min(
             buf.len() as u64,
@@ -74,13 +188,13 @@ impl Read for BlockDevice<'_> {
             if offset_in_block == 0 {
                 let blocks = left / BLOCK_SIZE_USIZE;
                 if blocks > 0 {
+                    self.flush_cache()?;
                     let lba = self.block_lba(self.offset);
-                    let read =
-                        sdmmc_blk_read(self.sd, buf[done..].as_mut_ptr(), lba, blocks as u64);
-                    if read != blocks as u64 {
-                        return Err(read_error());
-                    }
                     let bytes = blocks * BLOCK_SIZE_USIZE;
+                    self.io
+                        .read_blocks(lba, &mut buf[done..done + bytes])
+                        .map_err(BlockError::to_io)?;
+                    self.cached_lba = None;
                     done += bytes;
                     self.offset += bytes as u64;
                     continue;
@@ -100,13 +214,65 @@ impl Read for BlockDevice<'_> {
     }
 }
 
-impl Write for BlockDevice<'_> {
-    fn write(&mut self, _buf: &[u8]) -> Result<usize> {
-        Err(Error::new(ErrorKind::Unsupported, "SD card is read-only"))
+#[cfg(feature = "write")]
+impl<B: BlockIo> Write for BlockDevice<B> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        let len = min(
+            buf.len() as u64,
+            self.len_bytes().saturating_sub(self.offset),
+        ) as usize;
+        let mut done = 0;
+
+        while done < len {
+            let offset_in_block = (self.offset % BLOCK_SIZE) as usize;
+            let left = len - done;
+
+            if offset_in_block == 0 {
+                let blocks = left / BLOCK_SIZE_USIZE;
+                if blocks > 0 {
+                    self.flush_cache()?;
+                    let lba = self.block_lba(self.offset);
+                    let bytes = blocks * BLOCK_SIZE_USIZE;
+                    self.io
+                        .write_blocks(lba, &buf[done..done + bytes])
+                        .map_err(BlockError::to_io)?;
+                    self.cached_lba = None;
+                    done += bytes;
+                    self.offset += bytes as u64;
+                    continue;
+                }
+            }
+
+            let lba = self.block_lba(self.offset);
+            let count = min(BLOCK_SIZE_USIZE - offset_in_block, left);
+            self.ensure_block(lba)?;
+            self.cache[offset_in_block..offset_in_block + count]
+                .copy_from_slice(&buf[done..done + count]);
+            self.dirty = true;
+            done += count;
+            self.offset += count as u64;
+        }
+
+        Ok(len)
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        self.flush_cache()
     }
 }
 
-impl Seek for BlockDevice<'_> {
+#[cfg(not(feature = "write"))]
+impl<B: BlockIo> Write for BlockDevice<B> {
+    fn write(&mut self, _buf: &[u8]) -> Result<usize> {
+        Err(Error::new(ErrorKind::Unsupported, "SD card is read-only"))
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl<B: BlockIo> Seek for BlockDevice<B> {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
         let new_offset = match pos {
             SeekFrom::Start(offset) => offset as i64,

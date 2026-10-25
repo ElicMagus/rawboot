@@ -14,10 +14,13 @@ members = [
 exclude = ["vendor/core_io"]
 # The xtask and rawboot-fel are host tools and must not be built for the
 # loader's bare-metal default target; keep them out of the default build.
+# `sunxi-drivers` is a library, not an image: building it as a root package
+# would enable its default `write` feature through feature unification even
+# though `rawboot` asks for `default-features = false`.
 # `rawboot-image` is also out: its default `alloc` feature is for the host
 # tooling, and as a root package it would unify into the loader's dependency and
 # demand a global allocator.
-default-members = ["rawboot", "rawboot-rt", "payload", "sunxi-pl", "sunxi-drivers"]
+default-members = ["rawboot", "rawboot-rt", "payload", "sunxi-pl"]
 
 # `fatfs` without `std` depends on `core_io` 0.1, whose generated source needs
 # nightly features and no longer builds on stable Rust. The local shim carries

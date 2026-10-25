@@ -24,13 +24,18 @@ Standard commands:
 - Build: `cargo build --release` (`xtask` and its host-only image tooling are kept out of the
   bare-metal `default-members`; `rawboot-image` is still built as the loader's no-alloc
   dependency)
-- Test (host, tooling): `cargo test -p rawboot-image -p rawboot-fel -p xtask --target x86_64-unknown-linux-gnu`
+- Test (host, tooling): `cargo test -p rawboot-image -p rawboot-fel -p xtask -p sunxi-drivers --target x86_64-unknown-linux-gnu`
   (the workspace default target is `armv7a-none-eabi`, so host tests need an explicit
-  `--target` and the package scope keeps the bare-metal members out of the host build)
+  `--target`; the package scope keeps the hardware-only bare-metal members out of the host
+  build. `sunxi-drivers` has host unit tests for the block adapter and FAT writes over a
+  mock disk; they need no board.)
 - Lint: `cargo clippy -- -D warnings` (the `no_std` crates have no host test
   target, so `--all-targets` cannot build the libtest harness on
-  `armv7a-none-eabi`; the host tooling is linted with
-  `cargo clippy -p rawboot-image -p rawboot-fel -p xtask --target x86_64-unknown-linux-gnu --all-targets -- -D warnings`;
+  `armv7a-none-eabi`; `sunxi-drivers` is not a default member, so its two feature sets
+  are linted explicitly with `cargo clippy -p sunxi-drivers -- -D warnings` and
+  `cargo clippy -p sunxi-drivers --no-default-features -- -D warnings`; the host
+  tooling and the host-testable driver tests are linted with
+  `cargo clippy -p rawboot-image -p rawboot-fel -p xtask -p sunxi-drivers --target x86_64-unknown-linux-gnu --all-targets -- -D warnings`;
   the `core_io` shim is linted with
   `cargo clippy --manifest-path vendor/core_io/Cargo.toml --target-dir target/core_io-shim -- -D warnings`)
 - Format: `cargo fmt` (CI runs `cargo fmt --all -- --check`)

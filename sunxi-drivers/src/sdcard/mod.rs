@@ -101,6 +101,32 @@ pub const MMC_STATUS_DIS: u32 = 8;
 pub const MMC_STATUS_BTST: u32 = 9;
 pub const MMC_STATUS_SLP: u32 = 10;
 
+pub const MMC_STATUS_ERROR: u32 = 1 << 19;
+pub const MMC_STATUS_CC_ERROR: u32 = 1 << 20;
+pub const MMC_STATUS_ECC_FAILED: u32 = 1 << 21;
+pub const MMC_STATUS_ILLEGAL_COMMAND: u32 = 1 << 22;
+pub const MMC_STATUS_COM_CRC_ERROR: u32 = 1 << 23;
+pub const MMC_STATUS_LOCK_UNLOCK_FAILED: u32 = 1 << 24;
+pub const MMC_STATUS_WP_VIOLATION: u32 = 1 << 26;
+pub const MMC_STATUS_ERASE_PARAM: u32 = 1 << 27;
+pub const MMC_STATUS_ERASE_SEQ_ERROR: u32 = 1 << 28;
+pub const MMC_STATUS_BLOCK_LEN_ERROR: u32 = 1 << 29;
+pub const MMC_STATUS_ADDRESS_ERROR: u32 = 1 << 30;
+pub const MMC_STATUS_OUT_OF_RANGE: u32 = 1 << 31;
+#[cfg(feature = "write")]
+const MMC_STATUS_ERROR_BITS: u32 = MMC_STATUS_ERROR
+    | MMC_STATUS_CC_ERROR
+    | MMC_STATUS_ECC_FAILED
+    | MMC_STATUS_ILLEGAL_COMMAND
+    | MMC_STATUS_COM_CRC_ERROR
+    | MMC_STATUS_LOCK_UNLOCK_FAILED
+    | MMC_STATUS_WP_VIOLATION
+    | MMC_STATUS_ERASE_PARAM
+    | MMC_STATUS_ERASE_SEQ_ERROR
+    | MMC_STATUS_BLOCK_LEN_ERROR
+    | MMC_STATUS_ADDRESS_ERROR
+    | MMC_STATUS_OUT_OF_RANGE;
+
 pub const OCR_BUSY: u32 = 0x8000_0000;
 pub const OCR_HCS: u32 = 0x4000_0000;
 pub const OCR_VOLTAGE_MASK: u32 = 0x00ff_ff80;
@@ -203,6 +229,15 @@ pub struct Sdcard_data {
     pub online: bool,
 }
 
+/// Why a card write was rejected or failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SdError {
+    /// The card did not initialise, so nothing may be written to it.
+    Offline,
+    /// A block write failed; the range is reported for the caller's log.
+    Write { blkno: u64, blkcnt: u64 },
+}
+
 pub fn sdmmc_init(data: &mut Sdcard_data) -> i32 {
     data.online = false;
     let mut retries = 10i32;
@@ -245,6 +280,38 @@ pub fn sdmmc_blk_read(
         buf = buf.wrapping_add((cnt * card.read_bl_len as u64) as usize);
     }
     blkcnt
+}
+
+/// Writes `blkcnt` blocks starting at `blkno` from `buf`.
+///
+/// The caller owns `buf`; the card never reads past `blkcnt * blksz` bytes. The
+/// write is split into the same 127-block chunks as [`sdmmc_blk_read`]. An
+/// offline card and a failed transfer are reported instead of being treated as
+/// a successful short write.
+#[cfg(feature = "write")]
+pub fn sdmmc_blk_write(
+    data: &mut Sdcard_data,
+    mut buf: *const u8,
+    mut blkno: u64,
+    blkcnt: u64,
+) -> Result<(), SdError> {
+    if !data.online {
+        return Err(SdError::Offline);
+    }
+
+    let mut blks = blkcnt;
+    let card = data.card;
+
+    while blks > 0 {
+        let cnt = if blks > 127 { 127 } else { blks };
+        if sdmmc_write_blocks(&mut data.hci, &card, buf, blkno, cnt) != cnt {
+            return Err(SdError::Write { blkno, blkcnt: cnt });
+        }
+        blks -= cnt;
+        blkno += cnt;
+        buf = buf.wrapping_add((cnt * card.write_bl_len as u64) as usize);
+    }
+    Ok(())
 }
 
 fn go_idle_state(hci: &mut Sdhci) -> bool {
@@ -403,7 +470,7 @@ fn mmc_send_op_cond(hci: &mut Sdhci, card: &mut Sdcard) -> bool {
     true
 }
 
-fn sdmmc_status(hci: &mut Sdhci, card: &Sdcard) -> i32 {
+fn sdmmc_status_response(hci: &mut Sdhci, card: &Sdcard) -> Option<u32> {
     let mut cmd = SdhciCmd::default();
     let mut retries = 100i32;
 
@@ -424,10 +491,18 @@ fn sdmmc_status(hci: &mut Sdhci, card: &Sdcard) -> i32 {
         }
     }
     if retries > 0 {
-        return ((cmd.response[0] >> 9) & 0xf) as i32;
+        Some(cmd.response[0])
+    } else {
+        info!("SMHC: status error\r\n");
+        None
     }
-    info!("SMHC: status error\r\n");
-    -1
+}
+
+fn sdmmc_status(hci: &mut Sdhci, card: &Sdcard) -> i32 {
+    match sdmmc_status_response(hci, card) {
+        Some(response) => ((response >> 9) & 0xf) as i32,
+        None => -1,
+    }
 }
 
 fn sdmmc_read_blocks(hci: &mut Sdhci, card: &Sdcard, buf: *mut u8, start: u64, blkcnt: u64) -> u64 {
@@ -465,6 +540,66 @@ fn sdmmc_read_blocks(hci: &mut Sdhci, card: &Sdcard, buf: *mut u8, start: u64, b
             }
 
             if status == MMC_STATUS_TRAN as i32 || status == MMC_STATUS_DATA as i32 {
+                break;
+            }
+        }
+    }
+
+    if blkcnt > 1 {
+        cmd.idx = MMC_STOP_TRANSMISSION;
+        cmd.arg = 0;
+        cmd.resptype = MMC_RSP_R1B;
+        if !sdhci_transfer(hci, &mut cmd, None) {
+            info!("SMHC: transfer stop failed\r\n");
+            return 0;
+        }
+    }
+    blkcnt
+}
+
+#[cfg(feature = "write")]
+fn sdmmc_write_blocks(
+    hci: &mut Sdhci,
+    card: &Sdcard,
+    buf: *const u8,
+    start: u64,
+    blkcnt: u64,
+) -> u64 {
+    let mut cmd = SdhciCmd::default();
+    let dat = SdhciData {
+        buf: buf as *mut u8,
+        flag: MMC_DATA_WRITE,
+        blksz: card.write_bl_len,
+        blkcnt: blkcnt as u32,
+    };
+    if blkcnt > 1 {
+        cmd.idx = MMC_WRITE_MULTIPLE_BLOCK;
+    } else {
+        cmd.idx = MMC_WRITE_SINGLE_BLOCK;
+    }
+    if card.high_capacity != 0 {
+        cmd.arg = start as u32;
+    } else {
+        cmd.arg = (start * card.write_bl_len as u64) as u32;
+    }
+    cmd.resptype = MMC_RSP_R1;
+
+    if !sdhci_transfer(hci, &mut cmd, Some(&dat)) {
+        info!("SMHC: write failed\r\n");
+        return 0;
+    }
+
+    if !hci.isspi {
+        loop {
+            let Some(response) = sdmmc_status_response(hci, card) else {
+                return 0;
+            };
+            if response & MMC_STATUS_ERROR_BITS != 0 {
+                info!("SMHC: write status error 0x{:08x}\r\n", response);
+                return 0;
+            }
+
+            if (response >> 9) & 0xf == MMC_STATUS_TRAN {
                 break;
             }
         }
