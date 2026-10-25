@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Unlicense
 
+use crate::console::info;
+
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use crate::{
-    ccu,
-    io::{read32, sdelay, write32},
-    print,
-};
+use sunxi_pl::io::{read32, sdelay, write32};
+
+use crate::ccu;
 
 const CLK_WAIT_TIMEOUT: u32 = 2_000_000;
 
@@ -220,7 +220,7 @@ pub fn sunxi_clk_dump() {
         2 => 4,
         _ => 1,
     };
-    print!(
+    info!(
         "CLK: CPU PLL={} FREQ={}MHz\r\n",
         clock_str,
         (((reg32 >> 8) & 0xff) + 1) * 24 / p1
@@ -232,14 +232,14 @@ pub fn sunxi_clk_dump() {
         let pllm = (reg32 & 0x01) + 1;
         let p0 = ((reg32 >> 16) & 0x03) + 1;
         let p1 = ((reg32 >> 20) & 0x03) + 1;
-        print!(
+        info!(
             "CLK: PLL_peri (2X)={}MHz, (1X)={}MHz, (800M)={}MHz\r\n",
             (24 * plln) / (pllm * p0),
             ((24 * plln) / (pllm * p0)) >> 1,
             (24 * plln) / (pllm * p1)
         );
     } else {
-        print!("CLK: PLL_peri disabled\r\n");
+        info!("CLK: PLL_peri disabled\r\n");
     }
 
     let reg32 = read32(ccu::BASE + ccu::PLL_DDR_CTRL_REG);
@@ -247,8 +247,8 @@ pub fn sunxi_clk_dump() {
         let plln = ((reg32 >> 8) & 0xff) + 1;
         let p1 = ((reg32 >> 1) & 0x1) + 1;
         let p0 = (reg32 & 0x01) + 1;
-        print!("CLK: PLL_ddr={}MHz\r\n", (24 * plln) / (p0 * p1));
+        info!("CLK: PLL_ddr={}MHz\r\n", (24 * plln) / (p0 * p1));
     } else {
-        print!("CLK: PLL_ddr disabled\r\n");
+        info!("CLK: PLL_ddr disabled\r\n");
     }
 }

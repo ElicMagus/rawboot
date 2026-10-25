@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Unlicense
 
-use crate::ccu;
-use crate::gpio::{
+use core::fmt;
+
+use sunxi_pl::gpio::{
     GPIO_PERIPH_MUX6, GpioMux, GpioPull, PORTE, gpio_pin, sunxi_gpio_init, sunxi_gpio_set_pull,
 };
-use crate::io::{read32, write32};
-use core::fmt;
+use sunxi_pl::io::{read32, write32};
+
+use crate::ccu;
+use crate::console::Console;
 
 const UART0_BASE: u32 = 0x0250_0000;
 const UART_MX: u32 = 0x400;
@@ -113,12 +116,21 @@ pub fn sunxi_usart_get(usart: &SunxiUsart, out: &mut [u8]) {
 
 pub struct UartConsole;
 
+impl Console for UartConsole {
+    fn write_str(&self, s: &str) {
+        sunxi_usart_put(&usart0_dbg, s.as_bytes());
+    }
+}
+
 impl fmt::Write for UartConsole {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        sunxi_usart_put(&usart0_dbg, s.as_bytes());
+        Console::write_str(self, s);
         Ok(())
     }
 }
+
+/// The USART0 console, ready to install with [`crate::console::set_console`].
+pub static UART_CONSOLE: UartConsole = UartConsole;
 
 pub fn console() -> impl core::fmt::Write {
     UartConsole

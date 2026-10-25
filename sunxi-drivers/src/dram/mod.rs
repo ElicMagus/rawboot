@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Unlicense
 
 #![allow(dead_code, unused_assignments)]
+use crate::console::info;
 
-use crate::{
-    ccu,
+use sunxi_pl::{
+    cpu::udelay,
     io::{read32, sdelay, write32},
-    print,
 };
-use rawboot_rt::cpu::udelay;
+
+use crate::ccu;
 
 #[inline(always)]
 fn clrsetbits_le32(addr: u32, clear: u32, set: u32) {
@@ -189,34 +190,34 @@ static CFG7: [u8; 22] = [
 #[derive(Clone, Debug)]
 pub struct DramPara {
     //normal configuration
-    dram_clk: u32,
-    dram_type: u32, //dram_type			DDR2: 2				DDR3: 3		LPDDR2: 6	LPDDR3: 7	DDR3L: 31
+    pub dram_clk: u32,
+    pub dram_type: u32, //dram_type			DDR2: 2				DDR3: 3		LPDDR2: 6	LPDDR3: 7	DDR3L: 31
     //unsigned int        lpddr2_type,	//LPDDR2 type		S4:0	S2:1 	NVM:2
-    dram_zq: u32, //do not need
-    dram_odt_en: u32,
+    pub dram_zq: u32, //do not need
+    pub dram_odt_en: u32,
     //control configuration
-    dram_para1: u32,
-    dram_para2: u32,
+    pub dram_para1: u32,
+    pub dram_para2: u32,
     //timing configuration
-    dram_mr0: u32,
-    dram_mr1: u32,
-    dram_mr2: u32,
-    dram_mr3: u32,
-    dram_tpr0: u32, //DRAMTMG0
-    dram_tpr1: u32, //DRAMTMG1
-    dram_tpr2: u32, //DRAMTMG2
-    dram_tpr3: u32, //DRAMTMG3
-    dram_tpr4: u32, //DRAMTMG4
-    dram_tpr5: u32, //DRAMTMG5
-    dram_tpr6: u32, //DRAMTMG8
+    pub dram_mr0: u32,
+    pub dram_mr1: u32,
+    pub dram_mr2: u32,
+    pub dram_mr3: u32,
+    pub dram_tpr0: u32, //DRAMTMG0
+    pub dram_tpr1: u32, //DRAMTMG1
+    pub dram_tpr2: u32, //DRAMTMG2
+    pub dram_tpr3: u32, //DRAMTMG3
+    pub dram_tpr4: u32, //DRAMTMG4
+    pub dram_tpr5: u32, //DRAMTMG5
+    pub dram_tpr6: u32, //DRAMTMG8
     //reserved for future use
-    dram_tpr7: u32,
-    dram_tpr8: u32,
-    dram_tpr9: u32,
-    dram_tpr10: u32,
-    dram_tpr11: u32,
-    dram_tpr12: u32,
-    dram_tpr13: u32,
+    pub dram_tpr7: u32,
+    pub dram_tpr8: u32,
+    pub dram_tpr9: u32,
+    pub dram_tpr10: u32,
+    pub dram_tpr11: u32,
+    pub dram_tpr12: u32,
+    pub dram_tpr13: u32,
 }
 
 impl Default for DramPara {
@@ -288,17 +289,17 @@ impl DramPara {
         // print!("DRAM CLK = {:?} MHz\r\n", self.dram_clk);
         // print!("DRAM Type = {:?} (2:DDR2,3:DDR3)\r\n", self.dram_type);
         if (self.dram_odt_en & 0x1) == 0 {
-            print!("DRAMC read ODT  off.\r\n");
+            info!("DRAMC read ODT  off.\r\n");
         } else {
-            print!("DRAMC ZQ value: 0x{:x?}\r\n", self.dram_zq);
+            info!("DRAMC ZQ value: 0x{:x?}\r\n", self.dram_zq);
         }
 
         // report ODT
         rc = self.dram_mr1;
         if (rc & 0x44) == 0 {
-            print!("DRAM ODT off.\r\n");
+            info!("DRAM ODT off.\r\n");
         } else {
-            print!("DRAM ODT value: 0x{:x?}.\r\n", rc);
+            info!("DRAM ODT value: 0x{:x?}.\r\n", rc);
         }
 
         // Init core, final run
@@ -1230,11 +1231,11 @@ impl DramPara {
 
             let tref = (self.dram_tpr4 << 0x10) >> 0x1c;
             if tref == 1 {
-                print!("trefi:3.9ms\r\n");
+                info!("trefi:3.9ms\r\n");
             } else if tref == 2 {
-                print!("trefi:1.95ms\r\n");
+                info!("trefi:1.95ms\r\n");
             } else {
-                print!("trefi:7.8ms\r\n");
+                info!("trefi:7.8ms\r\n");
             }
         }
 
@@ -1892,7 +1893,7 @@ impl DramPara {
             }
             i += 4;
         }
-        print!("DRAM simple test OK.\r\n");
+        info!("DRAM simple test OK.\r\n");
         0
     }
 }

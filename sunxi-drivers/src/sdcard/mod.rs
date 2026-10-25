@@ -6,17 +6,16 @@
     non_snake_case,
     non_upper_case_globals
 )]
+use crate::console::info;
 
 use core::cmp::min;
-use rawboot_rt::cpu::udelay;
 
-use crate::{
-    print,
-    sdhci::{
-        MMC_BUS_WIDTH_1, MMC_BUS_WIDTH_4, MMC_CLK_25M, MMC_CLK_50M, MMC_CLK_50M_DDR, MMC_CLK_400K,
-        MMC_VDD_27_36, MMC_VDD_165_195, Sdhci, SdhciCmd, SdhciData, sdhci_reset, sdhci_set_clock,
-        sdhci_set_width, sdhci_transfer,
-    },
+use sunxi_pl::cpu::udelay;
+
+use crate::sdhci::{
+    MMC_BUS_WIDTH_1, MMC_BUS_WIDTH_4, MMC_CLK_25M, MMC_CLK_50M, MMC_CLK_50M_DDR, MMC_CLK_400K,
+    MMC_VDD_27_36, MMC_VDD_165_195, Sdhci, SdhciCmd, SdhciData, sdhci_reset, sdhci_set_clock,
+    sdhci_set_width, sdhci_transfer,
 };
 
 pub const MMC_GO_IDLE_STATE: u32 = 0;
@@ -211,7 +210,7 @@ pub fn sdmmc_init(data: &mut Sdcard_data) -> i32 {
     loop {
         if sdmmc_detect(&mut data.hci, &mut data.card) {
             data.online = true;
-            print!("SD/MMC card found\r\n");
+            info!("SD/MMC card found\r\n");
             return 0;
         }
 
@@ -223,7 +222,7 @@ pub fn sdmmc_init(data: &mut Sdcard_data) -> i32 {
         }
     }
 
-    print!("SD/MMC card not found\r\n");
+    info!("SD/MMC card not found\r\n");
     -1
 }
 
@@ -427,7 +426,7 @@ fn sdmmc_status(hci: &mut Sdhci, card: &Sdcard) -> i32 {
     if retries > 0 {
         return ((cmd.response[0] >> 9) & 0xf) as i32;
     }
-    print!("SMHC: status error\r\n");
+    info!("SMHC: status error\r\n");
     -1
 }
 
@@ -454,7 +453,7 @@ fn sdmmc_read_blocks(hci: &mut Sdhci, card: &Sdcard, buf: *mut u8, start: u64, b
     cmd.resptype = MMC_RSP_R1;
 
     if !sdhci_transfer(hci, &mut cmd, Some(&dat)) {
-        print!("SMHC: read failed\r\n");
+        info!("SMHC: read failed\r\n");
         return 0;
     }
 
@@ -476,7 +475,7 @@ fn sdmmc_read_blocks(hci: &mut Sdhci, card: &Sdcard, buf: *mut u8, start: u64, b
         cmd.arg = 0;
         cmd.resptype = MMC_RSP_R1B;
         if !sdhci_transfer(hci, &mut cmd, None) {
-            print!("SMHC: transfer stop failed\r\n");
+            info!("SMHC: transfer stop failed\r\n");
             return 0;
         }
     }
@@ -492,12 +491,12 @@ fn sdmmc_detect(hci: &mut Sdhci, card: &mut Sdcard) -> bool {
 
     sdhci_reset(hci);
     if !sdhci_set_clock(hci, MMC_CLK_400K) || !sdhci_set_width(hci, MMC_BUS_WIDTH_1) {
-        print!("SMHC: set clock/width failed\r\n");
+        info!("SMHC: set clock/width failed\r\n");
         return false;
     }
 
     if !go_idle_state(hci) {
-        print!("SMHC: set idle state failed\r\n");
+        info!("SMHC: set idle state failed\r\n");
         return false;
     }
     udelay(2000);
@@ -508,7 +507,7 @@ fn sdmmc_detect(hci: &mut Sdhci, card: &mut Sdcard) -> bool {
         sdhci_set_width(hci, MMC_BUS_WIDTH_1);
 
         if !go_idle_state(hci) {
-            print!("SMHC: set idle state failed\r\n");
+            info!("SMHC: set idle state failed\r\n");
             return false;
         }
         udelay(2000);
@@ -677,7 +676,7 @@ fn sdmmc_detect(hci: &mut Sdhci, card: &mut Sdcard) -> bool {
         if !sdhci_set_clock(hci, min(card.tran_speed, hci.clock_wanted))
             || !sdhci_set_width(hci, MMC_BUS_WIDTH_1)
         {
-            print!("SMHC: set clock/width failed\r\n");
+            info!("SMHC: set clock/width failed\r\n");
             return false;
         }
     } else {
@@ -706,7 +705,7 @@ fn sdmmc_detect(hci: &mut Sdhci, card: &mut Sdcard) -> bool {
             let mut want_ddr = hci.clock_wanted == MMC_CLK_50M_DDR;
 
             if want_ddr && (card_type & EXT_CSD_CARD_TYPE_DDR_52) == 0 {
-                print!(
+                info!(
                     "SMHC: controller requested DDR but card does not advertise DDR support, falling back to high-speed SDR\r\n"
                 );
                 hci.clock_wanted = MMC_CLK_50M;
@@ -715,7 +714,7 @@ fn sdmmc_detect(hci: &mut Sdhci, card: &mut Sdcard) -> bool {
 
             if hci.clock_wanted >= MMC_CLK_50M {
                 if (card_type & (EXT_CSD_CARD_TYPE_52 | EXT_CSD_CARD_TYPE_DDR_52)) == 0 {
-                    print!("SMHC: card does not advertise high-speed timing, using 25MHz\r\n");
+                    info!("SMHC: card does not advertise high-speed timing, using 25MHz\r\n");
                     hci.clock_wanted = MMC_CLK_25M;
                     want_ddr = false;
                 } else {
@@ -777,7 +776,7 @@ fn sdmmc_detect(hci: &mut Sdhci, card: &mut Sdcard) -> bool {
         }
 
         if !sdhci_set_clock(hci, hci.clock_wanted) || !sdhci_set_width(hci, hci.width) {
-            print!("SMHC: set clock/width failed\r\n");
+            info!("SMHC: set clock/width failed\r\n");
             return false;
         }
     }

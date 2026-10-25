@@ -16,7 +16,7 @@ use super::partition::{BLOCK_SIZE, Partition};
 
 const BLOCK_SIZE_USIZE: usize = BLOCK_SIZE as usize;
 
-pub(crate) struct BlockDevice<'a> {
+pub struct BlockDevice<'a> {
     sd: &'a mut Sdcard_data,
     partition: Partition,
     offset: u64,
@@ -25,7 +25,7 @@ pub(crate) struct BlockDevice<'a> {
 }
 
 impl<'a> BlockDevice<'a> {
-    pub(crate) fn new(sd: &'a mut Sdcard_data, partition: Partition) -> Self {
+    pub fn new(sd: &'a mut Sdcard_data, partition: Partition) -> Self {
         Self {
             sd,
             partition,

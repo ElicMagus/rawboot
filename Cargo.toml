@@ -7,6 +7,7 @@ members = [
     "rawboot-fel",
     "payload",
     "sunxi-pl",
+    "sunxi-drivers",
     "xtask",
 ]
 # Vendored build-only shims, not workspace members.
@@ -16,7 +17,7 @@ exclude = ["vendor/core_io"]
 # `rawboot-image` is also out: its default `alloc` feature is for the host
 # tooling, and as a root package it would unify into the loader's dependency and
 # demand a global allocator.
-default-members = ["rawboot", "rawboot-rt", "payload", "sunxi-pl"]
+default-members = ["rawboot", "rawboot-rt", "payload", "sunxi-pl", "sunxi-drivers"]
 
 # `fatfs` without `std` depends on `core_io` 0.1, whose generated source needs
 # nightly features and no longer builds on stable Rust. The local shim carries

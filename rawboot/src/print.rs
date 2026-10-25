@@ -1,11 +1,20 @@
 // SPDX-License-Identifier: Unlicense
 
-use crate::uart;
 use core::fmt;
+use core::fmt::Write;
+
+use sunxi_drivers::console;
+use sunxi_drivers::uart;
+
+/// Routes the driver crate's progress messages to USART0.
+///
+/// Call once, after the UART is initialised and before the drivers log.
+pub fn init_console() {
+    console::set_console(&uart::UART_CONSOLE);
+}
 
 #[unsafe(no_mangle)]
 pub fn _print(args: fmt::Arguments) {
-    pub use core::fmt::Write;
     uart::console().write_fmt(args).unwrap();
 }
 

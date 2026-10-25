@@ -17,11 +17,12 @@ use rawboot_image::{
     IMAGE_HEADER_SIZE, ImageError, image_checksum, parse_header,
 };
 
-use crate::dram::SDRAM_BASE;
-use crate::fat::{self, FatError};
+use sunxi_drivers::dram::SDRAM_BASE;
+use sunxi_drivers::fat::{self, FatError};
+use sunxi_drivers::sdcard::Sdcard_data;
+
 use crate::io::{read32, write32};
 use crate::print;
-use crate::sdcard::Sdcard_data;
 
 const MIB: u32 = 1 << 20;
 

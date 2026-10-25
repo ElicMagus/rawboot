@@ -1,26 +1,28 @@
 // SPDX-License-Identifier: Unlicense
 
 #![allow(dead_code)]
+use crate::console::info;
 
 use core::{
     mem::size_of,
     sync::atomic::{Ordering, fence},
 };
 
-use rawboot_rt::cpu::{time_ms, time_us, udelay};
+use sunxi_pl::{
+    cpu::{time_ms, time_us, udelay},
+    gpio::{self, GpioMux},
+    io::{read32, write32},
+};
 
 use crate::{
     ccu, clk,
-    gpio::{self, GpioMux},
-    io::{read32, write32},
-    print,
     sdcard::{
         MMC_DATA_READ, MMC_DATA_WRITE, MMC_READ_MULTIPLE_BLOCK, MMC_RSP_136, MMC_RSP_BUSY,
         MMC_RSP_CRC, MMC_RSP_PRESENT, MMC_STOP_TRANSMISSION, MMC_WRITE_MULTIPLE_BLOCK,
     },
 };
 
-pub(crate) mod reg {
+pub mod reg {
     pub const GCTRL: u32 = 0x00;
     pub const CLKCR: u32 = 0x04;
     pub const TIMEOUT: u32 = 0x08;
@@ -530,7 +532,7 @@ fn read_bytes(sdhci: &Sdhci, dat: &SdhciData) -> bool {
     let mut status = read32(sdhci.reg + reg::STATUS);
     let mut err = read32(sdhci.reg + reg::RINT) & SMHC_RINT_INTERRUPT_ERROR_BIT;
     if err != 0 {
-        print!(
+        info!(
             "SMHC: interrupt error 0x{:x} status 0x{:x}\r\n",
             err & SMHC_RINT_INTERRUPT_ERROR_BIT,
             status
@@ -540,7 +542,7 @@ fn read_bytes(sdhci: &Sdhci, dat: &SdhciData) -> bool {
     while err == 0 && count >= size_of::<u32>() as u32 {
         while read32(sdhci.reg + reg::STATUS) & SMHC_STATUS_FIFO_EMPTY != 0 {
             if time_ms() > timeout {
-                print!("SMHC: read timeout\r\n");
+                info!("SMHC: read timeout\r\n");
                 return false;
             }
         }
@@ -574,7 +576,7 @@ fn read_bytes(sdhci: &Sdhci, dat: &SdhciData) -> bool {
     }
 
     if err & SMHC_RINT_INTERRUPT_ERROR_BIT != 0 {
-        print!(
+        info!(
             "SMHC: interrupt error 0x{:x} status 0x{:x}\r\n",
             err & SMHC_RINT_INTERRUPT_ERROR_BIT,
             status
@@ -582,7 +584,7 @@ fn read_bytes(sdhci: &Sdhci, dat: &SdhciData) -> bool {
         return false;
     }
     if count != 0 {
-        print!("SMHC: read {} leftover\r\n", count);
+        info!("SMHC: read {} leftover\r\n", count);
         return false;
     }
 
@@ -602,7 +604,7 @@ fn write_bytes(sdhci: &Sdhci, dat: &SdhciData) -> bool {
     while err == 0 && count != 0 {
         while read32(sdhci.reg + reg::STATUS) & SMHC_STATUS_FIFO_FULL != 0 {
             if time_ms() > timeout {
-                print!("SMHC: write timeout\r\n");
+                info!("SMHC: write timeout\r\n");
                 return false;
             }
         }
@@ -664,7 +666,7 @@ pub fn sdhci_set_width(sdhci: &mut Sdhci, width: u32) -> bool {
             sdhci.clock_active == MMC_CLK_50M_DDR
         }
         _ => {
-            print!("SMHC: {} width value invalid\r\n", width);
+            info!("SMHC: {} width value invalid\r\n", width);
             return false;
         }
     };
@@ -707,14 +709,14 @@ fn config_delay(sdhci: &mut Sdhci) -> bool {
     let params = match smhc_get_ccu_params(sdhci.id) {
         Some(params) => params,
         None => {
-            print!("SMHC: unsupported controller id {}\r\n", sdhci.id);
+            info!("SMHC: unsupported controller id {}\r\n", sdhci.id);
             return false;
         }
     };
 
     let freq = sdhci.clock_active;
     if freq as usize >= SMHC_CLK_COUNT {
-        print!("SMHC: invalid timing index {}\r\n", freq);
+        info!("SMHC: invalid timing index {}\r\n", freq);
         return false;
     }
 
@@ -753,7 +755,7 @@ fn config_delay(sdhci: &mut Sdhci) -> bool {
         loop {
             calib = read32(sdhci.reg + reg::SAMP_DL);
             if time_us() - timeout > SDXC_CAL_TIMEOUT_MS * 1000 {
-                print!("SMHC: sample delay calibration timeout\r\n");
+                info!("SMHC: sample delay calibration timeout\r\n");
                 write32(sdhci.reg + reg::SAMP_DL, SDXC_CAL_DL_SW_EN);
                 return false;
             }
@@ -801,7 +803,7 @@ pub fn sdhci_set_clock(sdhci: &mut Sdhci, clock: u32) -> bool {
     let params = match smhc_get_ccu_params(sdhci.id) {
         Some(params) => params,
         None => {
-            print!("SMHC: unsupported controller id {}\r\n", sdhci.id);
+            info!("SMHC: unsupported controller id {}\r\n", sdhci.id);
             return false;
         }
     };
@@ -817,7 +819,7 @@ pub fn sdhci_set_clock(sdhci: &mut Sdhci, clock: u32) -> bool {
         MMC_CLK_150M => 150_000_000,
         MMC_CLK_200M => 200_000_000,
         _ => {
-            print!("SHMC: invalid clock: {}\r\n", clock);
+            info!("SHMC: invalid clock: {}\r\n", clock);
             return false;
         }
     };
@@ -842,7 +844,7 @@ pub fn sdhci_set_clock(sdhci: &mut Sdhci, clock: u32) -> bool {
     }
 
     if n > 3 {
-        print!("mmc {} error cannot set clock to {}Hz\r\n", sdhci.name, hz);
+        info!("mmc {} error cannot set clock to {}Hz\r\n", sdhci.name, hz);
         return false;
     }
 
@@ -947,7 +949,7 @@ pub fn sdhci_transfer(sdhci: &mut Sdhci, cmd: &mut SdhciCmd, dat: Option<&SdhciD
             if time_ms().wrapping_sub(timeout) > 10 {
                 write32(sdhci.reg + reg::GCTRL, SMHC_GCTRL_HARDWARE_RESET);
                 write32(sdhci.reg + reg::RINT, 0xffff_ffff);
-                print!("SMHC: stop timeout\r\n");
+                info!("SMHC: stop timeout\r\n");
                 return false;
             }
             if status & SMHC_STATUS_CARD_DATA_BUSY == 0 {
@@ -1040,7 +1042,7 @@ pub fn sdhci_transfer(sdhci: &mut Sdhci, cmd: &mut SdhciCmd, dat: Option<&SdhciD
     }
 
     if let Err(status) = wait_done(sdhci, None, 100, SMHC_RINT_COMMAND_DONE, false) {
-        print!(
+        info!(
             "SMHC: cmd{} timeout (rint=0x{:08x}, flag=0x{:08x})\r\n",
             cmd.idx, status, SMHC_RINT_COMMAND_DONE
         );
@@ -1054,7 +1056,7 @@ pub fn sdhci_transfer(sdhci: &mut Sdhci, cmd: &mut SdhciCmd, dat: Option<&SdhciD
             SMHC_RINT_DATA_OVER
         };
         if let Err(status) = wait_done(sdhci, Some(dat), 6000, flag, dma) {
-            print!(
+            info!(
                 "SMHC: data timeout on cmd{} (rint=0x{:08x}, flag=0x{:08x}, idst=0x{:08x})\r\n",
                 cmd.idx,
                 status,
@@ -1072,7 +1074,7 @@ pub fn sdhci_transfer(sdhci: &mut Sdhci, cmd: &mut SdhciCmd, dat: Option<&SdhciD
             if time_ms().wrapping_sub(timeout) > 10 {
                 write32(sdhci.reg + reg::GCTRL, SMHC_GCTRL_HARDWARE_RESET);
                 write32(sdhci.reg + reg::RINT, 0xffff_ffff);
-                print!("SMHC: busy timeout\r\n");
+                info!("SMHC: busy timeout\r\n");
                 return false;
             }
             if status & SMHC_STATUS_CARD_DATA_BUSY == 0 {

@@ -13,15 +13,10 @@ use rawboot_rt::cpu::udelay;
 use sunxi_pl::cpu::wfe;
 
 use crate::io::read32;
+use sunxi_drivers::{clk, dram, sdcard, sdhci, uart};
+
 mod boot;
-pub mod ccu;
-pub mod clk;
-pub mod dram;
-mod fat;
 pub mod print;
-pub mod sdcard;
-pub mod sdhci;
-pub mod uart;
 
 // The shared platform layer, re-exported under the loader's module names so the
 // call sites stay `crate::gpio::…` and `crate::io::…` (ADR-0010).
@@ -35,6 +30,7 @@ fn main() -> ! {
     gpio::sunxi_gpio_write(led, 0);
 
     uart::sunxi_usart_init(&uart::usart0_dbg, 115200);
+    print::init_console();
     uart::sunxi_usart_put(&uart::usart0_dbg, b"Hello\n");
     let clk_fail = clk::sunxi_clk_get_fail_addr();
     if clk_fail != 0 {

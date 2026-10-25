@@ -8,18 +8,18 @@
 //! adds the partition offset.
 
 /// The SD block size, and the unit of MBR partition addresses.
-pub(crate) const BLOCK_SIZE: u64 = 512;
+pub const BLOCK_SIZE: u64 = 512;
 
 const BLOCK_SIZE_USIZE: usize = BLOCK_SIZE as usize;
 const SIGNATURE_OFFSET: usize = BLOCK_SIZE_USIZE - 2;
 const BOOT_SIGNATURE: [u8; 2] = [0x55, 0xaa];
 const MBR_PARTITION_TABLE: usize = 446;
 const MBR_PARTITION_ENTRIES: usize = 4;
-pub(crate) const MAX_CANDIDATES: usize = 1 + MBR_PARTITION_ENTRIES;
+pub const MAX_CANDIDATES: usize = 1 + MBR_PARTITION_ENTRIES;
 
 /// A candidate FAT volume.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Partition {
+pub struct Partition {
     /// First SD block of the volume.
     pub base_lba: u64,
     /// Volume length in bytes.
@@ -32,7 +32,7 @@ pub(crate) struct Partition {
 /// bytes, FAT32 before FAT12/16. Candidates are not validated beyond the
 /// partition table: the caller must mount each one and keep the first that
 /// `fatfs` accepts.
-pub(crate) fn candidates(
+pub fn candidates(
     sector0: &[u8; BLOCK_SIZE_USIZE],
     card_bytes: u64,
 ) -> [Option<Partition>; MAX_CANDIDATES] {

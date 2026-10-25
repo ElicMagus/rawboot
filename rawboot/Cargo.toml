@@ -11,13 +11,11 @@ boot-sd = []
 [dependencies]
 rawboot-image = { path = "../rawboot-image", default-features = false }
 rawboot-rt = { path = "../rawboot-rt" }
-# The shared platform layer: GPIO and the MMIO accessors live there, the loader
-# re-exports them under its own module names (ADR-0010).
+# The Allwinner drivers above the platform layer: clocks, DRAM, UART, SDHCI and
+# the FAT adapter (ADR-0012).
+sunxi-drivers = { path = "../sunxi-drivers" }
+# The shared platform layer: GPIO, MMIO and the timer (ADR-0010).
 sunxi-pl = { path = "../sunxi-pl" }
-core_io = "0.1"
-fatfs = { version = "0.3.6", default-features = false, features = ["core_io"] }
-# The loader has no logger; compile fatfs's trace/debug calls out entirely.
-log = { version = "0.4", features = ["max_level_off", "release_max_level_off"] }
 
 [[bin]]
 name = "rawboot"

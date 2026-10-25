@@ -1,0 +1,22 @@
+[package]
+name = "sunxi-drivers"
+version = "0.1.0"
+edition = "2024"
+license = "Unlicense"
+publish = false
+
+# The Allwinner T113-S3 drivers above `sunxi-pl`, shared by the loader and any
+# image that links them: no startup code, no eGON header, no linker scripts and
+# no global allocator (ADR-0012).
+[lib]
+test = false
+doctest = false
+
+[dependencies]
+# The shared platform layer: MMIO, GPIO and the timer (ADR-0010).
+sunxi-pl = { path = "../sunxi-pl" }
+core_io = "0.1"
+fatfs = { version = "0.3.6", default-features = false, features = ["core_io"] }
+# fatfs reports at trace/debug; the drivers have no logger, so compile those
+# calls out entirely.
+log = { version = "0.4", features = ["max_level_off", "release_max_level_off"] }

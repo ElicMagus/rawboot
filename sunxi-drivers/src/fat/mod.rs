@@ -1,42 +1,43 @@
 // SPDX-License-Identifier: Unlicense
 
-//! FAT access for the payload image.
+//! Read-only FAT access over the SD/MMC driver.
 //!
-//! The card is mounted through `fatfs` over a read-only block adapter. The
-//! fixed payload path makes the boot flow predictable; the caller supplies the
-//! destination buffer, so this module never allocates.
+//! [`mount`] locates and mounts a FAT volume through [`block::BlockDevice`].
+//! [`read_boot_files`] is the loader's convenience on top of it: a fixed
+//! `payload.bin` path plus an optional `boot.cfg`, into caller-owned buffers,
+//! so the module never allocates.
+use crate::console::info;
 
-mod block;
-mod partition;
+pub mod block;
+pub mod partition;
 
 use core::fmt;
 
 use core_io::{Error, ErrorKind, Read, Seek, SeekFrom};
 use fatfs::{FileSystem, FsOptions};
 
-use crate::print;
 use crate::sdcard::{Sdcard_data, sdmmc_blk_read};
 
 use block::BlockDevice;
 use partition::{BLOCK_SIZE, MAX_CANDIDATES, Partition};
 
 /// The fixed payload path on the FAT volume.
-pub(crate) const PAYLOAD_FILE: &str = "payload.bin";
+pub const PAYLOAD_FILE: &str = "payload.bin";
 
 /// The optional argument file on the FAT volume.
-pub(crate) const ARGS_FILE: &str = "boot.cfg";
+pub const ARGS_FILE: &str = "boot.cfg";
 
 /// The files a boot reads from the FAT volume.
-pub(crate) struct BootFiles {
+pub struct BootFiles {
     /// Bytes read from [`PAYLOAD_FILE`].
-    pub(crate) payload_len: usize,
+    pub payload_len: usize,
     /// Bytes read from [`ARGS_FILE`] before its NUL terminator, or `None` when
     /// the file is absent.
-    pub(crate) args_len: Option<usize>,
+    pub args_len: Option<usize>,
 }
 
 /// Why one of the boot files could not be read.
-pub(crate) enum FileError {
+pub enum FileError {
     /// The file exists but cannot be opened.
     Open(Error),
     /// The file does not fit in the caller's buffer, terminator included.
@@ -58,7 +59,7 @@ impl fmt::Display for FileError {
 }
 
 /// Why the boot files could not be read.
-pub(crate) enum FatError {
+pub enum FatError {
     /// The SD/MMC card did not initialise.
     CardOffline,
     /// The first block of the card could not be read.
@@ -93,13 +94,13 @@ impl fmt::Display for FatError {
 /// accepted. A present argument file is copied into `args_buf` and terminated
 /// with NUL, whose byte is included in the buffer's capacity. A missing file is
 /// not an error: `args_len` is `None` and the caller passes a null pointer.
-pub(crate) fn read_boot_files(
+pub fn read_boot_files(
     sd: &mut Sdcard_data,
     payload_buf: &mut [u8],
     args_buf: &mut [u8],
 ) -> Result<BootFiles, FatError> {
     let (mounted, partition) = mount(sd)?;
-    print!(
+    info!(
         "FAT: mounted {:?} at LBA {} ({} bytes)\r\n",
         mounted.fat_type(),
         partition.base_lba,
@@ -150,7 +151,9 @@ fn read_args_file(file: &mut (impl Read + Seek), buf: &mut [u8]) -> Result<usize
     Ok(len)
 }
 
-fn mount(sd: &mut Sdcard_data) -> Result<(FileSystem<BlockDevice<'_>>, Partition), FatError> {
+/// Mounts the first FAT volume on `sd`, probing a bare volume and then the MBR
+/// partitions.
+pub fn mount(sd: &mut Sdcard_data) -> Result<(FileSystem<BlockDevice<'_>>, Partition), FatError> {
     let candidates = find_candidates(sd)?;
     let mut chosen = None;
     let mut last_error = None;
