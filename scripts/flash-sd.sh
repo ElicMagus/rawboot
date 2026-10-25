@@ -362,6 +362,9 @@ for name in FORMAT_PARTITION COPY_PAYLOAD SKIP_BUILD ASSUME_YES DRY_RUN ALLOW_FI
         *) die "$name must be 0 or 1, got '$value'" ;;
     esac
 done
+if [ -n "$BOOT_CFG" ] && [ "$COPY_PAYLOAD" != "1" ]; then
+    die "--boot-cfg needs --copy-payload (or leave COPY_PAYLOAD unset)"
+fi
 case "$PAYLOAD_NAME" in
     '' | . | .. | */*) die "--payload-name must be a plain file name, got '$PAYLOAD_NAME'" ;;
 esac
