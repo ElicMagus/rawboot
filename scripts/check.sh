@@ -52,6 +52,9 @@ fi
 echo "==> python tests (scripts)"
 python3 -m unittest discover -s scripts -p 'test_*.py'
 
+echo "==> feature graph (loader stays read-only)"
+scripts/check-features.sh
+
 echo "==> cargo build --release"
 cargo build --release
 
@@ -76,11 +79,7 @@ cargo test -p rawboot-image -p rawboot-fel -p xtask -p sunxi-drivers --target "$
 echo "==> cargo xtask image"
 cargo xtask image
 
-echo "==> loader carries no write feature or write symbols"
-if cargo tree -p rawboot -e features | grep 'sunxi-drivers feature "write"' >/dev/null; then
-    echo "error: rawboot resolved sunxi-drivers/write; the loader must build without it" >&2
-    exit 1
-fi
+echo "==> loader carries no write symbols"
 if scripts/objdump.sh -t target/armv7a-none-eabi/release/rawboot | grep 'sdmmc_blk_write' >/dev/null; then
     echo "error: rawboot ELF contains sdmmc_blk_write; the write path leaked into the loader" >&2
     exit 1
@@ -91,6 +90,13 @@ cargo xtask payload
 
 echo "==> cargo xtask flasher"
 cargo xtask flasher
+
+echo "==> cargo xtask fel-flash --dry-run"
+if [ -x scripts/check-fel-flash.sh ]; then
+    scripts/check-fel-flash.sh
+else
+    echo "skip: scripts/check-fel-flash.sh is not on this branch yet"
+fi
 
 echo "==> cargo xtask sd-image"
 cargo xtask sd-image --partition-sectors 1843200

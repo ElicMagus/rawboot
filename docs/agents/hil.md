@@ -401,8 +401,11 @@ The card stays in the board. Put the board into FEL with a cold power-cycle, lea
 inserted, and run:
 
 ```sh
-cargo xtask fel-flash
+cargo xtask fel-flash --yes
 ```
+
+`--dry-run` performs the same build and validation, prints the plan and exits without opening
+FEL or touching the card; use it to check artifacts and paths. Actual writing requires `--yes`.
 
 Without `--skip-build` the command runs `cargo xtask image`, `payload` and `flasher` first, then
 reads `target/rawboot-boot-sd.bin`, `target/rawboot-payload.img`, `target/rawboot-ddr.bin` and
@@ -410,7 +413,8 @@ reads `target/rawboot-boot-sd.bin`, `target/rawboot-payload.img`, `target/rawboo
 FEL variant (`rawboot-fel.bin`, a `variant=fel` build stamp or matching bytes), parses the
 payload image and limits `boot.cfg` to 4095 bytes. Then it identifies the T113-S3, runs the
 DDR-init stub, checks DRAM with a pattern, stages a flash plan and the three regions in DRAM and
-executes the flasher.
+executes the flasher. The flasher initialises USART0 and prints SD/FAT driver diagnostics there,
+so a failing CMD24 or FAT step is visible in the UART log as well as in the status.
 
 Options:
 
@@ -421,6 +425,12 @@ Options:
 - `--loader <path>`, `--flasher <path>`, `--ddr-stub <path>` — override the built images.
 - `--sequence <n>` — job/status sequence (default 1).
 - `--skip-build` — reuse the images already in `target/`; rebuild after switching branches.
+- `--dry-run` — build/validate and print the plan; never open FEL.
+- `--yes` — required for actual writing; without it the command validates and stops.
+
+`scripts/hil-flash.sh` wraps the capture: it starts a UART logger, runs
+`cargo xtask fel-flash --yes`, prints the host output and UART tail, and requires
+`step 2 (done), result 0 (ok)`. It does not power-cycle; cold-start the board first.
 
 What the flasher checks and writes:
 

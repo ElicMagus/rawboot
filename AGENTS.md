@@ -20,6 +20,8 @@ minimal stable-compatible shim. Target `armv7a-none-eabi` (soft-float), Rust edi
 pinned C upstream is fetched by `scripts/fetch-upstream.sh` into `target/upstream/`.
 Explore the workspace crates, not those trees.
 
+Search: use the agent's Grep/Glob tools; `rg` is not installed on this host.
+
 Standard commands:
 
 - Build: `cargo build --release` (`xtask` and its host-only image tooling are kept out of the
@@ -47,9 +49,10 @@ Standard commands:
   `llvm-objdump` from the `llvm-tools` component; there is no `cargo objdump`)
 - Fetch pinned upstream: `scripts/fetch-upstream.sh` (writes the C tree used by the parity
   research notes to `target/upstream/awboot-<sha>/`)
-- Check everything: `scripts/check.sh` (fmt, build, the bare-metal, flasher, driver and host
-  clippy passes, host tests, SPDX headers, branch-docs rule, the loader no-write guard, and
-  `cargo xtask image`/`payload`/`flasher`/`sd-image` smoke builds)
+- Check everything: `scripts/check.sh` (fmt, the early `scripts/check-features.sh` feature-graph
+  guard, build, the bare-metal, flasher, driver and host clippy passes, host tests, SPDX headers,
+  branch-docs rule, the loader no-write symbol guard, `cargo xtask image`/`payload`/`flasher`
+  smoke builds, `cargo xtask fel-flash --dry-run`, and `cargo xtask sd-image`)
 - Seal an image: `cargo xtask image` (builds the loader twice and writes the sealed
   `target/rawboot-fel.bin` for FEL at `0x00028000` and `target/rawboot-boot-sd.bin` for
   SD/SPI boot at `0x00020000`; the `xtask` alias pins the host triple in `.cargo/config.toml`)
@@ -59,10 +62,11 @@ Standard commands:
   returning DDR-init stub at `0x00028000`, and `target/rawboot-flasher.bin`, linked at
   `0x40010000` in DRAM; both carry no eGON header; ADR-0013)
 - Flash the card in the board: `cargo xtask fel-flash [--payload <path>] [--boot-cfg <path>]
-  [--loader <path>] [--flasher <path>] [--ddr-stub <path>] [--sequence <n>] [--skip-build]`
-  (builds or reuses the images, checks the sealed SD loader and refuses the FEL variant, writes
-  the payload files and loader over FEL without touching the MBR, and reads everything back;
-  ADR-0014; runbook `docs/agents/hil.md`)
+  [--loader <path>] [--flasher <path>] [--ddr-stub <path>] [--sequence <n>] [--skip-build]
+  [--dry-run] [--yes]` (builds or reuses the images, checks the sealed SD loader and refuses the
+  FEL variant, writes the payload files and loader over FEL without touching the MBR, and reads
+  everything back. `--dry-run` validates and prints the plan without opening FEL; actual writing
+  requires `--yes`; ADR-0014; runbook `docs/agents/hil.md`)
 - FEL CLI: `cargo fel version|read|write|exec|bringup ...` (host-side FEL transport over USB
   with no system `libusb`; `version` identifies the T113-S3, `read <addr> <len>` hex-dumps or
   writes to `--output`, `write <addr> <file>` uploads bytes, `exec <addr>` jumps, `bringup
@@ -77,15 +81,11 @@ Standard commands:
   candidates, builds and writes the boot prefix, optionally formats/repopulates only the
   partition; runs `--dry-run` without touching anything; refuses mounted, root, GPT or
   multi-partition disks; runbook `docs/agents/hil.md`)
-- HIL: run `scripts/hil-check.sh target/rawboot-fel.bin <label>` after `code-review`, on the
-  code branch, before merging. When SD init is flaky (#43), `scripts/hil-sd-retry.sh
-  [image] [label]` retries only `SD/MMC card not found`. For in-board SD updates, run
-  `cargo xtask fel-flash` with the card inserted, then cold-boot from the card and capture the
-  handoff (`HIL_REQUIRE_SD=1 HIL_REQUIRE_HANDOFF=1 HIL_REQUIRE_PAYLOAD=1 HIL_REQUIRE_LED=1`).
-  Do one `fel-flash` attempt per cold boot: the DDR-init stub is not idempotent. HIL #42 is
-  currently blocked by the SD CMD24 write timeout tracked in #47.
-  The runbook `docs/agents/hil.md` covers the FEL load, UART assertions, payload-image match,
-  the `fel-flash` safety checks and LED confirmation. `scripts/check.sh` covers host checks only.
+- HIL: `docs/agents/hil.md` is the authoritative runbook. After `code-review`, on the code
+  branch: `scripts/hil-check.sh target/rawboot-fel.bin <label>`; SD flakiness (#43) ->
+  `scripts/hil-sd-retry.sh`; in-board card update -> `scripts/hil-flash.sh` (one `fel-flash`
+  attempt per cold boot: the DDR-init stub is not idempotent). HIL #42 is currently blocked by
+  the SD CMD24 write timeout tracked in #47. `scripts/check.sh` covers host checks only.
 
 ## CI
 
@@ -140,3 +140,5 @@ Two category + five state roles, mapped to this repo's label strings. See `docs/
 
 Single-context. Spec at `docs/spec-rawboot-v1.md`, research notes at `research/`, glossary at
 `GLOSSARY.md`, decisions at `docs/adr/`. See `docs/agents/domain.md`.
+
+Reviewer judgement calls live in `CODING_STANDARDS.md`; read it during `code-review`.

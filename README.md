@@ -23,8 +23,10 @@ Cargo workspace:
 - `xtask` — host build tooling (`image`, `payload`, `flasher`, `sd-image`, `fel-flash`)
 
 To update a card left in the board, put the board into FEL and run
-`cargo xtask fel-flash`; it builds or reuses the images, writes `payload.bin` and the loader,
-leaves the MBR and FAT partition in place and reads everything back. See
-`docs/agents/hil.md` for the safety checks and the cold-boot check.
+`cargo xtask fel-flash --yes`; it builds or reuses the images, writes `payload.bin` and the
+loader, leaves the MBR and FAT partition in place and reads everything back.
+`cargo xtask fel-flash --dry-run` validates and prints the plan without opening FEL. See
+`docs/agents/hil.md` for the safety checks, the UART log and the cold-boot check; in-board HIL
+uses `scripts/hil-flash.sh`.
 
 See `GLOSSARY.md` for terminology and `docs/adr/` for architecture decisions.
