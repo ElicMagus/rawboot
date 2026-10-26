@@ -25,10 +25,10 @@ use rawboot_image::{
     FLASH_STEP_WRITE_LOADER, FLASH_STEP_WRITE_PAYLOAD, FlashJob, FlashLayoutError, FlashPlan,
     FlashStatus, check_sd_layout, verify_sealed,
 };
-use sunxi_drivers::clk;
 use sunxi_drivers::fat::{self, ARGS_FILE, PAYLOAD_FILE, block::SdCardIo, partition};
 use sunxi_drivers::sdcard::{Sdcard_data, sdmmc_blk_read, sdmmc_blk_write, sdmmc_init};
 use sunxi_drivers::sdhci::{self, Sdhci};
+use sunxi_drivers::{clk, console, uart};
 use sunxi_pl::io::{read8, write8};
 
 const SEQUENCE_OFFSET: u32 = core::mem::offset_of!(FlashJob, sequence) as u32;
@@ -165,6 +165,8 @@ fn staged_region(address: u32, length: u32) -> &'static [u8] {
 /// Bring up the SDHCI controller and the card.
 fn init_card() -> Result<Sdcard_data, (u32, u32)> {
     clk::sunxi_clk_init();
+    uart::sunxi_usart_init(&uart::usart0_dbg, 115200);
+    console::set_console(&uart::UART_CONSOLE);
 
     let mut hci = Sdhci::default();
     sdhci::sunxi_sdhci_init(&mut hci);
@@ -173,6 +175,16 @@ fn init_card() -> Result<Sdcard_data, (u32, u32)> {
     if sdmmc_init(&mut sd) != 0 {
         return Err((FLASH_STEP_SD_INIT, FLASH_RESULT_SD_OFFLINE));
     }
+    console::print(format_args!(
+        "FEL: card version {:#x}, tran_speed {}, clock {}, hc {}, rbl {}, wbl {}, cap {}\r\n",
+        sd.card.version,
+        sd.card.tran_speed,
+        sd.hci.clock_active,
+        sd.card.high_capacity,
+        sd.card.read_bl_len,
+        sd.card.write_bl_len,
+        sd.card.capacity
+    ));
     Ok(sd)
 }
 

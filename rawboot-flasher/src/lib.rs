@@ -15,7 +15,10 @@
 //! loader; see ADR-0013 and ADR-0014.
 //!
 //! Both binaries zero their BSS before calling into this crate, so the driver
-//! and status code sees a deterministic state without a runtime.
+//! and status code sees a deterministic state without a runtime. The flasher
+//! also initialises USART0 and installs the driver console, so SD/FAT failures
+//! (`SMHC: cmd24 timeout`, ...) appear in the HIL UART log as well as in the
+//! flash status.
 
 pub mod ddr;
 pub mod flasher;

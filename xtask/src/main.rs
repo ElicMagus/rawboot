@@ -41,7 +41,7 @@ const FEL_LOAD_ADDR: u32 = 0x0002_8000;
 /// SD/SPI load address BROM uses for a boot image (matches the boot link script).
 const SD_LOAD_ADDR: u32 = 0x0002_0000;
 
-const USAGE: &str = "usage: cargo xtask image | cargo xtask payload | cargo xtask flasher | cargo xtask sd-image --partition-sectors <n> [--start-lba <n>] [--loader <path>] | cargo xtask fel-flash [--payload <path>] [--boot-cfg <path>] [--loader <path>] [--flasher <path>] [--ddr-stub <path>] [--sequence <n>] [--skip-build]";
+const USAGE: &str = "usage: cargo xtask image | cargo xtask payload | cargo xtask flasher | cargo xtask sd-image --partition-sectors <n> [--start-lba <n>] [--loader <path>] | cargo xtask fel-flash [--payload <path>] [--boot-cfg <path>] [--loader <path>] [--flasher <path>] [--ddr-stub <path>] [--sequence <n>] [--skip-build] [--dry-run] [--yes]";
 
 /// One of the two loader images: same code, different link address.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -453,18 +453,54 @@ fn fel_flash(args: impl Iterator<Item = String>) -> Result<()> {
     let flasher = read_flasher_image(&flasher_path, "flasher")?;
     let stub = read_flasher_image(&stub_path, "DDR-init stub")?;
 
+    println!(
+        "plan:       payload {} bytes, boot.cfg {} bytes, loader {} bytes",
+        payload.len(),
+        boot_cfg.len(),
+        loader.len()
+    );
+    println!(
+        "plan:       DDR stub {} bytes, flasher {} bytes, sequence {}",
+        stub.len(),
+        flasher.len(),
+        args.sequence
+    );
+
+    if args.dry_run {
+        println!("dry-run:    no FEL device opened; the card and MBR are untouched");
+        return Ok(());
+    }
+    if !args.yes {
+        return Err(format!(
+            "refusing to write the card without `--yes`; cold-start the board into FEL and rerun with \
+             `--yes` (or use `--dry-run`)\n{USAGE}"
+        )
+        .into());
+    }
+
     let mut fel = FelDevice::open()?;
     let (_, soc) = fel.identify()?;
     println!("SoC:        {}", soc.name());
 
-    let report = fel.flash_sd_card(FlashSdRequest {
+    let report = match fel.flash_sd_card(FlashSdRequest {
         stub: &stub,
         flasher: &flasher,
         payload: &payload,
         args: &boot_cfg,
         loader: &loader,
         sequence: args.sequence,
-    })?;
+    }) {
+        Ok(report) => report,
+        Err(error) => {
+            if matches!(error, rawboot_fel::FelError::Transport(_)) {
+                eprintln!(
+                    "hint:       power-cycle the board into FEL before retrying; the DDR stub is \
+                     not idempotent"
+                );
+            }
+            return Err(error.into());
+        }
+    };
 
     println!("DRAM:       {} MiB", report.dram_size_mib);
     println!(
@@ -506,6 +542,8 @@ struct FelFlashArgs {
     ddr_stub: Option<PathBuf>,
     sequence: u32,
     skip_build: bool,
+    dry_run: bool,
+    yes: bool,
 }
 
 fn parse_fel_flash_args(mut args: impl Iterator<Item = String>) -> Result<FelFlashArgs> {
@@ -517,6 +555,8 @@ fn parse_fel_flash_args(mut args: impl Iterator<Item = String>) -> Result<FelFla
         ddr_stub: None,
         sequence: 1,
         skip_build: false,
+        dry_run: false,
+        yes: false,
     };
 
     while let Some(arg) = args.next() {
@@ -528,6 +568,8 @@ fn parse_fel_flash_args(mut args: impl Iterator<Item = String>) -> Result<FelFla
             "--ddr-stub" => parsed.ddr_stub = Some(PathBuf::from(take_value(&mut args, &arg)?)),
             "--sequence" => parsed.sequence = parse_u32(&arg, take_value(&mut args, &arg)?)?,
             "--skip-build" => parsed.skip_build = true,
+            "--dry-run" => parsed.dry_run = true,
+            "--yes" => parsed.yes = true,
             other => return Err(format!("unexpected argument `{other}`\n{USAGE}").into()),
         }
     }
@@ -924,6 +966,8 @@ SYMBOL TABLE:
         assert_eq!(parsed.loader, None);
         assert_eq!(parsed.flasher, None);
         assert_eq!(parsed.ddr_stub, None);
+        assert!(!parsed.dry_run);
+        assert!(!parsed.yes);
     }
 
     #[test]
@@ -942,6 +986,8 @@ SYMBOL TABLE:
             "--sequence",
             "9",
             "--skip-build",
+            "--dry-run",
+            "--yes",
         ]))
         .unwrap();
 
@@ -952,6 +998,8 @@ SYMBOL TABLE:
         assert_eq!(parsed.ddr_stub, Some(PathBuf::from("ddr.bin")));
         assert_eq!(parsed.sequence, 9);
         assert!(parsed.skip_build);
+        assert!(parsed.dry_run);
+        assert!(parsed.yes);
     }
 
     #[test]

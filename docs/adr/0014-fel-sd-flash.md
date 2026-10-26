@@ -40,7 +40,8 @@ failed`, `read-back mismatch`, `MBR changed`) позволяют хосту на
 
 1. `cargo xtask fel-flash` (без `--skip-build`) вызывает `image`, `payload` и `flasher`, затем
    читает `target/rawboot-boot-sd.bin`, `target/rawboot-payload.img`, `target/rawboot-ddr.bin` и
-   `target/rawboot-flasher.bin`.
+   `target/rawboot-flasher.bin`. `--dry-run` делает всю эту проверку и печатает план, не открывая
+   FEL; фактическая запись требует `--yes`.
 2. Лоадер обязан быть sealed eGON. FEL-вариант отвергается по имени файла, по `variant=fel` в
    `.build`-штампе и по совпадению байтов с `target/rawboot-fel.bin`. Payload обязан
    разбираться `rawboot_image::parse`, `boot.cfg` — не длиннее 4095 байт.
@@ -91,8 +92,15 @@ failed`, `read-back mismatch`, `MBR changed`) позволяют хосту на
   лоадер и MBR. `rawboot-flasher` больше не входит в `default-members`; `scripts/check.sh`
   получил отдельный clippy-проход.
 - `xtask` получает `fel-flash` с `--payload`, `--boot-cfg`, `--loader`, `--flasher`,
-  `--ddr-stub`, `--sequence` и `--skip-build`; usage и runbook обновлены.
-- `sunxi-drivers` получает `fat::file_matches` для host-тестируемого read-back.
+  `--ddr-stub`, `--sequence`, `--skip-build`, `--dry-run` и `--yes`; без `--yes` команда не
+  открывает FEL, а `--dry-run` проверяет образы и печатает план. `scripts/check.sh` гоняет
+  dry-run после сборки образов.
+- `rawboot-flasher` поднимает USART0 и ставит драйверный `Console`, поэтому ошибки SDHCI/FAT
+  видны в UART-логе HIL; `scripts/hil-flash.sh` запускает `fel-flash --yes`, снимает UART и
+  требует статус `done`/`ok`.
+- `sunxi-drivers` получает `fat::file_matches` для host-тестируемого read-back; отдельный
+  `scripts/check-features.sh` до сборки проверяет, что `sunxi-drivers/write` не попал в
+  `rawboot`.
 - HIL: после успешного `fel-flash` холодная загрузка с карты должна дойти до handoff, а PD22 —
   мигать payload'у. До прогона это не заявляется.
 - HIL #42 показал блокер записи: на стендовой SDSC-карте (`hc=0`, 25 МГц, CSD write-protect
