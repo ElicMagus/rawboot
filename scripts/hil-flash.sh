@@ -76,7 +76,7 @@ uart_log=/tmp/rawboot-flasher-${LABEL}.log
 host_log=/tmp/rawboot-fel-flash-${LABEL}.host.log
 rm -f "$uart_log" "$host_log"
 
-setsid sg dialout -c "stty -F '$UART_DEV' 115200 raw -echo; timeout '$CAPTURE_SECONDS' cat '$UART_DEV'" \
+sg dialout -c "stty -F '$UART_DEV' 115200 raw -echo; timeout '$CAPTURE_SECONDS' cat '$UART_DEV'" \
     >"$uart_log" 2>&1 &
 capture_pid=$!
 sleep 1
