@@ -86,8 +86,10 @@ DRAM, кладёт NOOP-job и прошивальщик, выполняет ег
 
 ## Consequences
 
-- Новый bare-metal пакет `rawboot-flasher` входит в `default-members`, поэтому `cargo build
-  --release`, `cargo clippy` и `cargo xtask flasher` проверяют оба образа в обычном наборе.
+- Новый bare-metal пакет `rawboot-flasher` на момент решения входил в `default-members`,
+  поэтому `cargo build --release`, `cargo clippy` и `cargo xtask flasher` проверяли оба
+  образа в обычном наборе; позже он выведен оттуда (ADR-0014), и `cargo xtask flasher`
+  собирает его отдельной cargo-инвокацией.
 - `rawboot-image` публикует адреса и `FlashJob`/`FlashStatus`; `rawboot-fel` от них зависит.
 - `rawboot-fel` получает команду `bringup` и ошибки stub'а, DRAM-паттерна, контракта и sequence.
 - Лоадер, его FEL-mailbox и SD-путь не изменены.
@@ -99,3 +101,4 @@ DRAM, кладёт NOOP-job и прошивальщик, выполняет ег
 > Обновление #42: SD-команда добавлена без смены раскладки job/status, но с отдельным
 > `FlashPlan` и staging-областями в DRAM; `rawboot-flasher` больше не входит в
 > `default-members`, чтобы `sunxi-drivers/write` не унифицировался в лоадер. См. ADR-0014.
+> Состав `default-members`, фича `write` и место host-тестов драйверов уточнены в ADR-0015.

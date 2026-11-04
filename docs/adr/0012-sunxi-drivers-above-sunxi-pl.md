@@ -35,8 +35,8 @@ bin-крейта `rawboot`. Второй образ (например, прош�
 ## Consequences
 
 - `rawboot` больше не содержит модулей драйверов: в `rawboot/src` остаются `main.rs`,
-  `boot.rs` и `print.rs`. `sunxi-drivers` входит в bare-metal `default-members`; host-тесты
-  по-прежнему живут в `rawboot-image`, `rawboot-fel` и `xtask`.
+  `boot.rs` и `print.rs`. На момент решения `sunxi-drivers` входил в bare-metal
+  `default-members`, а host-тесты жили в `rawboot-image`, `rawboot-fel` и `xtask`.
 - `fatfs` и `core_io` переехали в зависимости `sunxi-drivers`; `log` с `max_level_off`
   остаётся только чтобы скомпилировать trace/debug-вызовы `fatfs` в ничто.
 - Бюджет 64 КиБ SRAM (ADR-0005) соблюдён: sealed-образ вырос примерно на 0.2 КиБ; линкер
@@ -44,3 +44,7 @@ bin-крейта `rawboot`. Второй образ (например, прош�
 - HIL FEL и HIL SD должны подтвердить прежний лог и handoff; до прогона это не заявляется.
 - В `GLOSSARY.md` появляется термин «sunxi-drivers», чтобы не путать драйверный крейт с
   платформенным слоем `sunxi-pl`.
+
+> Обновление #39/#45: FAT-адаптер умеет писать за фичей `write`; `sunxi-drivers` не входит
+> в `default-members`, а host-тесты драйверов живут в самом крейте на мок-блочном диске.
+> См. ADR-0015.
