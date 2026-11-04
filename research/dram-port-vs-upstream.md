@@ -343,7 +343,7 @@ compensation, simple read/write test, and the default `dram_para_t` values (792 
    registers/masks, but no full line-by-line proof was done because the Rust uses mixed literal
    and computed addresses. **UNVERIFIED** for every write.
 4. **Licensing.** Upstream `dram.c` is GPL-2.0+ [1:1]; `mctl_hal.c` carried no explicit SPDX
-   header in the fetched file [6]. The project transcribes facts and behaviour under Unlicense
+   header in the fetched file [6]. The project transcribes facts and behaviour under CC-BY-4.0
    (ADR-0001); if any `mctl_hal.c` text was copied verbatim, the licence position should be
    re-checked before redistribution.
 
