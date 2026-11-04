@@ -468,9 +468,18 @@ between `fel-flash` attempts as the safe procedure, not as a proven requirement.
 | Three `bringup` on one power cycle | run `bringup` three times without removing power | three identical successes | PASS, HIL #46; re-confirmed HIL #52 |
 | Repeat `fel-flash` after a successful `fel-flash` | run `cargo xtask fel-flash --yes` twice on one power cycle | the second run reports `step 2 (done), result 0 (ok)` | PASS, HIL #52 (after an in-FEL card re-insert because the cold start hit #43) |
 | Repeat `fel-flash` after an SD error | make the flasher fail before the status (remove the card, or use a partition starting at or inside sector 16), then rerun `fel-flash --yes` on the same power cycle | the second run reports a clean status | PASS, HIL #52 (first run `SD card offline`, second run ok) |
+| Four cold starts with the USB-UART adapter attached and the card in place | power-cycle four times without unplugging the adapter or removing the card | DDR-init succeeds whenever FEL is reached; the card path may still fail (#43) | HIL #52: DDR 4/4 PASS; card `found` 1/4, `SD card offline` 3/4 |
 
 Record a result in the table only after the owner confirms it on the bench; do not mark an
 unmeasured row PASS. Repeat the cold-start row after any board or card change.
+
+**Cold starts with the adapter attached.** Leaving the USB-UART adapter connected backfeeds the
+board, so the card is not truly power-cycled, and a card carrying a bootable loader in sector 16
+can also make the BROM boot from SD instead of entering FEL. On HIL #52 only one of four such
+starts enumerated the card; a start that does not answer `cargo fel version` has booted the card,
+not failed DDR-init. Check `cargo fel version` before starting a matrix row. Unplug the adapter
+before the power-off for a true cold start, and remove the card when FEL entry must be
+deterministic.
 
 The flasher reports a failing step and reason in the status, and `fel-flash` prints it before
 exiting non-zero. Common cases:
