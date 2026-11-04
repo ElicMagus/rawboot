@@ -35,9 +35,8 @@ bin-крейта `rawboot`. Второй образ (например, прош�
 ## Consequences
 
 - `rawboot` больше не содержит модулей драйверов: в `rawboot/src` остаются `main.rs`,
-  `boot.rs` и `print.rs`. Состав `default-members` и место host-тестов уточнены позже:
-  `sunxi-drivers` выведен из `default-members`, а host-тесты драйверов живут в самом крейте
-  (ADR-0015).
+  `boot.rs` и `print.rs`. На момент решения `sunxi-drivers` входил в bare-metal
+  `default-members`, а host-тесты жили в `rawboot-image`, `rawboot-fel` и `xtask`.
 - `fatfs` и `core_io` переехали в зависимости `sunxi-drivers`; `log` с `max_level_off`
   остаётся только чтобы скомпилировать trace/debug-вызовы `fatfs` в ничто.
 - Бюджет 64 КиБ SRAM (ADR-0005) соблюдён: sealed-образ вырос примерно на 0.2 КиБ; линкер
