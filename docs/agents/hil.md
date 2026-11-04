@@ -124,7 +124,9 @@ cp target/rawboot-payload.img /media/$USER/<partition>/payload.bin
 
 Copy `target/rawboot-payload.img`, not the raw
 `target/armv7a-none-eabi/release/payload.bin`: the former has the image header the loader
-parses.
+parses. If the card is already in the board and the board is in FEL, `cargo xtask fel-flash`
+updates `payload.bin` and the loader without removing the card; see
+[FEL flashing the card in place](#fel-flashing-the-card-in-place-42).
 
 An optional `boot.cfg` next to `payload.bin` is copied into DRAM and exposed to the payload as
 a NUL-terminated string through `BootInfo.args` (up to 4095 bytes; the 4 KiB window includes
@@ -357,8 +359,9 @@ for the manual checks above.
 
 ### DDR-init stub and flasher (no SD)
 
-Issue #41 splits the FEL path into a returning DDR-init stub and a DRAM-linked flasher; #42 will
-add the SD/FAT job. Build both images and run the whole spike with the in-tree transport:
+Issue #41 splits the FEL path into a returning DDR-init stub and a DRAM-linked flasher; issue
+#42 adds the SD/FAT job (see the next section). Build both images and run the whole spike with
+the in-tree transport:
 
 ```sh
 cargo xtask flasher
@@ -391,6 +394,137 @@ the stub is what initialises DRAM.
   CLI exits non-zero after printing the step and result.
 
 The stub and flasher carry no eGON header and are not interchangeable with the loader images.
+
+### FEL flashing the card in place (#42)
+
+The card stays in the board. Put the board into FEL with a cold power-cycle, leave the card
+inserted, and run:
+
+```sh
+cargo xtask fel-flash --yes
+```
+
+`--dry-run` performs the same build and validation, prints the plan and exits without opening
+FEL or touching the card; use it to check artifacts and paths. Actual writing requires `--yes`.
+
+Without `--skip-build` the command runs `cargo xtask image`, `payload` and `flasher` first, then
+reads `target/rawboot-boot-sd.bin`, `target/rawboot-payload.img`, `target/rawboot-ddr.bin` and
+`target/rawboot-flasher.bin`. It checks the loader is a sealed SD/SPI image and refuses the
+FEL variant (`rawboot-fel.bin`, a `variant=fel` build stamp or matching bytes), parses the
+payload image and limits `boot.cfg` to 4095 bytes. Then it identifies the T113-S3, runs the
+DDR-init stub, checks DRAM with a pattern, stages a flash plan and the three regions in DRAM and
+executes the flasher. The flasher initialises USART0 and prints SD/FAT driver diagnostics there,
+so a failing CMD24 or FAT step is visible in the UART log as well as in the status.
+
+Options:
+
+- `--payload <path>` — payload image (default `target/rawboot-payload.img`); it must be the
+  wrapped image, not the raw `payload.bin`.
+- `--boot-cfg <path>` — also write this file as `boot.cfg`; without it the existing `boot.cfg`
+  is left untouched.
+- `--loader <path>`, `--flasher <path>`, `--ddr-stub <path>` — override the built images.
+- `--sequence <n>` — job/status sequence (default 1).
+- `--skip-build` — reuse the images already in `target/`; rebuild after switching branches.
+- `--dry-run` — build/validate and print the plan; never open FEL.
+- `--yes` — required for actual writing; without it the command validates and stops.
+
+`scripts/hil-flash.sh` wraps the capture: it starts a UART logger, runs
+`cargo xtask fel-flash --yes`, prints the host output and UART tail, and requires
+`step 2 (done), result 0 (ok)`. It does not power-cycle; cold-start the board first.
+
+What the flasher checks and writes:
+
+1. the MBR has the `55 AA` signature and a FAT partition-table entry; a bare FAT volume without
+   an MBR, an MBR without a FAT entry, and a partition starting at or before sector 16 are
+   rejected;
+2. the loader at sector 16 ends before the partition, and the partition lies inside the card;
+3. `payload.bin` (and `boot.cfg` when supplied) is replaced in the FAT root and read back;
+4. only then is the sealed loader written to sector 16 and read back;
+5. sector 0 is never written; the flasher re-reads the MBR and reports `MBR changed` if it
+   differs.
+
+The expected tail on success:
+
+```
+SoC:        T113-S3
+DRAM:       128 MiB
+staged:     payload N bytes, boot.cfg 0 bytes, loader N bytes
+status:     sequence 1, step 2 (done), result 0 (ok)
+card:       payload files and loader written; MBR unchanged
+```
+
+**One attempt per cold boot.** The DDR-init stub initialises DRAM and is not idempotent. A
+second `fel-flash` on the same power cycle can time out before the flasher starts, because the
+stub reinitialises DRAM (the same class of failure as `xfel ddr` in #23). After any attempt,
+successful or not, power-cycle the board into FEL before retrying.
+
+**Known blocker (#47).** On the current bench card (SDSC, `hc=0`, 25 MHz, CSD write-protect
+off) the card does not answer CMD24. `fel-flash` reaches `write payload` and stops with
+`truncate failed`, `file write failed` or `file flush failed`; the MBR is untouched and the read
+path plus `cargo fel bringup` still pass. Do not record #42 HIL PASS until #47 is fixed.
+
+The flasher reports a failing step and reason in the status, and `fel-flash` prints it before
+exiting non-zero. Common cases:
+
+- `SD init: SD card offline` — no card, a card that did not enumerate, or the #43 bench issue;
+  insert the card and cold-start the board into FEL.
+- `read MBR: read failed` — the first card block could not be read; treat the card as offline
+  and retry after a cold start.
+- `layout: no MBR` / `layout: no FAT partition` — the card is not prepared; `fel-flash` does
+  not format or create a partition. Prepare it first (out of scope), then rerun.
+- `layout: unsafe card layout` — the FAT partition starts at or inside sector 16, or the loader
+  would reach into it.
+- `layout: card too small` — the MBR partition or the loader does not fit the card.
+- `write payload` / `write boot.cfg` `create file failed`, `truncate failed`, `file write
+  failed` or `file flush failed` — the card did not accept a FAT write; the MBR and partition
+  are left in place, but do not trust the updated files until a rerun passes. On the current
+  bench card this is #47.
+- `write loader` `write failed` — writing sector 16 failed; the old loader may still be there,
+  but do not boot from the card until a rerun passes.
+- `verify FAT files` / `verify loader` `read-back mismatch` — the card did not return what was
+  written; rerun, and replace the card if it persists.
+- `verify loader` `MBR changed` — stop and do not boot from this card; inspect it.
+- `plan: bad plan or staged image` — the staged plan/loader/payload failed validation; rebuild
+  with `cargo xtask image`/`payload`/`flasher` and rerun (without `--skip-build`).
+- `USB device disconnected` or a FEL timeout before the status — the stub or flasher did not
+  return to the BROM. Cold-power-cycle the board into FEL and rerun; do not fall back to
+  `xfel ddr`, and do not rerun the stub on the same power cycle.
+
+After a successful run, remove the FEL strap and cold-boot from the card. Capture it with
+`hil_serial.py` (start the capture before applying power, as in
+[Capture a self-booting board](#capture-a-self-booting-board-no-fel)) and assert the handoff:
+
+```sh
+setsid sg dialout -c 'python3 scripts/hil_serial.py /tmp/boot.log --seconds 10 \
+    --require-handoff --payload target/rawboot-payload.img' &
+```
+
+The card path passes when the log shows `SD/MMC card found`, `FAT: mounted` and
+`BOOT: handoff to ...`, and PD22 then shows the payload's short-long cadence. A steady 50 ms
+toggle means the loader is still in its `S=0x` loop; silence points at the wrong image in
+sector 16. For the full HIL run with all assertions, use the cold-start procedure above with
+`HIL_REQUIRE_SD=1 HIL_REQUIRE_HANDOFF=1 HIL_REQUIRE_PAYLOAD=1 HIL_REQUIRE_LED=1`.
+
+### Raw SD write diagnostic (no MBR/FAT)
+
+When a card write fails but reads work, separate the block-write path from FAT and partition
+state with a cold FEL start and:
+
+```sh
+cargo xtask raw-write-test --yes
+```
+
+It runs the DDR-init stub, writes a known 512-byte block to LBA 16, reads it back and prints
+the step/result. It requires `--yes`, and it overwrites sector 16 (the SD loader on a prepared
+card); sector 0 is never written. A successful run ends with:
+
+```
+status:     sequence 1, step 2 (done), result 0 (ok)
+raw test:   sector 16 written and read back identical
+```
+
+A write that reports `step 12 (raw write), result 9 (write failed)` means the driver could not
+complete CMD24; `step 13 (raw verify)` separates a read-back failure from a write failure.
 
 ### Capture a self-booting board (no FEL)
 
