@@ -65,8 +65,10 @@ that a linter cannot decide. The repo's domain vocabulary is `GLOSSARY.md`; deci
 
 ## Manual HIL
 
-- One DDR-init stub run per cold boot. A failed or successful attempt is followed by a power
-  cycle, not another stub on the same power cycle.
+- Prefer one DDR-init stub run per cold boot: the stub re-runs DRAM init and is not idempotent,
+  so a repeat on the same power cycle is not a verified path. HIL #46 ran three `bringup`s on one
+  power cycle successfully; the condition table lives in `docs/agents/hil.md`. After a failed or
+  successful `fel-flash`, power-cycle before retrying.
 - Ask one question per physical step and include an explicit confirmation; do not batch cycles.
 - Capture UART for the flasher path (`scripts/hil-flash.sh`); the status step alone does not name
   driver-level failures such as `CMD24` timeouts.

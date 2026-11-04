@@ -453,15 +453,24 @@ status:     sequence 1, step 2 (done), result 0 (ok)
 card:       payload files and loader written; MBR unchanged
 ```
 
-**One attempt per cold boot.** The DDR-init stub initialises DRAM and is not idempotent. A
-second `fel-flash` on the same power cycle can time out before the flasher starts, because the
-stub reinitialises DRAM (the same class of failure as `xfel ddr` in #23). After any attempt,
-successful or not, power-cycle the board into FEL before retrying.
+**DDR-init and repeated attempts.** The stub is not idempotent: every run calls
+`DramPara::init_dram()` again and waits for PLL_DDR to lock, so a repeat can hang the same way as
+`xfel ddr` before a loader. That is a different condition from #23, which is specifically about
+external `xfel ddr` run before the loader. The bench evidence for the returning stub is mixed:
+HIL #46 ran `cargo fel bringup` three times on one power cycle and all three passed (stub, DRAM
+pattern, NOOP job); a second `fel-flash` on the same power cycle, and a rerun after an SD error,
+have not been measured separately. Treat a cold start between `fel-flash` attempts as the safe
+procedure, not as a proven requirement.
 
-**Known blocker (#47).** On the current bench card (SDSC, `hc=0`, 25 MHz, CSD write-protect
-off) the card does not answer CMD24. `fel-flash` reaches `write payload` and stops with
-`truncate failed`, `file write failed` or `file flush failed`; the MBR is untouched and the read
-path plus `cargo fel bringup` still pass. Do not record #42 HIL PASS until #47 is fixed.
+| Condition | Procedure | Expected | Observed |
+| --- | --- | --- | --- |
+| Cold start, one `bringup` | cold power-cycle into FEL, run `cargo fel bringup target/rawboot-ddr.bin target/rawboot-flasher.bin` | `DRAM: 128 MiB`, `pattern: OK at 0x40002000`, `status: sequence 1, step 2 (done), result 0 (ok)` | confirm at the start of each bench session |
+| Three `bringup` on one power cycle | run `bringup` three times without removing power | three identical successes | PASS, HIL #46 |
+| Repeat `fel-flash` after a successful `fel-flash` | run `cargo xtask fel-flash --yes` twice on one power cycle | the second run reports `step 2 (done), result 0 (ok)` | not measured |
+| Repeat `fel-flash` after an SD error | make the flasher fail before the status (partition starting at or inside sector 16, or remove the card), then rerun `fel-flash --yes` on the same power cycle | the second run reports a clean status | not measured |
+
+Record a result in the table only after the owner confirms it on the bench; do not mark an
+unmeasured row PASS. Repeat the cold-start row after any board or card change.
 
 The flasher reports a failing step and reason in the status, and `fel-flash` prints it before
 exiting non-zero. Common cases:
@@ -477,8 +486,9 @@ exiting non-zero. Common cases:
 - `layout: card too small` — the MBR partition or the loader does not fit the card.
 - `write payload` / `write boot.cfg` `create file failed`, `truncate failed`, `file write
   failed` or `file flush failed` — the card did not accept a FAT write; the MBR and partition
-  are left in place, but do not trust the updated files until a rerun passes. On the current
-  bench card this is #47.
+  are left in place, but do not trust the updated files until a rerun passes. On the SDSC bench
+  card this was #47, fixed in PR #49; if it reappears, treat it as a new write-path defect, not
+  as a DDR-init problem.
 - `write loader` `write failed` — writing sector 16 failed; the old loader may still be there,
   but do not boot from the card until a rerun passes.
 - `verify FAT files` / `verify loader` `read-back mismatch` — the card did not return what was
@@ -488,7 +498,8 @@ exiting non-zero. Common cases:
   with `cargo xtask image`/`payload`/`flasher` and rerun (without `--skip-build`).
 - `USB device disconnected` or a FEL timeout before the status — the stub or flasher did not
   return to the BROM. Cold-power-cycle the board into FEL and rerun; do not fall back to
-  `xfel ddr`, and do not rerun the stub on the same power cycle.
+  `xfel ddr`. Prefer a fresh cold start over rerunning the stub on the same power cycle, which
+  the table above leaves unmeasured.
 
 After a successful run, remove the FEL strap and cold-boot from the card. Capture it with
 `hil_serial.py` (start the capture before applying power, as in

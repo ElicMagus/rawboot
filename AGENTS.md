@@ -83,9 +83,9 @@ Standard commands:
   multi-partition disks; runbook `docs/agents/hil.md`)
 - HIL: `docs/agents/hil.md` is the authoritative runbook. After `code-review`, on the code
   branch: `scripts/hil-check.sh target/rawboot-fel.bin <label>`; SD flakiness (#43) ->
-  `scripts/hil-sd-retry.sh`; in-board card update -> `scripts/hil-flash.sh` (one `fel-flash`
-  attempt per cold boot: the DDR-init stub is not idempotent). HIL #42 is currently blocked by
-  the SD CMD24 write timeout tracked in #47. `scripts/check.sh` covers host checks only.
+  `scripts/hil-sd-retry.sh`; in-board card update -> `scripts/hil-flash.sh` (prefer a cold start
+  between attempts; see the DDR-init condition table in the runbook). HIL #42's CMD24 blocker
+  (#47) is fixed (PR #49). `scripts/check.sh` covers host checks only.
 
 ## CI
 
