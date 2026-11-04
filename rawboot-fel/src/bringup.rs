@@ -18,7 +18,7 @@ use rawboot_image::{
 
 use crate::device::FelDevice;
 use crate::device::Transport;
-use crate::error::FelError;
+use crate::error::{FelError, ImageKind};
 
 const MIB: u64 = 1024 * 1024;
 
@@ -66,12 +66,12 @@ impl<T: Transport> FelDevice<T> {
     pub fn run_ddr_stub(&mut self, stub: &[u8]) -> Result<u32, FelError> {
         if stub.is_empty() {
             return Err(FelError::EmptyImage {
-                what: "DDR-init stub",
+                kind: ImageKind::DdrStub,
             });
         }
         if stub.starts_with(b"eGON") {
             return Err(FelError::UnexpectedEgon {
-                what: "DDR-init stub",
+                kind: ImageKind::DdrStub,
             });
         }
         if stub.len() > DDR_STUB_MAX_SIZE as usize {
@@ -133,10 +133,14 @@ impl<T: Transport> FelDevice<T> {
         job: FlashJob,
     ) -> Result<FlashStatus, FelError> {
         if flasher.is_empty() {
-            return Err(FelError::EmptyImage { what: "flasher" });
+            return Err(FelError::EmptyImage {
+                kind: ImageKind::Flasher,
+            });
         }
         if flasher.starts_with(b"eGON") {
-            return Err(FelError::UnexpectedEgon { what: "flasher" });
+            return Err(FelError::UnexpectedEgon {
+                kind: ImageKind::Flasher,
+            });
         }
         job.verify()?;
         if flasher.len() > FLASHER_MAX_SIZE as usize {
@@ -419,7 +423,7 @@ mod tests {
         assert_eq!(
             fel.run_ddr_stub(b""),
             Err(FelError::EmptyImage {
-                what: "DDR-init stub"
+                kind: ImageKind::DdrStub
             })
         );
         fel.into_inner().assert_done();
@@ -430,7 +434,9 @@ mod tests {
         let mut fel = device(Vec::new());
         assert_eq!(
             fel.run_flash_job(b"", FlashJob::new(1, FLASH_COMMAND_NOOP, 0, 0, 0)),
-            Err(FelError::EmptyImage { what: "flasher" })
+            Err(FelError::EmptyImage {
+                kind: ImageKind::Flasher
+            })
         );
         fel.into_inner().assert_done();
     }
@@ -441,7 +447,7 @@ mod tests {
         assert_eq!(
             fel.run_ddr_stub(b"eGON.BT0"),
             Err(FelError::UnexpectedEgon {
-                what: "DDR-init stub"
+                kind: ImageKind::DdrStub
             })
         );
         fel.into_inner().assert_done();
@@ -452,7 +458,9 @@ mod tests {
         let mut fel = device(Vec::new());
         assert_eq!(
             fel.run_flash_job(b"eGON.BT0", FlashJob::new(1, FLASH_COMMAND_NOOP, 0, 0, 0)),
-            Err(FelError::UnexpectedEgon { what: "flasher" })
+            Err(FelError::UnexpectedEgon {
+                kind: ImageKind::Flasher
+            })
         );
         fel.into_inner().assert_done();
     }

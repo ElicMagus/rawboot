@@ -234,9 +234,11 @@ pub const FLASH_RESULT_FILE_TRUNCATE: u32 = 14;
 pub const FLASH_RESULT_FILE_WRITE: u32 = 15;
 /// Flushing FAT file data failed.
 pub const FLASH_RESULT_FILE_FLUSH: u32 = 16;
-/// The flasher has read the job and is executing it.
-pub const FLASH_STEP_STARTED: u32 = 1;
 /// The flasher has written its final status.
+///
+/// Step 1 used to mean "started", but the flasher never wrote it: the host reads
+/// the status only after the flasher returns, so a running status is not
+/// observable. Step values stay fixed so the on-wire layout does not drift.
 pub const FLASH_STEP_DONE: u32 = 2;
 /// The flasher is validating the plan and staged images.
 pub const FLASH_STEP_PLAN: u32 = 3;
@@ -261,39 +263,43 @@ pub const FLASH_STEP_RAW_WRITE: u32 = 12;
 /// The flasher is reading the diagnostic block back.
 pub const FLASH_STEP_RAW_VERIFY: u32 = 13;
 
-mod job_offset {
+/// Bytes in the header every versioned flash block shares.
+const BLOCK_HEADER_SIZE: usize = 16;
+
+mod header_offset {
     pub const MAGIC: usize = 0;
     pub const VERSION: usize = 4;
     pub const SIZE: usize = 8;
     pub const CHECKSUM: usize = 12;
-    pub const SEQUENCE: usize = 16;
-    pub const COMMAND: usize = 20;
-    pub const ARG0: usize = 24;
-    pub const ARG1: usize = 28;
-    pub const ARG2: usize = 32;
+}
+
+mod job_offset {
+    pub use super::header_offset::{CHECKSUM, MAGIC};
+
+    pub const SEQUENCE: usize = super::BLOCK_HEADER_SIZE;
+    pub const COMMAND: usize = SEQUENCE + 4;
+    pub const ARG0: usize = COMMAND + 4;
+    pub const ARG1: usize = ARG0 + 4;
+    pub const ARG2: usize = ARG1 + 4;
 }
 
 mod status_offset {
-    pub const MAGIC: usize = 0;
-    pub const VERSION: usize = 4;
-    pub const SIZE: usize = 8;
-    pub const CHECKSUM: usize = 12;
-    pub const SEQUENCE: usize = 16;
-    pub const STEP: usize = 20;
-    pub const RESULT: usize = 24;
+    pub use super::header_offset::{CHECKSUM, MAGIC};
+
+    pub const SEQUENCE: usize = super::BLOCK_HEADER_SIZE;
+    pub const STEP: usize = SEQUENCE + 4;
+    pub const RESULT: usize = STEP + 4;
 }
 
 mod plan_offset {
-    pub const MAGIC: usize = 0;
-    pub const VERSION: usize = 4;
-    pub const SIZE: usize = 8;
-    pub const CHECKSUM: usize = 12;
-    pub const PAYLOAD_LEN: usize = 16;
-    pub const PAYLOAD_CHECKSUM: usize = 20;
-    pub const ARGS_LEN: usize = 24;
-    pub const ARGS_CHECKSUM: usize = 28;
-    pub const LOADER_LEN: usize = 32;
-    pub const LOADER_CHECKSUM: usize = 36;
+    pub use super::header_offset::{CHECKSUM, MAGIC};
+
+    pub const PAYLOAD_LEN: usize = super::BLOCK_HEADER_SIZE;
+    pub const PAYLOAD_CHECKSUM: usize = PAYLOAD_LEN + 4;
+    pub const ARGS_LEN: usize = PAYLOAD_CHECKSUM + 4;
+    pub const ARGS_CHECKSUM: usize = ARGS_LEN + 4;
+    pub const LOADER_LEN: usize = ARGS_CHECKSUM + 4;
+    pub const LOADER_CHECKSUM: usize = LOADER_LEN + 4;
 }
 
 /// A host-written job block.
@@ -427,13 +433,25 @@ fn checksum_without(bytes: &mut [u8], offset: usize) -> u32 {
 }
 
 impl FlashJob {
+    const SPEC: BlockSpec = BlockSpec::new(FLASH_JOB_MAGIC, FLASH_JOB_SIZE);
+
+    const fn header(&self) -> BlockHeader {
+        BlockHeader {
+            magic: self.magic,
+            version: self.version,
+            size: self.size,
+            checksum: self.checksum,
+        }
+    }
+
     /// Build a job and stamp its magic, version, size and checksum.
     pub fn new(sequence: u32, command: u32, arg0: u32, arg1: u32, arg2: u32) -> Self {
+        let header = Self::SPEC.header();
         let mut job = Self {
-            magic: FLASH_JOB_MAGIC,
-            version: FLASH_CONTRACT_VERSION,
-            size: FLASH_JOB_SIZE as u32,
-            checksum: 0,
+            magic: header.magic,
+            version: header.version,
+            size: header.size,
+            checksum: header.checksum,
             sequence,
             command,
             arg0,
@@ -441,17 +459,14 @@ impl FlashJob {
             arg2,
         };
         let mut bytes = job.to_bytes();
-        job.checksum = checksum_without(&mut bytes, job_offset::CHECKSUM);
+        job.checksum = checksum_without(&mut bytes, header_offset::CHECKSUM);
         job
     }
 
     /// The job's little-endian byte representation, as written to DRAM.
     pub const fn to_bytes(self) -> [u8; FLASH_JOB_SIZE] {
         let mut out = [0u8; FLASH_JOB_SIZE];
-        write_u32_le(&mut out, job_offset::MAGIC, self.magic);
-        write_u32_le(&mut out, job_offset::VERSION, self.version);
-        write_u32_le(&mut out, job_offset::SIZE, self.size);
-        write_u32_le(&mut out, job_offset::CHECKSUM, self.checksum);
+        self.header().write(&mut out);
         write_u32_le(&mut out, job_offset::SEQUENCE, self.sequence);
         write_u32_le(&mut out, job_offset::COMMAND, self.command);
         write_u32_le(&mut out, job_offset::ARG0, self.arg0);
@@ -467,11 +482,12 @@ impl FlashJob {
         }
         let mut raw = [0u8; FLASH_JOB_SIZE];
         raw.copy_from_slice(&bytes[..FLASH_JOB_SIZE]);
+        let header = BlockHeader::read(&raw);
         let job = Self {
-            magic: read_u32_le(&raw, job_offset::MAGIC),
-            version: read_u32_le(&raw, job_offset::VERSION),
-            size: read_u32_le(&raw, job_offset::SIZE),
-            checksum: read_u32_le(&raw, job_offset::CHECKSUM),
+            magic: header.magic,
+            version: header.version,
+            size: header.size,
+            checksum: header.checksum,
             sequence: read_u32_le(&raw, job_offset::SEQUENCE),
             command: read_u32_le(&raw, job_offset::COMMAND),
             arg0: read_u32_le(&raw, job_offset::ARG0),
@@ -484,33 +500,34 @@ impl FlashJob {
 
     /// Check the magic, version, size and checksum.
     pub fn verify(&self) -> Result<(), FlashContractError> {
-        verify_block(
-            BlockSpec {
-                magic: FLASH_JOB_MAGIC,
-                size: FLASH_JOB_SIZE,
-                checksum_offset: job_offset::CHECKSUM,
-            },
-            self.magic,
-            self.version,
-            self.size,
-            self.checksum,
-            &mut self.to_bytes(),
-        )
+        self.header().verify(Self::SPEC, &mut self.to_bytes())
     }
 }
 
 impl FlashPlan {
+    const SPEC: BlockSpec = BlockSpec::new(FLASH_PLAN_MAGIC, FLASH_PLAN_SIZE);
+
+    const fn header(&self) -> BlockHeader {
+        BlockHeader {
+            magic: self.magic,
+            version: self.version,
+            size: self.size,
+            checksum: self.checksum,
+        }
+    }
+
     /// Build a plan for the three staged regions and stamp its checksums.
     ///
     /// `args` may be empty when the host does not want to write `boot.cfg`;
     /// `payload` and `loader` must be non-empty, and the loader must be a whole
     /// number of SD blocks because it is written directly to sector 16.
     pub fn new(payload: &[u8], args: &[u8], loader: &[u8]) -> Result<Self, FlashContractError> {
+        let header = Self::SPEC.header();
         let mut plan = Self {
-            magic: FLASH_PLAN_MAGIC,
-            version: FLASH_CONTRACT_VERSION,
-            size: FLASH_PLAN_SIZE as u32,
-            checksum: 0,
+            magic: header.magic,
+            version: header.version,
+            size: header.size,
+            checksum: header.checksum,
             payload_len: payload.len() as u32,
             payload_checksum: image_checksum(payload),
             args_len: args.len() as u32,
@@ -521,17 +538,14 @@ impl FlashPlan {
         plan.verify_extents()?;
 
         let mut bytes = plan.to_bytes();
-        plan.checksum = checksum_without(&mut bytes, plan_offset::CHECKSUM);
+        plan.checksum = checksum_without(&mut bytes, header_offset::CHECKSUM);
         Ok(plan)
     }
 
     /// The plan's little-endian byte representation, as written to DRAM.
     pub const fn to_bytes(self) -> [u8; FLASH_PLAN_SIZE] {
         let mut out = [0u8; FLASH_PLAN_SIZE];
-        write_u32_le(&mut out, plan_offset::MAGIC, self.magic);
-        write_u32_le(&mut out, plan_offset::VERSION, self.version);
-        write_u32_le(&mut out, plan_offset::SIZE, self.size);
-        write_u32_le(&mut out, plan_offset::CHECKSUM, self.checksum);
+        self.header().write(&mut out);
         write_u32_le(&mut out, plan_offset::PAYLOAD_LEN, self.payload_len);
         write_u32_le(
             &mut out,
@@ -552,11 +566,12 @@ impl FlashPlan {
         }
         let mut raw = [0u8; FLASH_PLAN_SIZE];
         raw.copy_from_slice(&bytes[..FLASH_PLAN_SIZE]);
+        let header = BlockHeader::read(&raw);
         let plan = Self {
-            magic: read_u32_le(&raw, plan_offset::MAGIC),
-            version: read_u32_le(&raw, plan_offset::VERSION),
-            size: read_u32_le(&raw, plan_offset::SIZE),
-            checksum: read_u32_le(&raw, plan_offset::CHECKSUM),
+            magic: header.magic,
+            version: header.version,
+            size: header.size,
+            checksum: header.checksum,
             payload_len: read_u32_le(&raw, plan_offset::PAYLOAD_LEN),
             payload_checksum: read_u32_le(&raw, plan_offset::PAYLOAD_CHECKSUM),
             args_len: read_u32_le(&raw, plan_offset::ARGS_LEN),
@@ -570,18 +585,7 @@ impl FlashPlan {
 
     /// Check the block envelope and that every declared extent fits its window.
     pub fn verify(&self) -> Result<(), FlashContractError> {
-        verify_block(
-            BlockSpec {
-                magic: FLASH_PLAN_MAGIC,
-                size: FLASH_PLAN_SIZE,
-                checksum_offset: plan_offset::CHECKSUM,
-            },
-            self.magic,
-            self.version,
-            self.size,
-            self.checksum,
-            &mut self.to_bytes(),
-        )?;
+        self.header().verify(Self::SPEC, &mut self.to_bytes())?;
         self.verify_extents()
     }
 
@@ -642,29 +646,38 @@ impl FlashPlan {
 }
 
 impl FlashStatus {
+    const SPEC: BlockSpec = BlockSpec::new(FLASH_STATUS_MAGIC, FLASH_STATUS_SIZE);
+
+    const fn header(&self) -> BlockHeader {
+        BlockHeader {
+            magic: self.magic,
+            version: self.version,
+            size: self.size,
+            checksum: self.checksum,
+        }
+    }
+
     /// Build a status and stamp its magic, version, size and checksum.
     pub fn new(sequence: u32, step: u32, result: u32) -> Self {
+        let header = Self::SPEC.header();
         let mut status = Self {
-            magic: FLASH_STATUS_MAGIC,
-            version: FLASH_CONTRACT_VERSION,
-            size: FLASH_STATUS_SIZE as u32,
-            checksum: 0,
+            magic: header.magic,
+            version: header.version,
+            size: header.size,
+            checksum: header.checksum,
             sequence,
             step,
             result,
         };
         let mut bytes = status.to_bytes();
-        status.checksum = checksum_without(&mut bytes, status_offset::CHECKSUM);
+        status.checksum = checksum_without(&mut bytes, header_offset::CHECKSUM);
         status
     }
 
     /// The status's little-endian byte representation, as written to DRAM.
     pub const fn to_bytes(self) -> [u8; FLASH_STATUS_SIZE] {
         let mut out = [0u8; FLASH_STATUS_SIZE];
-        write_u32_le(&mut out, status_offset::MAGIC, self.magic);
-        write_u32_le(&mut out, status_offset::VERSION, self.version);
-        write_u32_le(&mut out, status_offset::SIZE, self.size);
-        write_u32_le(&mut out, status_offset::CHECKSUM, self.checksum);
+        self.header().write(&mut out);
         write_u32_le(&mut out, status_offset::SEQUENCE, self.sequence);
         write_u32_le(&mut out, status_offset::STEP, self.step);
         write_u32_le(&mut out, status_offset::RESULT, self.result);
@@ -678,11 +691,12 @@ impl FlashStatus {
         }
         let mut raw = [0u8; FLASH_STATUS_SIZE];
         raw.copy_from_slice(&bytes[..FLASH_STATUS_SIZE]);
+        let header = BlockHeader::read(&raw);
         let status = Self {
-            magic: read_u32_le(&raw, status_offset::MAGIC),
-            version: read_u32_le(&raw, status_offset::VERSION),
-            size: read_u32_le(&raw, status_offset::SIZE),
-            checksum: read_u32_le(&raw, status_offset::CHECKSUM),
+            magic: header.magic,
+            version: header.version,
+            size: header.size,
+            checksum: header.checksum,
             sequence: read_u32_le(&raw, status_offset::SEQUENCE),
             step: read_u32_le(&raw, status_offset::STEP),
             result: read_u32_le(&raw, status_offset::RESULT),
@@ -693,18 +707,7 @@ impl FlashStatus {
 
     /// Check the magic, version, size and checksum.
     pub fn verify(&self) -> Result<(), FlashContractError> {
-        verify_block(
-            BlockSpec {
-                magic: FLASH_STATUS_MAGIC,
-                size: FLASH_STATUS_SIZE,
-                checksum_offset: status_offset::CHECKSUM,
-            },
-            self.magic,
-            self.version,
-            self.size,
-            self.checksum,
-            &mut self.to_bytes(),
-        )
+        self.header().verify(Self::SPEC, &mut self.to_bytes())
     }
 
     /// Whether the flasher reported a completed, successful job.
@@ -713,42 +716,79 @@ impl FlashStatus {
     }
 }
 
-struct BlockSpec {
-    magic: u32,
-    size: usize,
-    checksum_offset: usize,
-}
-
-fn verify_block(
-    spec: BlockSpec,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BlockHeader {
     magic: u32,
     version: u32,
     size: u32,
     checksum: u32,
-    bytes: &mut [u8],
-) -> Result<(), FlashContractError> {
-    if magic != spec.magic {
-        return Err(FlashContractError::BadMagic { got: magic });
+}
+
+impl BlockHeader {
+    const fn new(magic: u32, size: usize) -> Self {
+        Self {
+            magic,
+            version: FLASH_CONTRACT_VERSION,
+            size: size as u32,
+            checksum: 0,
+        }
     }
-    if version != FLASH_CONTRACT_VERSION {
-        return Err(FlashContractError::BadVersion { got: version });
+
+    const fn write(self, out: &mut [u8]) {
+        write_u32_le(out, header_offset::MAGIC, self.magic);
+        write_u32_le(out, header_offset::VERSION, self.version);
+        write_u32_le(out, header_offset::SIZE, self.size);
+        write_u32_le(out, header_offset::CHECKSUM, self.checksum);
     }
-    if size != spec.size as u32 {
-        return Err(FlashContractError::BadSize { got: size });
+
+    fn read(bytes: &[u8]) -> Self {
+        Self {
+            magic: read_u32_le(bytes, header_offset::MAGIC),
+            version: read_u32_le(bytes, header_offset::VERSION),
+            size: read_u32_le(bytes, header_offset::SIZE),
+            checksum: read_u32_le(bytes, header_offset::CHECKSUM),
+        }
     }
-    let expected = checksum_without(bytes, spec.checksum_offset);
-    if checksum != expected {
-        return Err(FlashContractError::BadChecksum {
-            expected,
-            got: checksum,
-        });
+
+    fn verify(self, spec: BlockSpec, bytes: &mut [u8]) -> Result<(), FlashContractError> {
+        if self.magic != spec.magic {
+            return Err(FlashContractError::BadMagic { got: self.magic });
+        }
+        if self.version != FLASH_CONTRACT_VERSION {
+            return Err(FlashContractError::BadVersion { got: self.version });
+        }
+        if self.size != spec.size as u32 {
+            return Err(FlashContractError::BadSize { got: self.size });
+        }
+        let expected = checksum_without(bytes, header_offset::CHECKSUM);
+        if self.checksum != expected {
+            return Err(FlashContractError::BadChecksum {
+                expected,
+                got: self.checksum,
+            });
+        }
+        Ok(())
     }
-    Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct BlockSpec {
+    magic: u32,
+    size: usize,
+}
+
+impl BlockSpec {
+    const fn new(magic: u32, size: usize) -> Self {
+        Self { magic, size }
+    }
+
+    const fn header(self) -> BlockHeader {
+        BlockHeader::new(self.magic, self.size)
+    }
 }
 
 /// Step values and their log names; the order is not significant.
 const STEP_NAMES: &[(u32, &str)] = &[
-    (FLASH_STEP_STARTED, "started"),
     (FLASH_STEP_DONE, "done"),
     (FLASH_STEP_PLAN, "plan"),
     (FLASH_STEP_SD_INIT, "SD init"),
@@ -883,7 +923,7 @@ mod tests {
 
     #[test]
     fn an_incomplete_status_is_not_success() {
-        let status = FlashStatus::new(7, FLASH_STEP_STARTED, FLASH_RESULT_OK);
+        let status = FlashStatus::new(7, FLASH_STEP_PLAN, FLASH_RESULT_OK);
         assert!(!status.is_ok());
     }
 
@@ -902,6 +942,34 @@ mod tests {
     }
 
     #[test]
+    fn every_status_field_changes_the_checksum() {
+        let base = FlashStatus::new(1, FLASH_STEP_DONE, FLASH_RESULT_OK);
+        for status in [
+            FlashStatus::new(2, FLASH_STEP_DONE, FLASH_RESULT_OK),
+            FlashStatus::new(1, FLASH_STEP_PLAN, FLASH_RESULT_OK),
+            FlashStatus::new(1, FLASH_STEP_DONE, FLASH_RESULT_BAD_JOB),
+        ] {
+            assert_ne!(status.checksum, base.checksum, "{status:?}");
+        }
+    }
+
+    fn loader(len: usize) -> Vec<u8> {
+        (0..len).map(|index| index as u8).collect()
+    }
+
+    fn sample_job() -> FlashJob {
+        FlashJob::new(1, FLASH_COMMAND_NOOP, 0, 0, 0)
+    }
+
+    fn sample_status() -> FlashStatus {
+        FlashStatus::new(1, FLASH_STEP_DONE, FLASH_RESULT_OK)
+    }
+
+    fn sample_plan() -> FlashPlan {
+        FlashPlan::new(b"payload", b"args", &loader(512)).unwrap()
+    }
+
+    #[test]
     fn rejects_a_truncated_block() {
         assert_eq!(
             FlashJob::from_bytes(&[0u8; FLASH_JOB_SIZE - 1]),
@@ -911,50 +979,128 @@ mod tests {
             FlashStatus::from_bytes(&[0u8; FLASH_STATUS_SIZE - 1]),
             Err(FlashContractError::Truncated)
         );
+        assert_eq!(
+            FlashPlan::from_bytes(&[0u8; FLASH_PLAN_SIZE - 1]),
+            Err(FlashContractError::Truncated)
+        );
     }
 
     #[test]
-    fn rejects_a_bad_magic() {
-        let mut bytes = FlashJob::new(1, FLASH_COMMAND_NOOP, 0, 0, 0).to_bytes();
-        bytes[0] ^= 0xff;
+    fn rejects_a_bad_magic_in_every_block() {
+        let mut job = sample_job().to_bytes();
+        job[header_offset::MAGIC] ^= 0xff;
         assert!(matches!(
-            FlashJob::from_bytes(&bytes),
+            FlashJob::from_bytes(&job),
+            Err(FlashContractError::BadMagic { .. })
+        ));
+
+        let mut status = sample_status().to_bytes();
+        status[header_offset::MAGIC] ^= 0xff;
+        assert!(matches!(
+            FlashStatus::from_bytes(&status),
+            Err(FlashContractError::BadMagic { .. })
+        ));
+
+        let mut plan = sample_plan().to_bytes();
+        plan[header_offset::MAGIC] ^= 0xff;
+        assert!(matches!(
+            FlashPlan::from_bytes(&plan),
             Err(FlashContractError::BadMagic { .. })
         ));
     }
 
     #[test]
-    fn rejects_a_bad_version() {
-        let mut bytes = FlashJob::new(1, FLASH_COMMAND_NOOP, 0, 0, 0).to_bytes();
-        write_u32_le(&mut bytes, job_offset::VERSION, 2);
+    fn rejects_a_bad_version_in_every_block() {
+        let mut job = sample_job().to_bytes();
+        write_u32_le(&mut job, header_offset::VERSION, 2);
         assert_eq!(
-            FlashJob::from_bytes(&bytes),
+            FlashJob::from_bytes(&job),
+            Err(FlashContractError::BadVersion { got: 2 })
+        );
+
+        let mut status = sample_status().to_bytes();
+        write_u32_le(&mut status, header_offset::VERSION, 2);
+        assert_eq!(
+            FlashStatus::from_bytes(&status),
+            Err(FlashContractError::BadVersion { got: 2 })
+        );
+
+        let mut plan = sample_plan().to_bytes();
+        write_u32_le(&mut plan, header_offset::VERSION, 2);
+        assert_eq!(
+            FlashPlan::from_bytes(&plan),
             Err(FlashContractError::BadVersion { got: 2 })
         );
     }
 
     #[test]
-    fn rejects_a_bad_size() {
-        let mut bytes = FlashStatus::new(1, FLASH_STEP_DONE, FLASH_RESULT_OK).to_bytes();
-        write_u32_le(&mut bytes, status_offset::SIZE, 4);
+    fn rejects_a_bad_size_in_every_block() {
+        let mut job = sample_job().to_bytes();
+        write_u32_le(&mut job, header_offset::SIZE, 4);
         assert_eq!(
-            FlashStatus::from_bytes(&bytes),
+            FlashJob::from_bytes(&job),
+            Err(FlashContractError::BadSize { got: 4 })
+        );
+
+        let mut status = sample_status().to_bytes();
+        write_u32_le(&mut status, header_offset::SIZE, 4);
+        assert_eq!(
+            FlashStatus::from_bytes(&status),
+            Err(FlashContractError::BadSize { got: 4 })
+        );
+
+        let mut plan = sample_plan().to_bytes();
+        write_u32_le(&mut plan, header_offset::SIZE, 4);
+        assert_eq!(
+            FlashPlan::from_bytes(&plan),
             Err(FlashContractError::BadSize { got: 4 })
         );
     }
 
     #[test]
-    fn rejects_a_corrupted_payload_field() {
-        let mut bytes = FlashStatus::new(1, FLASH_STEP_DONE, FLASH_RESULT_OK).to_bytes();
-        bytes[status_offset::RESULT] ^= 0xff;
+    fn rejects_a_bad_checksum_in_every_block() {
+        let mut job = sample_job().to_bytes();
+        job[job_offset::ARG0] ^= 0xff;
         assert!(matches!(
-            FlashStatus::from_bytes(&bytes),
+            FlashJob::from_bytes(&job),
+            Err(FlashContractError::BadChecksum { .. })
+        ));
+
+        let mut status = sample_status().to_bytes();
+        status[status_offset::RESULT] ^= 0xff;
+        assert!(matches!(
+            FlashStatus::from_bytes(&status),
+            Err(FlashContractError::BadChecksum { .. })
+        ));
+
+        let mut plan = sample_plan().to_bytes();
+        plan[plan_offset::LOADER_LEN] ^= 0xff;
+        assert!(matches!(
+            FlashPlan::from_bytes(&plan),
             Err(FlashContractError::BadChecksum { .. })
         ));
     }
 
-    fn loader(len: usize) -> Vec<u8> {
-        (0..len).map(|index| index as u8).collect()
+    #[test]
+    fn every_plan_field_changes_the_checksum() {
+        let base = sample_plan();
+        let mut other_loader = loader(512);
+        other_loader[0] ^= 0xff;
+        let mut other_payload = b"payload".to_vec();
+        other_payload[0] ^= 0xff;
+        let mut other_args = b"args".to_vec();
+        other_args[0] ^= 0xff;
+
+        for plan in [
+            FlashPlan::new(b"payload!", b"args", &loader(512)).unwrap(),
+            FlashPlan::new(&other_payload, b"args", &loader(512)).unwrap(),
+            FlashPlan::new(b"payload", b"args!", &loader(512)).unwrap(),
+            FlashPlan::new(b"payload", &other_args, &loader(512)).unwrap(),
+            FlashPlan::new(b"payload", b"args", &loader(1024)).unwrap(),
+            FlashPlan::new(b"payload", b"args", &other_loader).unwrap(),
+        ] {
+            assert_ne!(plan.checksum, base.checksum, "{plan:?}");
+        }
     }
 
     #[test]
@@ -1052,19 +1198,6 @@ mod tests {
                 field: "SD loader",
                 ..
             })
-        ));
-    }
-
-    #[test]
-    fn rejects_a_corrupted_plan() {
-        let mut bytes = FlashPlan::new(b"payload", b"args", &loader(512))
-            .unwrap()
-            .to_bytes();
-        bytes[plan_offset::LOADER_LEN] ^= 0xff;
-
-        assert!(matches!(
-            FlashPlan::from_bytes(&bytes),
-            Err(FlashContractError::BadChecksum { .. })
         ));
     }
 

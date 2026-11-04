@@ -24,6 +24,8 @@ pub extern "C" fn _start() -> u32 {
 
 #[panic_handler]
 fn panic(_info: &PanicInfo<'_>) -> ! {
+    // Parking is the contract: the BROM is not running, so the host cannot read
+    // a result. It observes the FEL timeout instead (ADR-0013).
     loop {
         core::hint::spin_loop();
     }
