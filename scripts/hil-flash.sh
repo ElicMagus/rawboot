@@ -3,7 +3,7 @@
 #
 # Run an in-board FEL flash with a UART capture and assert the flasher status.
 # The board must already be in FEL with the card inserted; this script does not
-# power-cycle. Prefer one attempt per cold boot: the DDR-init stub is not idempotent.
+# power-cycle. One attempt per cold boot: a repeated DDR-init stub can hang.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -66,7 +66,7 @@ command -v sg >/dev/null 2>&1 || die "sg (util-linux) is required for dialout ac
 command -v stty >/dev/null 2>&1 || die "stty is required"
 
 echo "Cold-start the board into FEL with the card inserted."
-echo "Prefer one fel-flash attempt per cold boot; the DDR-init stub is not idempotent."
+echo "One fel-flash attempt per cold boot; a repeated DDR-init stub can hang."
 if [ "${HIL_NO_PROMPT:-0}" != "1" ]; then
     printf 'Press Enter when the board is in FEL with the card inserted: '
     read -r _

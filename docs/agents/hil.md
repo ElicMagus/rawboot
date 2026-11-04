@@ -456,30 +456,40 @@ card:       payload files and loader written; MBR unchanged
 **DDR-init and repeated attempts.** The stub is not idempotent: every run calls
 `DramPara::init_dram()` again and waits for PLL_DDR to lock, so a repeat can hang the same way as
 `xfel ddr` before a loader. That is a different condition from #23, which is specifically about
-external `xfel ddr` run before the loader. HIL #52 measured all four conditions on the bench:
-three `bringup` runs on one power cycle, a second `fel-flash` after a successful one, and a
-rerun after an SD error all returned to the BROM and finished with `step 2 (done), result 0
-(ok)`; no DDR-init hang was observed. The stub still re-runs DRAM init, so treat a cold start
-between `fel-flash` attempts as the safe procedure, not as a proven requirement.
+external `xfel ddr` run before the loader. HIL #52 measured the repeat conditions: three
+`bringup` runs on one power cycle, a second `fel-flash` after a successful one, and a rerun after
+an SD error all returned to the BROM and finished with `step 2 (done), result 0 (ok)`. A later
+repeat hung, however: after a successful `raw-write-test` on one power cycle, the next
+`fel-flash` timed out waiting for the DDR stub to return. The device still enumerated on USB,
+but `cargo fel version` did not answer and the board needed a cold start. A repeat stub is
+therefore not a verified path: run one stub per cold boot and power-cycle before retrying.
 
 | Condition | Procedure | Expected | Observed |
 | --- | --- | --- | --- |
 | Cold start, one `bringup` | cold power-cycle into FEL, run `cargo fel bringup target/rawboot-ddr.bin target/rawboot-flasher.bin` | `DRAM: 128 MiB`, `pattern: OK at 0x40002000`, `status: sequence 1, step 2 (done), result 0 (ok)` | PASS, HIL #52 |
 | Three `bringup` on one power cycle | run `bringup` three times without removing power | three identical successes | PASS, HIL #46; re-confirmed HIL #52 |
-| Repeat `fel-flash` after a successful `fel-flash` | run `cargo xtask fel-flash --yes` twice on one power cycle | the second run reports `step 2 (done), result 0 (ok)` | PASS, HIL #52 (after an in-FEL card re-insert because the cold start hit #43) |
-| Repeat `fel-flash` after an SD error | make the flasher fail before the status (remove the card, or use a partition starting at or inside sector 16), then rerun `fel-flash --yes` on the same power cycle | the second run reports a clean status | PASS, HIL #52 (first run `SD card offline`, second run ok) |
-| Four cold starts with the USB-UART adapter attached and the card in place | power-cycle four times without unplugging the adapter or removing the card | DDR-init succeeds whenever FEL is reached; the card path may still fail (#43) | HIL #52: DDR 4/4 PASS; card `found` 1/4, `SD card offline` 3/4 |
+| Repeat `fel-flash` after a successful `fel-flash` | run `cargo xtask fel-flash --yes` twice on one power cycle | the second run reports `step 2 (done), result 0 (ok)` | PASS once on HIL #52 (after an in-FEL card re-insert); a later repeat hung, so do not rely on it |
+| Repeat `fel-flash` after an SD error | make the flasher fail before the status (remove the card, or use a partition starting at or inside sector 16), then rerun `fel-flash --yes` on the same power cycle | the second run reports a clean status | PASS once on HIL #52 (first run `SD card offline`, second run ok); a later repeat hung |
+| Four cold starts, adapter attached, bootable card | power-cycle four times without unplugging the adapter or removing the card | DDR-init succeeds whenever FEL is reached; the BROM may boot the card instead of FEL | HIL #52: FEL reached 4/4; DDR 4/4 PASS; card `found` 1/4, `SD card offline` 3/4 |
+| Four cold starts, adapter attached, sector 16 invalidated | run `cargo xtask raw-write-test --yes` once, then power-cycle four times without unplugging the adapter or removing the card | FEL is deterministic; DDR-init succeeds every time; SD may alternate (#43) | HIL #52: DDR 4/4 PASS; SD odd starts FAIL (2/2), even starts PASS (2/2) |
 
 Record a result in the table only after the owner confirms it on the bench; do not mark an
 unmeasured row PASS. Repeat the cold-start row after any board or card change.
 
 **Cold starts with the adapter attached.** Leaving the USB-UART adapter connected backfeeds the
 board, so the card is not truly power-cycled, and a card carrying a bootable loader in sector 16
-can also make the BROM boot from SD instead of entering FEL. On HIL #52 only one of four such
-starts enumerated the card; a start that does not answer `cargo fel version` has booted the card,
-not failed DDR-init. Check `cargo fel version` before starting a matrix row. Unplug the adapter
-before the power-off for a true cold start, and remove the card when FEL entry must be
-deterministic.
+can also make the BROM boot from SD instead of entering FEL. On HIL #52, with a bootable card,
+only one of four such starts enumerated the card; a start that does not answer `cargo fel
+version` has booted the card, not failed DDR-init. Check `cargo fel version` before starting a
+matrix row.
+
+To measure the card alternation without the BROM stealing the boot, invalidate sector 16 first:
+`cargo xtask raw-write-test --yes` writes an `RBRW` test block there, leaves sector 0 and the FAT
+partition untouched, and makes FEL deterministic. With that card HIL #52 saw four cold starts
+with the adapter attached: DDR-init passed 4/4, while SD alternation was strict (odd starts `SD
+card offline`, even starts `done`/`ok`). Restore the loader with `fel-flash` afterwards. This
+alternation is #43 (card power state), not a DDR-init result. Unplug the adapter before the
+power-off for a true cold start, and remove the card when FEL entry must be deterministic.
 
 The flasher reports a failing step and reason in the status, and `fel-flash` prints it before
 exiting non-zero. Common cases:
