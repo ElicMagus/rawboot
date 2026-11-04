@@ -433,7 +433,7 @@ fn checksum_without(bytes: &mut [u8], offset: usize) -> u32 {
 }
 
 impl FlashJob {
-    const SPEC: BlockSpec = BlockSpec::new(FLASH_JOB_MAGIC, FLASH_JOB_SIZE);
+    const SPEC: BlockShape = BlockShape::new(FLASH_JOB_MAGIC, FLASH_JOB_SIZE);
 
     const fn header(&self) -> BlockHeader {
         BlockHeader {
@@ -446,7 +446,7 @@ impl FlashJob {
 
     /// Build a job and stamp its magic, version, size and checksum.
     pub fn new(sequence: u32, command: u32, arg0: u32, arg1: u32, arg2: u32) -> Self {
-        let header = Self::SPEC.header();
+        let header = Self::SPEC.unstamped_header();
         let mut job = Self {
             magic: header.magic,
             version: header.version,
@@ -505,7 +505,7 @@ impl FlashJob {
 }
 
 impl FlashPlan {
-    const SPEC: BlockSpec = BlockSpec::new(FLASH_PLAN_MAGIC, FLASH_PLAN_SIZE);
+    const SPEC: BlockShape = BlockShape::new(FLASH_PLAN_MAGIC, FLASH_PLAN_SIZE);
 
     const fn header(&self) -> BlockHeader {
         BlockHeader {
@@ -522,7 +522,7 @@ impl FlashPlan {
     /// `payload` and `loader` must be non-empty, and the loader must be a whole
     /// number of SD blocks because it is written directly to sector 16.
     pub fn new(payload: &[u8], args: &[u8], loader: &[u8]) -> Result<Self, FlashContractError> {
-        let header = Self::SPEC.header();
+        let header = Self::SPEC.unstamped_header();
         let mut plan = Self {
             magic: header.magic,
             version: header.version,
@@ -646,7 +646,7 @@ impl FlashPlan {
 }
 
 impl FlashStatus {
-    const SPEC: BlockSpec = BlockSpec::new(FLASH_STATUS_MAGIC, FLASH_STATUS_SIZE);
+    const SPEC: BlockShape = BlockShape::new(FLASH_STATUS_MAGIC, FLASH_STATUS_SIZE);
 
     const fn header(&self) -> BlockHeader {
         BlockHeader {
@@ -659,7 +659,7 @@ impl FlashStatus {
 
     /// Build a status and stamp its magic, version, size and checksum.
     pub fn new(sequence: u32, step: u32, result: u32) -> Self {
-        let header = Self::SPEC.header();
+        let header = Self::SPEC.unstamped_header();
         let mut status = Self {
             magic: header.magic,
             version: header.version,
@@ -750,7 +750,7 @@ impl BlockHeader {
         }
     }
 
-    fn verify(self, spec: BlockSpec, bytes: &mut [u8]) -> Result<(), FlashContractError> {
+    fn verify(self, spec: BlockShape, bytes: &mut [u8]) -> Result<(), FlashContractError> {
         if self.magic != spec.magic {
             return Err(FlashContractError::BadMagic { got: self.magic });
         }
@@ -772,17 +772,17 @@ impl BlockHeader {
 }
 
 #[derive(Clone, Copy)]
-struct BlockSpec {
+struct BlockShape {
     magic: u32,
     size: usize,
 }
 
-impl BlockSpec {
+impl BlockShape {
     const fn new(magic: u32, size: usize) -> Self {
         Self { magic, size }
     }
 
-    const fn header(self) -> BlockHeader {
+    const fn unstamped_header(self) -> BlockHeader {
         BlockHeader::new(self.magic, self.size)
     }
 }
@@ -851,6 +851,7 @@ pub const fn result_name(result: u32) -> &'static str {
 const _: () = {
     use core::mem::{offset_of, size_of};
 
+    assert!(BLOCK_HEADER_SIZE == header_offset::CHECKSUM + 4);
     assert!(size_of::<DdrResult>() == DDR_RESULT_SIZE);
     assert!(size_of::<FlashJob>() == FLASH_JOB_SIZE);
     assert!(size_of::<FlashStatus>() == FLASH_STATUS_SIZE);

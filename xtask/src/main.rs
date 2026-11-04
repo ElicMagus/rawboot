@@ -22,7 +22,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use rawboot_fel::{FelDevice, FlashSdRequest};
+use rawboot_fel::{FelDevice, FlashSdRequest, ImageKind};
 use rawboot_image::{
     DDR_RESULT_ADDR, DDR_STUB_LOAD_ADDR, DDR_STUB_MAX_SIZE, DEFAULT_LOAD_ADDR, DEFAULT_START_LBA,
     FLASH_ARGS_MAX_SIZE, FLASH_LOADER_START_LBA, FLASH_PAYLOAD_MAX_SIZE, FLASH_SECTOR_SIZE,
@@ -475,8 +475,8 @@ fn fel_flash(args: impl Iterator<Item = String>) -> Result<()> {
         Some(path) => read_boot_cfg(&path)?,
         None => Vec::new(),
     };
-    let flasher = read_flasher_image(&flasher_path, "flasher")?;
-    let stub = read_flasher_image(&stub_path, "DDR-init stub")?;
+    let flasher = read_flasher_image(&flasher_path, ImageKind::Flasher)?;
+    let stub = read_flasher_image(&stub_path, ImageKind::DdrStub)?;
 
     println!(
         "plan:       payload {} bytes, boot.cfg {} bytes, loader {} bytes",
@@ -556,8 +556,8 @@ fn raw_write_test(args: impl Iterator<Item = String>) -> Result<()> {
 
     let flasher_path = args.flasher.unwrap_or_else(|| default_flasher(&root));
     let stub_path = args.ddr_stub.unwrap_or_else(|| default_ddr_stub(&root));
-    let flasher = read_flasher_image(&flasher_path, "flasher")?;
-    let stub = read_flasher_image(&stub_path, "DDR-init stub")?;
+    let flasher = read_flasher_image(&flasher_path, ImageKind::Flasher)?;
+    let stub = read_flasher_image(&stub_path, ImageKind::DdrStub)?;
 
     println!(
         "raw test:   DDR stub {} bytes, flasher {} bytes, sequence {}",
@@ -748,11 +748,11 @@ fn read_boot_cfg(path: &Path) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn read_flasher_image(path: &Path, what: &str) -> Result<Vec<u8>> {
+fn read_flasher_image(path: &Path, kind: ImageKind) -> Result<Vec<u8>> {
     fs::read(path)
         .map_err(|err| match err.kind() {
             ErrorKind::NotFound => format!(
-                "`{}` ({what}) not found; run `cargo xtask flasher` first",
+                "`{}` ({kind}) not found; run `cargo xtask flasher` first",
                 path.display()
             ),
             _ => format!("reading `{}`: {err}", path.display()),
