@@ -30,11 +30,26 @@ job/status, но SD он ещё не трогал. Карту обновляли
 `verify_sealed` для лоадера. Это защищает от битой FEL-передачи между `write` и `exec`.
 
 Новые шаги статуса (`plan`, `SD init`, `layout`, `read MBR`, `write payload`, `write boot.cfg`,
-`verify FAT files`, `write loader`, `verify loader`) и результаты (`bad plan`, `SD card offline`,
+`verify FAT files`, `write loader`, `verify loader`, `raw write`, `raw verify`) и результаты
+(`bad plan`, `SD card offline`,
 `no MBR`, `no FAT partition`, `unsafe card layout`, `card too small`, `read failed`,
 `write failed`, `create file failed`, `truncate failed`, `file write failed`, `file flush
 failed`, `read-back mismatch`, `MBR changed`) позволяют хосту напечатать шаг и причину сбоя.
 Успешный статус по-прежнему `done`/`ok`.
+
+## Диагностика записи
+
+`FLASH_COMMAND_RAW_WRITE_TEST` и `cargo xtask raw-write-test` проверяют сам блочный путь
+записи, не требуя MBR, FAT и staged-образов: прошивальщик пишет известный блок в LBA 16,
+читает его обратно и сравнивает. Сектор 0 не трогается; сектор 16 перезаписывается, поэтому
+на подготовленной карте после теста нужно снова записать лоадер. Шаги `raw write` и
+`raw verify` отделяют отказ CMD24 от ошибки чтения, а `write failed`/`read failed`/
+`read-back mismatch` называют причину.
+
+В отличие от `fel-flash`, диагностика не читает MBR и не делает layout-проверку: она
+предназначена для пустой или уже проверенной карты, где сектор 16 не занят разделом.
+Поэтому запись требует явного `--yes`, печатает предупреждение о перезаписи сектора 16 и не
+является безопасным путём обновления подготовленной карты.
 
 ## Порядок и safety
 

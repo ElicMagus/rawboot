@@ -25,9 +25,10 @@ use std::process::Command;
 use rawboot_fel::{FelDevice, FlashSdRequest};
 use rawboot_image::{
     DDR_RESULT_ADDR, DDR_STUB_LOAD_ADDR, DDR_STUB_MAX_SIZE, DEFAULT_LOAD_ADDR, DEFAULT_START_LBA,
-    FLASH_ARGS_MAX_SIZE, FLASH_PAYLOAD_MAX_SIZE, FLASHER_LOAD_ADDR, FLASHER_MAX_SIZE,
-    FLASHER_STACK_SIZE, FLASHER_STACK_TOP, ImageOptions, SdImageOptions, SealOptions,
-    build_sd_image, parse as parse_payload, result_name, seal, step_name, verify_sealed,
+    FLASH_ARGS_MAX_SIZE, FLASH_LOADER_START_LBA, FLASH_PAYLOAD_MAX_SIZE, FLASH_SECTOR_SIZE,
+    FLASHER_LOAD_ADDR, FLASHER_MAX_SIZE, FLASHER_STACK_SIZE, FLASHER_STACK_TOP, ImageOptions,
+    SdImageOptions, SealOptions, build_sd_image, parse as parse_payload, result_name, seal,
+    step_name, verify_sealed,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -41,7 +42,7 @@ const FEL_LOAD_ADDR: u32 = 0x0002_8000;
 /// SD/SPI load address BROM uses for a boot image (matches the boot link script).
 const SD_LOAD_ADDR: u32 = 0x0002_0000;
 
-const USAGE: &str = "usage: cargo xtask image | cargo xtask payload | cargo xtask flasher | cargo xtask sd-image --partition-sectors <n> [--start-lba <n>] [--loader <path>] | cargo xtask fel-flash [--payload <path>] [--boot-cfg <path>] [--loader <path>] [--flasher <path>] [--ddr-stub <path>] [--sequence <n>] [--skip-build] [--dry-run] [--yes]";
+const USAGE: &str = "usage: cargo xtask image | cargo xtask payload | cargo xtask flasher | cargo xtask sd-image --partition-sectors <n> [--start-lba <n>] [--loader <path>] | cargo xtask fel-flash [--payload <path>] [--boot-cfg <path>] [--loader <path>] [--flasher <path>] [--ddr-stub <path>] [--sequence <n>] [--skip-build] [--dry-run] [--yes] | cargo xtask raw-write-test [--flasher <path>] [--ddr-stub <path>] [--sequence <n>] [--skip-build] [--yes]";
 
 /// One of the two loader images: same code, different link address.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -92,6 +93,7 @@ fn run() -> Result<()> {
         Some("flasher") => flasher(),
         Some("sd-image") => sd_image(args),
         Some("fel-flash") => fel_flash(args),
+        Some("raw-write-test") => raw_write_test(args),
         Some(other) => Err(format!("unknown command `{other}`\n{USAGE}").into()),
         None => Err(format!("missing command\n{USAGE}").into()),
     }
@@ -427,6 +429,29 @@ fn default_ddr_stub(root: &Path) -> PathBuf {
     root.join("target").join("rawboot-ddr.bin")
 }
 
+fn print_flash_status(status: &rawboot_image::FlashStatus) {
+    println!(
+        "status:     sequence {}, step {} ({}), result {} ({})",
+        status.sequence,
+        status.step,
+        step_name(status.step),
+        status.result,
+        result_name(status.result)
+    );
+}
+
+/// Turn a FEL error into `Box<dyn Error>`, adding the cold-start hint for a
+/// transport timeout left by a previous DDR-init stub run.
+fn flash_error(error: rawboot_fel::FelError) -> Box<dyn Error> {
+    if matches!(error, rawboot_fel::FelError::Transport(_)) {
+        eprintln!(
+            "hint:       power-cycle the board into FEL before retrying; the DDR stub is not \
+             idempotent"
+        );
+    }
+    error.into()
+}
+
 /// Build or reuse the artifacts and write them to a card left in the board.
 fn fel_flash(args: impl Iterator<Item = String>) -> Result<()> {
     let root = workspace_root();
@@ -482,25 +507,16 @@ fn fel_flash(args: impl Iterator<Item = String>) -> Result<()> {
     let (_, soc) = fel.identify()?;
     println!("SoC:        {}", soc.name());
 
-    let report = match fel.flash_sd_card(FlashSdRequest {
-        stub: &stub,
-        flasher: &flasher,
-        payload: &payload,
-        args: &boot_cfg,
-        loader: &loader,
-        sequence: args.sequence,
-    }) {
-        Ok(report) => report,
-        Err(error) => {
-            if matches!(error, rawboot_fel::FelError::Transport(_)) {
-                eprintln!(
-                    "hint:       power-cycle the board into FEL before retrying; the DDR stub is \
-                     not idempotent"
-                );
-            }
-            return Err(error.into());
-        }
-    };
+    let report = fel
+        .flash_sd_card(FlashSdRequest {
+            stub: &stub,
+            flasher: &flasher,
+            payload: &payload,
+            args: &boot_cfg,
+            loader: &loader,
+            sequence: args.sequence,
+        })
+        .map_err(flash_error)?;
 
     println!("DRAM:       {} MiB", report.dram_size_mib);
     println!(
@@ -509,14 +525,7 @@ fn fel_flash(args: impl Iterator<Item = String>) -> Result<()> {
         boot_cfg.len(),
         loader.len()
     );
-    println!(
-        "status:     sequence {}, step {} ({}), result {} ({})",
-        report.status.sequence,
-        report.status.step,
-        step_name(report.status.step),
-        report.status.result,
-        result_name(report.status.result)
-    );
+    print_flash_status(&report.status);
 
     if !report.status.is_ok() {
         return Err(format!(
@@ -531,6 +540,100 @@ fn fel_flash(args: impl Iterator<Item = String>) -> Result<()> {
 
     println!("card:       payload files and loader written; MBR unchanged");
     Ok(())
+}
+
+/// Write one known block to the loader sector and read it back.
+///
+/// This diagnostic checks the SD block-write path without an MBR or FAT. It is
+/// destructive for sector 16 only, and never touches sector 0.
+fn raw_write_test(args: impl Iterator<Item = String>) -> Result<()> {
+    let root = workspace_root();
+    let args = parse_raw_write_args(args)?;
+
+    if !args.skip_build {
+        flasher()?;
+    }
+
+    let flasher_path = args.flasher.unwrap_or_else(|| default_flasher(&root));
+    let stub_path = args.ddr_stub.unwrap_or_else(|| default_ddr_stub(&root));
+    let flasher = read_flasher_image(&flasher_path, "flasher")?;
+    let stub = read_flasher_image(&stub_path, "DDR-init stub")?;
+
+    println!(
+        "raw test:   DDR stub {} bytes, flasher {} bytes, sequence {}",
+        stub.len(),
+        flasher.len(),
+        args.sequence
+    );
+    println!(
+        "raw test:   writes one {}-byte block to LBA {} and reads it back; sector 0 is untouched",
+        FLASH_SECTOR_SIZE, FLASH_LOADER_START_LBA
+    );
+
+    if !args.yes {
+        return Err(format!(
+            "refusing to write sector 16 without `--yes`; cold-start the board into FEL and rerun \
+             with `--yes`\n{USAGE}"
+        )
+        .into());
+    }
+
+    let mut fel = FelDevice::open()?;
+    let (_, soc) = fel.identify()?;
+    println!("SoC:        {}", soc.name());
+
+    let report = fel
+        .raw_write_test(&stub, &flasher, args.sequence)
+        .map_err(flash_error)?;
+
+    println!("DRAM:       {} MiB", report.dram_size_mib);
+    print_flash_status(&report.status);
+
+    if !report.status.is_ok() {
+        return Err(format!(
+            "raw write test stopped at step {} ({}): {} ({})",
+            report.status.step,
+            step_name(report.status.step),
+            report.status.result,
+            result_name(report.status.result)
+        )
+        .into());
+    }
+
+    println!("raw test:   sector 16 written and read back identical");
+    Ok(())
+}
+
+#[derive(Debug)]
+struct RawWriteArgs {
+    flasher: Option<PathBuf>,
+    ddr_stub: Option<PathBuf>,
+    sequence: u32,
+    skip_build: bool,
+    yes: bool,
+}
+
+fn parse_raw_write_args(mut args: impl Iterator<Item = String>) -> Result<RawWriteArgs> {
+    let mut parsed = RawWriteArgs {
+        flasher: None,
+        ddr_stub: None,
+        sequence: 1,
+        skip_build: false,
+        yes: false,
+    };
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--flasher" => parsed.flasher = Some(PathBuf::from(take_value(&mut args, &arg)?)),
+            "--ddr-stub" => parsed.ddr_stub = Some(PathBuf::from(take_value(&mut args, &arg)?)),
+            "--sequence" => parsed.sequence = parse_u32(&arg, take_value(&mut args, &arg)?)?,
+            "--skip-build" => parsed.skip_build = true,
+            "--yes" => parsed.yes = true,
+            other => return Err(format!("unexpected argument `{other}`\n{USAGE}").into()),
+        }
+    }
+
+    Ok(parsed)
 }
 
 #[derive(Debug)]

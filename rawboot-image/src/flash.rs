@@ -195,6 +195,11 @@ pub const FLASH_PLAN_MAGIC: u32 = u32::from_le_bytes(*b"RBFP");
 pub const FLASH_COMMAND_NOOP: u32 = 0;
 /// Write the staged payload files and loader to the SD card.
 pub const FLASH_COMMAND_FLASH_SD: u32 = 1;
+/// Write a known block to the loader sector and read it back.
+///
+/// This is a diagnostic for the SD block-write path: it needs no MBR, FAT or
+/// staged images, and it never touches sector 0.
+pub const FLASH_COMMAND_RAW_WRITE_TEST: u32 = 2;
 /// The flasher finished successfully.
 pub const FLASH_RESULT_OK: u32 = 0;
 /// The flasher could not parse the job block.
@@ -251,6 +256,10 @@ pub const FLASH_STEP_WRITE_LOADER: u32 = 9;
 pub const FLASH_STEP_VERIFY_LOADER: u32 = 10;
 /// The flasher is reading the MBR from the card.
 pub const FLASH_STEP_READ_MBR: u32 = 11;
+/// The flasher is writing the diagnostic block to sector 16.
+pub const FLASH_STEP_RAW_WRITE: u32 = 12;
+/// The flasher is reading the diagnostic block back.
+pub const FLASH_STEP_RAW_VERIFY: u32 = 13;
 
 mod job_offset {
     pub const MAGIC: usize = 0;
@@ -750,6 +759,8 @@ const STEP_NAMES: &[(u32, &str)] = &[
     (FLASH_STEP_WRITE_LOADER, "write loader"),
     (FLASH_STEP_VERIFY_LOADER, "verify loader"),
     (FLASH_STEP_READ_MBR, "read MBR"),
+    (FLASH_STEP_RAW_WRITE, "raw write"),
+    (FLASH_STEP_RAW_VERIFY, "raw verify"),
 ];
 
 /// Result values and their log names; the order is not significant.
