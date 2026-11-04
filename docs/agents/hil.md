@@ -505,6 +505,27 @@ toggle means the loader is still in its `S=0x` loop; silence points at the wrong
 sector 16. For the full HIL run with all assertions, use the cold-start procedure above with
 `HIL_REQUIRE_SD=1 HIL_REQUIRE_HANDOFF=1 HIL_REQUIRE_PAYLOAD=1 HIL_REQUIRE_LED=1`.
 
+### Raw SD write diagnostic (no MBR/FAT)
+
+When a card write fails but reads work, separate the block-write path from FAT and partition
+state with a cold FEL start and:
+
+```sh
+cargo xtask raw-write-test --yes
+```
+
+It runs the DDR-init stub, writes a known 512-byte block to LBA 16, reads it back and prints
+the step/result. It requires `--yes`, and it overwrites sector 16 (the SD loader on a prepared
+card); sector 0 is never written. A successful run ends with:
+
+```
+status:     sequence 1, step 2 (done), result 0 (ok)
+raw test:   sector 16 written and read back identical
+```
+
+A write that reports `step 12 (raw write), result 9 (write failed)` means the driver could not
+complete CMD24; `step 13 (raw verify)` separates a read-back failure from a write failure.
+
 ### Capture a self-booting board (no FEL)
 
 When the board boots on its own — from SD or SPI, with no `xfel` step — start the capture
