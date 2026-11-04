@@ -10,9 +10,10 @@
 use rawboot_image::{
     DDR_RESULT_ADDR, DDR_RESULT_SIZE, DDR_STUB_LOAD_ADDR, DDR_STUB_MAX_SIZE, DRAM_TEST_ADDR,
     DRAM_TEST_SIZE, DdrResult, FLASH_ARGS_ADDR, FLASH_COMMAND_FLASH_SD, FLASH_COMMAND_NOOP,
-    FLASH_JOB_ADDR, FLASH_LOADER_ADDR, FLASH_PAYLOAD_ADDR, FLASH_PLAN_ADDR,
-    FLASH_STAGE_REQUIRED_SIZE, FLASH_STATUS_ADDR, FLASH_STATUS_SIZE, FLASHER_LOAD_ADDR,
-    FLASHER_MAX_SIZE, FlashJob, FlashPlan, FlashStatus, read_u32_le, verify_sealed,
+    FLASH_COMMAND_RAW_WRITE_TEST, FLASH_JOB_ADDR, FLASH_LOADER_ADDR, FLASH_PAYLOAD_ADDR,
+    FLASH_PLAN_ADDR, FLASH_STAGE_REQUIRED_SIZE, FLASH_STATUS_ADDR, FLASH_STATUS_SIZE,
+    FLASHER_LOAD_ADDR, FLASHER_MAX_SIZE, FlashJob, FlashPlan, FlashStatus, read_u32_le,
+    verify_sealed,
 };
 
 use crate::device::FelDevice;
@@ -161,6 +162,23 @@ impl<T: Transport> FelDevice<T> {
         Ok(status)
     }
 
+    /// Initialise DRAM, prove it, then run `job` and read its status.
+    fn run_job_after_dram(
+        &mut self,
+        stub: &[u8],
+        flasher: &[u8],
+        job: FlashJob,
+    ) -> Result<BringupReport, FelError> {
+        let dram_size_mib = self.run_ddr_stub(stub)?;
+        self.verify_dram()?;
+        let status = self.run_flash_job(flasher, job)?;
+
+        Ok(BringupReport {
+            dram_size_mib,
+            status,
+        })
+    }
+
     /// Run the whole #41 spike: DRAM, pattern, no-op job and status.
     pub fn bringup(
         &mut self,
@@ -168,17 +186,26 @@ impl<T: Transport> FelDevice<T> {
         flasher: &[u8],
         sequence: u32,
     ) -> Result<BringupReport, FelError> {
-        let dram_size_mib = self.run_ddr_stub(stub)?;
-        self.verify_dram()?;
-        let status = self.run_flash_job(
+        self.run_job_after_dram(
+            stub,
             flasher,
             FlashJob::new(sequence, FLASH_COMMAND_NOOP, 0, 0, 0),
-        )?;
+        )
+    }
 
-        Ok(BringupReport {
-            dram_size_mib,
-            status,
-        })
+    /// Run the raw block-write diagnostic: write a known block to the loader
+    /// sector and read it back, without requiring an MBR or FAT.
+    pub fn raw_write_test(
+        &mut self,
+        stub: &[u8],
+        flasher: &[u8],
+        sequence: u32,
+    ) -> Result<BringupReport, FelError> {
+        self.run_job_after_dram(
+            stub,
+            flasher,
+            FlashJob::new(sequence, FLASH_COMMAND_RAW_WRITE_TEST, 0, 0, 0),
+        )
     }
 
     /// Stage the payload files and loader, then run an SD flash job.

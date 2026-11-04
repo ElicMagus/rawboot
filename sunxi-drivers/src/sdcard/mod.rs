@@ -503,23 +503,31 @@ fn mmc_send_op_cond(hci: &mut Sdhci, card: &mut Sdcard) -> bool {
 /// race the card while it is still programming.
 const MMC_STATUS_TIMEOUT_MS: u32 = 1000;
 const MMC_STATUS_POLL_US: u64 = 100;
+const MMC_STATUS_ERROR_RETRIES: u32 = 10;
 
 fn sdmmc_status_response(hci: &mut Sdhci, card: &Sdcard) -> Option<u32> {
     let mut cmd = SdhciCmd::default();
     let start = time_ms();
+    let mut failures = 0;
 
     cmd.idx = MMC_SEND_STATUS;
     cmd.resptype = MMC_RSP_R1;
     cmd.arg = card.rca << 16;
     loop {
-        // A failed CMD13 means the card stopped answering; waiting will not
-        // help and would flood the log with one timeout per poll.
-        if !sdhci_transfer(hci, &mut cmd, None) {
-            info!("SMHC: status error\r\n");
-            return None;
-        }
-        if (cmd.response[0] & (1 << 8)) != 0 {
-            return Some(cmd.response[0]);
+        if sdhci_transfer(hci, &mut cmd, None) {
+            failures = 0;
+            if (cmd.response[0] & (1 << 8)) != 0 {
+                return Some(cmd.response[0]);
+            }
+        } else {
+            // One missed poll can be transient, so retry a few times before
+            // giving up; a truly unresponsive card stops after ten timeouts
+            // instead of flooding the log for the whole deadline.
+            failures += 1;
+            if failures >= MMC_STATUS_ERROR_RETRIES {
+                info!("SMHC: status error\r\n");
+                return None;
+            }
         }
         if time_ms().wrapping_sub(start) > MMC_STATUS_TIMEOUT_MS {
             info!("SMHC: status error\r\n");

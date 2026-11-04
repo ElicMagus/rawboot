@@ -12,18 +12,19 @@ use core::arch::asm;
 use core::slice;
 
 use rawboot_image::{
-    FLASH_ARGS_ADDR, FLASH_COMMAND_FLASH_SD, FLASH_COMMAND_NOOP, FLASH_JOB_ADDR, FLASH_JOB_SIZE,
-    FLASH_LOADER_ADDR, FLASH_LOADER_START_LBA, FLASH_PAYLOAD_ADDR, FLASH_PLAN_ADDR,
-    FLASH_PLAN_SIZE, FLASH_RESULT_BAD_JOB, FLASH_RESULT_BAD_PLAN, FLASH_RESULT_CARD_TOO_SMALL,
-    FLASH_RESULT_FILE_CREATE, FLASH_RESULT_FILE_FLUSH, FLASH_RESULT_FILE_TRUNCATE,
-    FLASH_RESULT_FILE_WRITE, FLASH_RESULT_MBR_CHANGED, FLASH_RESULT_NO_FAT, FLASH_RESULT_NO_MBR,
-    FLASH_RESULT_OK, FLASH_RESULT_READ_FAILED, FLASH_RESULT_SD_OFFLINE,
-    FLASH_RESULT_UNKNOWN_COMMAND, FLASH_RESULT_UNSAFE_LAYOUT, FLASH_RESULT_VERIFY_FAILED,
-    FLASH_RESULT_WRITE_FAILED, FLASH_SECTOR_SIZE, FLASH_STATUS_ADDR, FLASH_STEP_DONE,
-    FLASH_STEP_LAYOUT, FLASH_STEP_PLAN, FLASH_STEP_READ_MBR, FLASH_STEP_SD_INIT,
-    FLASH_STEP_VERIFY_FAT, FLASH_STEP_VERIFY_LOADER, FLASH_STEP_WRITE_ARGS,
-    FLASH_STEP_WRITE_LOADER, FLASH_STEP_WRITE_PAYLOAD, FlashJob, FlashLayoutError, FlashPlan,
-    FlashStatus, check_sd_layout, verify_sealed,
+    FLASH_ARGS_ADDR, FLASH_COMMAND_FLASH_SD, FLASH_COMMAND_NOOP, FLASH_COMMAND_RAW_WRITE_TEST,
+    FLASH_JOB_ADDR, FLASH_JOB_SIZE, FLASH_LOADER_ADDR, FLASH_LOADER_START_LBA, FLASH_PAYLOAD_ADDR,
+    FLASH_PLAN_ADDR, FLASH_PLAN_SIZE, FLASH_RESULT_BAD_JOB, FLASH_RESULT_BAD_PLAN,
+    FLASH_RESULT_CARD_TOO_SMALL, FLASH_RESULT_FILE_CREATE, FLASH_RESULT_FILE_FLUSH,
+    FLASH_RESULT_FILE_TRUNCATE, FLASH_RESULT_FILE_WRITE, FLASH_RESULT_MBR_CHANGED,
+    FLASH_RESULT_NO_FAT, FLASH_RESULT_NO_MBR, FLASH_RESULT_OK, FLASH_RESULT_READ_FAILED,
+    FLASH_RESULT_SD_OFFLINE, FLASH_RESULT_UNKNOWN_COMMAND, FLASH_RESULT_UNSAFE_LAYOUT,
+    FLASH_RESULT_VERIFY_FAILED, FLASH_RESULT_WRITE_FAILED, FLASH_SECTOR_SIZE, FLASH_STATUS_ADDR,
+    FLASH_STEP_DONE, FLASH_STEP_LAYOUT, FLASH_STEP_PLAN, FLASH_STEP_RAW_VERIFY,
+    FLASH_STEP_RAW_WRITE, FLASH_STEP_READ_MBR, FLASH_STEP_SD_INIT, FLASH_STEP_VERIFY_FAT,
+    FLASH_STEP_VERIFY_LOADER, FLASH_STEP_WRITE_ARGS, FLASH_STEP_WRITE_LOADER,
+    FLASH_STEP_WRITE_PAYLOAD, FlashJob, FlashLayoutError, FlashPlan, FlashStatus, check_sd_layout,
+    verify_sealed,
 };
 use sunxi_drivers::fat::{self, ARGS_FILE, PAYLOAD_FILE, block::SdCardIo, partition};
 use sunxi_drivers::sdcard::{Sdcard_data, sdmmc_blk_read, sdmmc_blk_write, sdmmc_init};
@@ -56,6 +57,7 @@ pub fn run() {
     let (step, result) = match job.command {
         FLASH_COMMAND_NOOP => (FLASH_STEP_DONE, FLASH_RESULT_OK),
         FLASH_COMMAND_FLASH_SD => run_flash_sd(),
+        FLASH_COMMAND_RAW_WRITE_TEST => run_raw_write_test(),
         _ => (FLASH_STEP_DONE, FLASH_RESULT_UNKNOWN_COMMAND),
     };
     write_status(job.sequence, step, result);
@@ -127,6 +129,50 @@ fn run_flash_sd() -> (u32, u32) {
 
     write_loader(&mut sd, &mbr, staged.loader)
 }
+
+/// Write a known block to the loader sector and read it back.
+///
+/// This is the smallest check of the SD block-write path: no MBR or FAT is
+/// needed, and sector 0 is never touched. It is destructive only for sector 16,
+/// which holds the SD loader on a prepared card.
+fn run_raw_write_test() -> (u32, u32) {
+    let mut sd = match init_card() {
+        Ok(sd) => sd,
+        Err(status) => return status,
+    };
+
+    let mut written = [0u8; RAW_TEST_BLOCK_SIZE];
+    for (index, byte) in written.iter_mut().enumerate() {
+        *byte = (index as u8)
+            .wrapping_mul(RAW_TEST_MULTIPLIER)
+            .wrapping_add(RAW_TEST_SEED);
+    }
+    written[..RAW_TEST_MAGIC.len()].copy_from_slice(RAW_TEST_MAGIC);
+
+    console::print(format_args!(
+        "FEL: raw write test lba {} blocks 1\r\n",
+        FLASH_LOADER_START_LBA
+    ));
+    if sdmmc_blk_write(&mut sd, written.as_ptr(), FLASH_LOADER_START_LBA, 1).is_err() {
+        return (FLASH_STEP_RAW_WRITE, FLASH_RESULT_WRITE_FAILED);
+    }
+
+    let mut read_back = [0u8; RAW_TEST_BLOCK_SIZE];
+    if sdmmc_blk_read(&mut sd, read_back.as_mut_ptr(), FLASH_LOADER_START_LBA, 1) != 1 {
+        return (FLASH_STEP_RAW_VERIFY, FLASH_RESULT_READ_FAILED);
+    }
+    if read_back != written {
+        return (FLASH_STEP_RAW_VERIFY, FLASH_RESULT_VERIFY_FAILED);
+    }
+
+    console::print(format_args!("FEL: raw write test ok\r\n"));
+    (FLASH_STEP_DONE, FLASH_RESULT_OK)
+}
+
+const RAW_TEST_BLOCK_SIZE: usize = FLASH_SECTOR_SIZE as usize;
+const RAW_TEST_MAGIC: &[u8] = b"RBRW";
+const RAW_TEST_MULTIPLIER: u8 = 37;
+const RAW_TEST_SEED: u8 = 0x5a;
 
 /// Read and validate the plan and the three staged regions.
 fn read_plan() -> Result<Staged, (u32, u32)> {
