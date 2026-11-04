@@ -24,8 +24,8 @@ The script copies every tracked file except this denylist:
 It then fails if the tree contains any internal or personal string, or if a
 `.rs`/`.sh` file lacks the `CC-BY-4.0` SPDX header. On success it creates one
 commit authored and committed by
-`ElicMagus <60005217+ElicMagus@users.noreply.github.com>`, runs the release
-build and the host tests, and prints the push command without running it.
+`ElicMagus <60005217+ElicMagus@users.noreply.github.com>`, runs the exported
+tree's `scripts/check.sh`, and prints the push command without running it.
 
 ## Runbook
 
@@ -65,7 +65,9 @@ build and the host tests, and prints the push command without running it.
    ```
 
 7. Confirm that GitHub shows exactly one commit, the three README files and the
-   CC-BY-4.0 `LICENSE`, and that the CI workflow passes.
+   CC-BY-4.0 `LICENSE`, and that the CI workflow passes. The public
+   `.github/workflows/ci.yml` mirrors the internal `.gitea/workflows/ci.yml`;
+   update both together.
 
 Do not export the internal history and do not force-push over the public
 repository from the internal checkout.
