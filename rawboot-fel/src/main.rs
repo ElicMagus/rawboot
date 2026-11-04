@@ -11,7 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use rawboot_fel::{FelDevice, UsbTransport};
+use rawboot_fel::{FelDevice, FelError, UsbTransport};
 use rawboot_image::{DRAM_TEST_ADDR, result_name, step_name};
 
 type Result<T> = std::result::Result<T, Box<dyn StdError>>;
@@ -145,7 +145,18 @@ fn bringup(mut args: impl Iterator<Item = String>) -> Result<()> {
     let (_, soc) = fel.identify()?;
     println!("SoC:        {}", soc.name());
 
-    let report = fel.bringup(&stub, &flasher, sequence)?;
+    let report = match fel.bringup(&stub, &flasher, sequence) {
+        Ok(report) => report,
+        Err(error) => {
+            if matches!(error, FelError::Transport(_)) {
+                eprintln!(
+                    "hint: power-cycle the board into FEL before retrying; the DDR stub is not \
+                     idempotent"
+                );
+            }
+            return Err(error.into());
+        }
+    };
     println!("DRAM:       {} MiB", report.dram_size_mib);
     println!("pattern:    OK at {DRAM_TEST_ADDR:#010x}");
     println!(

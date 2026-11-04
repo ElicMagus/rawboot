@@ -21,10 +21,13 @@ exclude = ["vendor/core_io"]
 # `rawboot-image` is also out: its default `alloc` feature is for the host
 # tooling, and as a root package it would unify into the loader's dependency and
 # demand a global allocator.
+# `rawboot-flasher` is out too: it now enables `sunxi-drivers/write`, and
+# building it alongside the loader would unify that feature into `rawboot`,
+# blowing its 64 KiB SRAM budget. `cargo xtask flasher` builds it in its own
+# cargo invocation, and `scripts/check.sh` lints it separately (ADR-0014).
 default-members = [
     "rawboot",
     "rawboot-rt",
-    "rawboot-flasher",
     "payload",
     "sunxi-pl",
 ]

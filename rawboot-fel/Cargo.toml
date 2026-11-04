@@ -10,3 +10,7 @@ publish = false
 nusb = "0.2"
 # The job/status contract and fixed DRAM addresses shared with the flasher.
 rawboot-image = { path = "../rawboot-image", default-features = false }
+
+[dev-dependencies]
+# The tests build a real sealed loader with the host sealing tool.
+rawboot-image = { path = "../rawboot-image" }

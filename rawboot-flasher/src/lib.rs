@@ -8,12 +8,17 @@
 //! initialise DRAM; the stub writes its result to SRAM and returns to the BROM,
 //! leaving FEL usable. The host then loads the `rawboot-flasher` binary into
 //! DRAM and executes it. That binary reads a [`rawboot_image::FlashJob`] from a
-//! fixed DRAM address, writes a [`rawboot_image::FlashStatus`] for the host and
-//! returns to the BROM as well. Neither image carries an eGON header or is a
-//! second-stage loader; see ADR-0013.
+//! fixed DRAM address; the `NOOP` command proves the path, and
+//! `FLASH_COMMAND_FLASH_SD` writes the staged payload files and loader to the
+//! card. It writes a [`rawboot_image::FlashStatus`] for the host and returns to
+//! the BROM as well. Neither image carries an eGON header or is a second-stage
+//! loader; see ADR-0013 and ADR-0014.
 //!
 //! Both binaries zero their BSS before calling into this crate, so the driver
-//! and status code sees a deterministic state without a runtime.
+//! and status code sees a deterministic state without a runtime. The flasher
+//! also initialises USART0 and installs the driver console, so SD/FAT failures
+//! (`SMHC: cmd24 timeout`, ...) appear in the HIL UART log as well as in the
+//! flash status.
 
 pub mod ddr;
 pub mod flasher;

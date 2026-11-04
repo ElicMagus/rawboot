@@ -9,13 +9,17 @@
 
 use rawboot_image::{
     DDR_RESULT_ADDR, DDR_RESULT_SIZE, DDR_STUB_LOAD_ADDR, DDR_STUB_MAX_SIZE, DRAM_TEST_ADDR,
-    DRAM_TEST_SIZE, DdrResult, FLASH_COMMAND_NOOP, FLASH_JOB_ADDR, FLASH_STATUS_ADDR,
-    FLASH_STATUS_SIZE, FLASHER_LOAD_ADDR, FLASHER_MAX_SIZE, FlashJob, FlashStatus, read_u32_le,
+    DRAM_TEST_SIZE, DdrResult, FLASH_ARGS_ADDR, FLASH_COMMAND_FLASH_SD, FLASH_COMMAND_NOOP,
+    FLASH_JOB_ADDR, FLASH_LOADER_ADDR, FLASH_PAYLOAD_ADDR, FLASH_PLAN_ADDR,
+    FLASH_STAGE_REQUIRED_SIZE, FLASH_STATUS_ADDR, FLASH_STATUS_SIZE, FLASHER_LOAD_ADDR,
+    FLASHER_MAX_SIZE, FlashJob, FlashPlan, FlashStatus, read_u32_le, verify_sealed,
 };
 
 use crate::device::FelDevice;
 use crate::device::Transport;
 use crate::error::FelError;
+
+const MIB: u64 = 1024 * 1024;
 
 /// The result of a complete no-op bring-up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +27,33 @@ pub struct BringupReport {
     /// Detected DRAM size in MiB, as reported by the DDR-init stub.
     pub dram_size_mib: u32,
     /// The flasher's status block.
+    pub status: FlashStatus,
+}
+
+/// Inputs for [`FelDevice::flash_sd_card`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FlashSdRequest<'a> {
+    /// Returning DDR-init stub.
+    pub stub: &'a [u8],
+    /// DRAM-linked flasher.
+    pub flasher: &'a [u8],
+    /// Wrapped payload image written as `payload.bin`.
+    pub payload: &'a [u8],
+    /// Optional `boot.cfg` contents; empty leaves the existing file alone.
+    pub args: &'a [u8],
+    /// Sealed SD/SPI loader written to sector 16.
+    pub loader: &'a [u8],
+    /// Job/status sequence.
+    pub sequence: u32,
+}
+
+/// The result of an in-board SD flash.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FlashSdReport {
+    /// Detected DRAM size in MiB, as reported by the DDR-init stub.
+    pub dram_size_mib: u32,
+    /// The flasher's status block; check [`FlashStatus::is_ok`] before claiming
+    /// the card was written.
     pub status: FlashStatus,
 }
 
@@ -145,6 +176,56 @@ impl<T: Transport> FelDevice<T> {
         )?;
 
         Ok(BringupReport {
+            dram_size_mib,
+            status,
+        })
+    }
+
+    /// Stage the payload files and loader, then run an SD flash job.
+    ///
+    /// The plan is built and validated before the device is touched, so an
+    /// oversized input fails without uploading anything. The staged regions sit
+    /// at the fixed addresses from [`rawboot_image::flash`]; the flasher checks
+    /// their checksums before it writes the card (ADR-0014).
+    pub fn flash_sd_card(
+        &mut self,
+        request: FlashSdRequest<'_>,
+    ) -> Result<FlashSdReport, FelError> {
+        let FlashSdRequest {
+            stub,
+            flasher,
+            payload,
+            args,
+            loader,
+            sequence,
+        } = request;
+
+        verify_sealed(loader).map_err(FelError::LoaderNotSealed)?;
+        let plan = FlashPlan::new(payload, args, loader)?;
+
+        let dram_size_mib = self.run_ddr_stub(stub)?;
+        let required = FLASH_STAGE_REQUIRED_SIZE as u64;
+        if (dram_size_mib as u64) * MIB < required {
+            return Err(FelError::DramTooSmall {
+                size_mib: dram_size_mib,
+                required,
+            });
+        }
+        self.verify_dram()?;
+
+        self.write(FLASH_PLAN_ADDR, &plan.to_bytes())?;
+        self.write(FLASH_PAYLOAD_ADDR, payload)?;
+        if !args.is_empty() {
+            self.write(FLASH_ARGS_ADDR, args)?;
+        }
+        self.write(FLASH_LOADER_ADDR, loader)?;
+
+        let status = self.run_flash_job(
+            flasher,
+            FlashJob::new(sequence, FLASH_COMMAND_FLASH_SD, 0, 0, 0),
+        )?;
+
+        Ok(FlashSdReport {
             dram_size_mib,
             status,
         })
@@ -449,6 +530,173 @@ mod tests {
                 max: FLASHER_MAX_SIZE,
             })
         );
+        fel.into_inner().assert_done();
+    }
+
+    fn dram_verify_steps() -> Vec<Step> {
+        let mut expected = Vec::new();
+        for index in 0..DRAM_TEST_SIZE / 4 {
+            expected.extend_from_slice(&dram_pattern(index).to_le_bytes());
+        }
+        let mut steps = write_steps(DRAM_TEST_ADDR, &expected);
+        steps.extend(read_steps(DRAM_TEST_ADDR, &expected));
+        steps
+    }
+
+    fn sealed_loader() -> Vec<u8> {
+        use rawboot_image::{EgonHeader, SealOptions, seal};
+        seal(&EgonHeader::PLACEHOLDER.to_bytes(), SealOptions::BLOCK).unwrap()
+    }
+
+    fn request<'a>(
+        stub: &'a [u8],
+        flasher: &'a [u8],
+        payload: &'a [u8],
+        args: &'a [u8],
+        loader: &'a [u8],
+        sequence: u32,
+    ) -> FlashSdRequest<'a> {
+        FlashSdRequest {
+            stub,
+            flasher,
+            payload,
+            args,
+            loader,
+            sequence,
+        }
+    }
+
+    fn ddr_steps(stub: &[u8], dram_size_mib: u32) -> Vec<Step> {
+        let mut steps = write_steps(DDR_STUB_LOAD_ADDR, stub);
+        steps.extend(write_steps(DDR_RESULT_ADDR, &[0u8; DDR_RESULT_SIZE]));
+        steps.extend(exec_steps(DDR_STUB_LOAD_ADDR));
+        steps.extend(read_steps(
+            DDR_RESULT_ADDR,
+            &DdrResult::new(dram_size_mib).to_bytes(),
+        ));
+        steps
+    }
+
+    fn sd_flash_steps(
+        stub: &[u8],
+        flasher: &[u8],
+        payload: &[u8],
+        args: Option<&[u8]>,
+        loader: &[u8],
+        plan: &FlashPlan,
+        sequence: u32,
+    ) -> (Vec<Step>, FlashStatus) {
+        let job = FlashJob::new(sequence, FLASH_COMMAND_FLASH_SD, 0, 0, 0);
+        let status = FlashStatus::new(sequence, FLASH_STEP_DONE, FLASH_RESULT_OK);
+
+        let mut steps = ddr_steps(stub, 128);
+        steps.extend(dram_verify_steps());
+        steps.extend(write_steps(FLASH_PLAN_ADDR, &plan.to_bytes()));
+        steps.extend(write_steps(FLASH_PAYLOAD_ADDR, payload));
+        if let Some(args) = args {
+            steps.extend(write_steps(FLASH_ARGS_ADDR, args));
+        }
+        steps.extend(write_steps(FLASH_LOADER_ADDR, loader));
+        steps.extend(write_steps(FLASH_STATUS_ADDR, &[0u8; FLASH_STATUS_SIZE]));
+        steps.extend(write_steps(FLASH_JOB_ADDR, &job.to_bytes()));
+        steps.extend(write_steps(FLASHER_LOAD_ADDR, flasher));
+        steps.extend(exec_steps(FLASHER_LOAD_ADDR));
+        steps.extend(read_steps(FLASH_STATUS_ADDR, &status.to_bytes()));
+
+        (steps, status)
+    }
+
+    #[test]
+    fn stages_and_runs_an_sd_flash_job() {
+        let stub = b"stub";
+        let flasher = b"flasher";
+        let payload = b"wrapped payload image";
+        let args = b"console=ttyS0";
+        let loader = sealed_loader();
+        let sequence = 7;
+        let plan = FlashPlan::new(payload, args, &loader).unwrap();
+        let (steps, status) =
+            sd_flash_steps(stub, flasher, payload, Some(args), &loader, &plan, sequence);
+
+        let mut fel = device(steps);
+        let report = fel
+            .flash_sd_card(request(stub, flasher, payload, args, &loader, sequence))
+            .unwrap();
+
+        assert_eq!(report.dram_size_mib, 128);
+        assert_eq!(report.status, status);
+        fel.into_inner().assert_done();
+    }
+
+    #[test]
+    fn an_sd_flash_without_boot_cfg_skips_the_args_region() {
+        let stub = b"stub";
+        let flasher = b"flasher";
+        let payload = b"payload";
+        let loader = sealed_loader();
+        let sequence = 3;
+        let plan = FlashPlan::new(payload, &[], &loader).unwrap();
+        let (steps, status) =
+            sd_flash_steps(stub, flasher, payload, None, &loader, &plan, sequence);
+
+        let mut fel = device(steps);
+        let report = fel
+            .flash_sd_card(request(stub, flasher, payload, &[], &loader, sequence))
+            .unwrap();
+
+        assert_eq!(report.status, status);
+        fel.into_inner().assert_done();
+    }
+
+    #[test]
+    fn rejects_an_oversized_boot_cfg_without_touching_the_device() {
+        use rawboot_image::FlashContractError;
+
+        let mut fel = device(Vec::new());
+        let args = vec![0u8; rawboot_image::FLASH_ARGS_MAX_SIZE as usize + 1];
+        let loader = sealed_loader();
+        assert!(matches!(
+            fel.flash_sd_card(request(b"stub", b"flasher", b"payload", &args, &loader, 1)),
+            Err(FelError::FlashContract(FlashContractError::TooLarge {
+                field: "boot.cfg contents",
+                ..
+            }))
+        ));
+        fel.into_inner().assert_done();
+    }
+
+    #[test]
+    fn rejects_a_staging_window_that_does_not_fit_the_detected_dram() {
+        let mut fel = device(ddr_steps(b"stub", 8));
+        let loader = sealed_loader();
+        let err = fel
+            .flash_sd_card(request(b"stub", b"flasher", b"payload", &[], &loader, 1))
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            FelError::DramTooSmall {
+                size_mib: 8,
+                required: FLASH_STAGE_REQUIRED_SIZE as u64,
+            }
+        );
+        fel.into_inner().assert_done();
+    }
+
+    #[test]
+    fn rejects_an_unsealed_loader_without_touching_the_device() {
+        let mut fel = device(Vec::new());
+        assert!(matches!(
+            fel.flash_sd_card(request(
+                b"stub",
+                b"flasher",
+                b"payload",
+                &[],
+                &[0u8; 512],
+                1
+            )),
+            Err(FelError::LoaderNotSealed(_))
+        ));
         fel.into_inner().assert_done();
     }
 }

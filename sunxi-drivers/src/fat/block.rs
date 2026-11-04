@@ -112,6 +112,7 @@ pub struct BlockDevice<B: BlockIo> {
     cached_lba: Option<u64>,
     cache: [u8; BLOCK_SIZE_USIZE],
     dirty: bool,
+    flush_on_drop: bool,
 }
 
 impl<B: BlockIo> BlockDevice<B> {
@@ -123,7 +124,19 @@ impl<B: BlockIo> BlockDevice<B> {
             cached_lba: None,
             cache: [0; BLOCK_SIZE_USIZE],
             dirty: false,
+            flush_on_drop: false,
         }
+    }
+
+    /// A device that flushes its dirty cache when it is dropped.
+    ///
+    /// `fatfs` writes its FSInfo and dirty flag after `unmount`, but does not
+    /// flush the underlying device; the flasher relies on this to persist those
+    /// last writes after it has read the files back.
+    pub fn new_flushing(io: B, partition: Partition) -> Self {
+        let mut device = Self::new(io, partition);
+        device.flush_on_drop = true;
+        device
     }
 
     fn len_bytes(&self) -> u64 {
@@ -170,6 +183,17 @@ impl<B: BlockIo> BlockDevice<B> {
     fn read_block(&mut self, lba: u64) -> Result<&[u8; BLOCK_SIZE_USIZE]> {
         self.ensure_block(lba)?;
         Ok(&self.cache)
+    }
+}
+
+impl<B: BlockIo> Drop for BlockDevice<B> {
+    fn drop(&mut self) {
+        if self.flush_on_drop {
+            // The files were read back before unmount; a failure to persist the
+            // FSInfo flag is not worth hiding the drop, and there is no caller
+            // left to report it to.
+            let _ = self.flush_cache();
+        }
     }
 }
 

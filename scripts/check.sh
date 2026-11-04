@@ -61,6 +61,11 @@ cargo build --release
 echo "==> cargo clippy (bare-metal)"
 cargo clippy -- -D warnings
 
+echo "==> cargo clippy (rawboot-flasher, write)"
+# The flasher enables sunxi-drivers/write, so it is not a default member: it
+# must not unify that feature into the loader (ADR-0014).
+cargo clippy -p rawboot-flasher -- -D warnings
+
 echo "==> cargo clippy (sunxi-drivers, write)"
 cargo clippy -p sunxi-drivers -- -D warnings
 

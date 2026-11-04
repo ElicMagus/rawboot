@@ -76,27 +76,8 @@ extern "C" fn boot_with_dram_stack(dram_size: u32) -> ! {
     } else {
         let mut sdio = sdhci::Sdhci::default();
         sdhci::sunxi_sdhci_init(&mut sdio);
-        sd_rint = Some(sdio.reg + sdhci::reg::RINT);
-        let card = sdcard::Sdcard {
-            version: 0,
-            ocr: 0,
-            rca: 0,
-            cid: [0u32; 4],
-            csd: [0u32; 4],
-            extcsd: [0u8; 512],
-            high_capacity: 0,
-            tran_speed: 0,
-            dsr_imp: 0,
-            read_bl_len: 0,
-            write_bl_len: 0,
-            capacity: 0,
-        };
-        let mut sdcard = sdcard::Sdcard_data {
-            card,
-            hci: sdio,
-            buf: [0u8; 512],
-            online: false,
-        };
+        let mut sdcard = sdcard::Sdcard_data::new(sdio);
+        sd_rint = Some(sdcard.hci.reg + sdhci::reg::RINT);
 
         sdcard::sdmmc_init(&mut sdcard);
 

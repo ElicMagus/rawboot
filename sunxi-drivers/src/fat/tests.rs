@@ -10,7 +10,7 @@ use fatfs::{FormatVolumeOptions, format_volume};
 
 use super::block::{BlockDevice, BlockError, BlockIo, SdCardIo};
 use super::partition::{BLOCK_SIZE, Partition};
-use super::{WriteError, create_or_replace_file, mount_partition, read_file};
+use super::{WriteError, create_or_replace_file, file_matches, mount_partition, read_file};
 use crate::sdcard::{SdError, Sdcard, Sdcard_data, sdmmc_blk_write};
 use crate::sdhci::Sdhci;
 
@@ -112,6 +112,19 @@ fn write_is_cached_until_flush() {
 
     assert_eq!(&mock.blocks[0][..32], &[0x5a; 32]);
     assert!(mock.blocks[0][32..].iter().all(|byte| *byte == 0));
+}
+
+#[test]
+fn a_flushing_device_writes_its_dirty_block_on_drop() {
+    let mut mock = MockDisk::new(8);
+    let partition = partition_at(0, 8);
+
+    {
+        let mut device = BlockDevice::new_flushing(&mut mock, partition);
+        device.write_all(&[0x5a; 32]).unwrap();
+    }
+
+    assert_eq!(&mock.blocks[0][..32], &[0x5a; 32]);
 }
 
 #[test]
@@ -218,6 +231,24 @@ fn create_fails_when_the_volume_is_full() {
     let err = create_or_replace_file(&fs, "too-big.bin", &data)
         .expect_err("a 256 KiB file cannot fit a 32 KiB volume");
     assert!(matches!(err, WriteError::Write(_)));
+}
+
+#[test]
+fn a_file_matches_its_expected_bytes() {
+    let mut mock = MockDisk::new(256);
+    let partition = format(&mut mock, partition_at(0, 256));
+    let data = vec![0x5au8; 1200];
+
+    let fs = mount_partition(&mut mock, partition).expect("mount formatted volume");
+    create_or_replace_file(&fs, "payload.bin", &data).expect("create payload.bin");
+
+    assert!(file_matches(&fs, "payload.bin", &data).unwrap());
+    assert!(!file_matches(&fs, "payload.bin", &data[..1199]).unwrap());
+    assert!(!file_matches(&fs, "missing.bin", &data).unwrap());
+
+    let mut wrong = data.clone();
+    wrong[600] ^= 0xff;
+    assert!(!file_matches(&fs, "payload.bin", &wrong).unwrap());
 }
 
 #[test]

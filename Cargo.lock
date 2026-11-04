@@ -227,6 +227,7 @@ dependencies = [
 name = "rawboot-flasher"
 version = "0.1.0"
 dependencies = [
+ "fatfs",
  "rawboot-image",
  "sunxi-drivers",
  "sunxi-pl",
@@ -394,5 +395,6 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "rawboot-fel",
  "rawboot-image",
 ]

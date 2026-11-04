@@ -15,6 +15,8 @@ pub mod partition;
 use core::fmt;
 
 #[cfg(feature = "write")]
+use core::cmp::min;
+#[cfg(feature = "write")]
 use core_io::Write;
 use core_io::{Error, ErrorKind, Read, Seek, SeekFrom};
 use fatfs::{FileSystem, FsOptions};
@@ -175,6 +177,43 @@ pub fn create_or_replace_file<B: BlockIo>(
     file.flush().map_err(WriteError::Flush)
 }
 
+/// Compares a file in the volume's root with `expected` byte by byte.
+///
+/// Returns `Ok(false)` for a missing file or a different length; a read error is
+/// returned separately so the caller can name the failed step.
+#[cfg(feature = "write")]
+pub fn file_matches<B: BlockIo>(
+    fs: &FileSystem<BlockDevice<B>>,
+    name: &str,
+    expected: &[u8],
+) -> Result<bool, FileError> {
+    let root = fs.root_dir();
+    let mut file = match root.open_file(name) {
+        Ok(file) => file,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(false),
+        Err(err) => return Err(FileError::Open(err)),
+    };
+
+    let size = file.seek(SeekFrom::End(0)).map_err(FileError::Read)?;
+    if size != expected.len() as u64 {
+        return Ok(false);
+    }
+    file.seek(SeekFrom::Start(0)).map_err(FileError::Read)?;
+
+    let mut offset = 0;
+    let mut buf = [0u8; 512];
+    while offset < expected.len() {
+        let count = min(buf.len(), expected.len() - offset);
+        file.read_exact(&mut buf[..count])
+            .map_err(FileError::Read)?;
+        if buf[..count] != expected[offset..offset + count] {
+            return Ok(false);
+        }
+        offset += count;
+    }
+    Ok(true)
+}
+
 fn read_file(file: &mut (impl Read + Seek), buf: &mut [u8]) -> Result<usize, FileError> {
     let size = file.seek(SeekFrom::End(0)).map_err(FileError::Read)?;
     if size > buf.len() as u64 {
@@ -243,7 +282,8 @@ pub fn mount_partition<B: BlockIo>(
     io: B,
     partition: Partition,
 ) -> Result<FileSystem<BlockDevice<B>>, FatError> {
-    FileSystem::new(BlockDevice::new(io, partition), FsOptions::new()).map_err(FatError::Mount)
+    FileSystem::new(BlockDevice::new_flushing(io, partition), FsOptions::new())
+        .map_err(FatError::Mount)
 }
 
 fn find_candidates(sd: &mut Sdcard_data) -> Result<[Option<Partition>; MAX_CANDIDATES], FatError> {

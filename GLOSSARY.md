@@ -31,12 +31,22 @@ header and is not a second-stage loader (ADR-0013).
 
 **flasher** (crate `rawboot-flasher`):
 The FEL-callable program linked into DRAM at `0x40010000` that reads a flash job, performs it, writes
-a flash status and returns to the BROM. In #41 it only answers a `NOOP` job; SD/FAT work is #42.
-Carries no eGON header.
+a flash status and returns to the BROM. It answers a `NOOP` job and the `FLASH_COMMAND_FLASH_SD`
+job that writes the staged payload files and loader to the card. Carries no eGON header.
 
 **flash job/status**:
 The checksummed, versioned `FlashJob`/`FlashStatus` blocks at fixed DRAM addresses that the host and
 the flasher exchange (`RBFJ`/`RBFS`, magic, version, size, checksum, sequence, step, result).
+
+**flash plan**:
+The checksummed `FlashPlan` (`RBFP`) block at `0x40000200` that names the lengths and checksums of
+the staged payload image, optional `boot.cfg` contents and sealed SD/SPI loader. The host writes it
+before executing an `FLASH_COMMAND_FLASH_SD` job; the flasher verifies it and the staged regions.
+
+**FEL flash** (`cargo xtask fel-flash`):
+The in-board update path: build or reuse the loader, payload and flasher images, validate the sealed
+SD loader, stage everything in DRAM over FEL and let the flasher write the existing FAT root and
+sector 16 without touching the MBR (ADR-0014).
 
 **eGON**:
 Allwinner's boot-image header (magic `eGON.BT0`, seed-checksummed with `0x5F0A6C39`) prepended to a
@@ -57,10 +67,10 @@ carries no startup code.
 _Avoid_: HAL, driver crate, platform
 
 **`sunxi-drivers`** (driver crate):
-The Allwinner T113-S3 drivers above `sunxi-pl`: clock/CCU, DRAM, UART, SDHCI, SD/MMC and the
-read-only FAT adapter. Shared by the loader and future images; carries no startup code, eGON
-header, linker script or global allocator, and reports progress through the `Console` trait so it
-does not depend on the loader's `print!`.
+The Allwinner T113-S3 drivers above `sunxi-pl`: clock/CCU, DRAM, UART, SDHCI, SD/MMC and the FAT
+adapter (read-only in the loader, read-write for the flasher and host tests). Shared by the loader
+and the flasher; carries no startup code, eGON header, linker script or global allocator, and
+reports progress through the `Console` trait so it does not depend on the loader's `print!`.
 _Avoid_: HAL, BSP, platform layer
 
 **payload**:
