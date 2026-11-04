@@ -56,6 +56,10 @@ Standard commands:
 - Seal an image: `cargo xtask image` (builds the loader twice and writes the sealed
   `target/rawboot-fel.bin` for FEL at `0x00028000` and `target/rawboot-boot-sd.bin` for
   SD/SPI boot at `0x00020000`; the `xtask` alias pins the host triple in `.cargo/config.toml`)
+- Export the public tree: `scripts/export-public.sh [--output <dir>]` (squashes tracked files into
+  `target/public-repo`, drops internal docs/tooling, checks forbidden strings and `CC-BY-4.0`
+  headers, commits once as `ElicMagus`, runs the build and host tests, and prints the push
+  command without pushing; owner runbook `docs/agents/export-public.md`)
 - Build the payload image: `cargo xtask payload` (builds the `payload` crate and writes
   `target/rawboot-payload.img`, its flat binary wrapped in the payload image header)
 - Build the FEL flasher images: `cargo xtask flasher` (writes `target/rawboot-ddr.bin`, the
