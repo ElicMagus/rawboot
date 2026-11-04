@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: CC-BY-4.0
 
 //! The FEL payload mailbox: the host-written request that makes `rawboot` boot an image uploaded
 //! over USB FEL instead of reading `payload.bin` from the SD card.

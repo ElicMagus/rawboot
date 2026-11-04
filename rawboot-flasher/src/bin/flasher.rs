@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: CC-BY-4.0
 
 //! FEL-callable flasher image linked into DRAM (`target/rawboot-flasher.bin`).
 //!

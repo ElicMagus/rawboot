@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: CC-BY-4.0
 
 //! The flasher entry: read the DRAM job, run it, write the DRAM status, return.
 //!

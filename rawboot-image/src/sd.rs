@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: CC-BY-4.0
 
 //! The SD boot prefix: an MBR that points at an existing FAT partition, with the
 //! sealed SD/SPI loader placed at sector 16 where BROM looks for it.

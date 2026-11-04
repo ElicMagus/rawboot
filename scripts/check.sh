@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: Unlicense
+# SPDX-License-Identifier: CC-BY-4.0
 #
 # The repo's single check entry point, run locally and by CI.
 set -euo pipefail

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: Unlicense
+# SPDX-License-Identifier: CC-BY-4.0
 #
 # Load target/rawboot-fel.bin over FEL, capture USART0, and assert the boot log.
 # Refuses an image whose build stamp is not HEAD and requires a quiet UART

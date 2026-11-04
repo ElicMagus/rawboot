@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: CC-BY-4.0
 
 //! Little-endian 32-bit helpers shared by the payload-image and eGON tooling.
 

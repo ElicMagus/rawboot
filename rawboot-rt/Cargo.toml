@@ -2,6 +2,7 @@
 name = "rawboot-rt"
 version = "0.1.0"
 edition = "2024"
+license = "CC-BY-4.0"
 
 [dependencies]
 # The eGON header layout is defined once, in the image tooling, and embedded here. The runtime

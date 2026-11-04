@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Unlicense
+# SPDX-License-Identifier: CC-BY-4.0
 """Capture USART0, assert the rawboot boot log, and print a compact summary."""
 
 import argparse

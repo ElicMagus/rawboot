@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: Unlicense
+# SPDX-License-Identifier: CC-BY-4.0
 #
 # Fetch a pinned szemzoa/awboot tree for parity work. Defaults to the commit the
 # current ADR/research notes are anchored to. The tree lands under target/, which

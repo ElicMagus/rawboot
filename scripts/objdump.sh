@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: Unlicense
+# SPDX-License-Identifier: CC-BY-4.0
 #
 # Run llvm-objdump from the llvm-tools component. There is no `cargo objdump`;
 # the binary lives under the toolchain's lib/rustlib, not on PATH.

@@ -2,7 +2,7 @@
 
 The loader's hardware logic is aligned to the *behaviour* of `szemzoa/awboot`, anchored to a pinned
 upstream commit, not to its code: we match step order, constants, branch structure and lookup
-tables, but keep our own expression under Unlicense (ADR-0001). Names adopt upstream's
+tables, but keep our own expression under CC-BY-4.0 (ADR-0001). Names adopt upstream's
 `snake_case` so the shared vocabulary carries over; types, traits, `Result`/`?` and register
 accessors stay idiomatic Rust.
 

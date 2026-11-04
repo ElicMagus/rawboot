@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: CC-BY-4.0
 
 //! The in-DRAM contract between the host, the DDR-init stub and the FEL flasher.
 //!

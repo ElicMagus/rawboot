@@ -2,7 +2,7 @@
 name = "sunxi-drivers"
 version = "0.1.0"
 edition = "2024"
-license = "Unlicense"
+license = "CC-BY-4.0"
 publish = false
 
 # The Allwinner T113-S3 drivers above `sunxi-pl`, shared by the loader and any

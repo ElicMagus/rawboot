@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: Unlicense
+# SPDX-License-Identifier: CC-BY-4.0
 #
 # Contract docs (ADR, GLOSSARY, spec) may ride a feat/fix branch. Runbooks,
 # research notes and other docs go straight to master.

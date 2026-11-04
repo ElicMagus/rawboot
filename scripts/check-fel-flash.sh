@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: Unlicense
+# SPDX-License-Identifier: CC-BY-4.0
 #
 # Validate the fel-flash artifacts and print its plan without opening FEL or
 # touching a card. The caller builds the images first.

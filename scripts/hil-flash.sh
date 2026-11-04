@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: Unlicense
+# SPDX-License-Identifier: CC-BY-4.0
 #
 # Run an in-board FEL flash with a UART capture and assert the flasher status.
 # The board must already be in FEL with the card inserted; this script does not

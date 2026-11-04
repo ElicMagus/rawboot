@@ -2,6 +2,7 @@
 name = "rawboot"
 version = "0.1.0"
 edition = "2024"
+license = "CC-BY-4.0"
 
 [features]
 # Link at the SD/SPI boot origin (0x00020000) instead of the FEL origin.
