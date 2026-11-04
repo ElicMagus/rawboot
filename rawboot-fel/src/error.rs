@@ -70,6 +70,24 @@ impl fmt::Display for ProtocolError {
 
 impl std::error::Error for ProtocolError {}
 
+/// A FEL-callable image the host validates before loading it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageKind {
+    /// The returning DDR-init stub.
+    DdrStub,
+    /// The DRAM-linked flash job executor.
+    Flasher,
+}
+
+impl fmt::Display for ImageKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DdrStub => f.write_str("DDR-init stub"),
+            Self::Flasher => f.write_str("flasher"),
+        }
+    }
+}
+
 /// Anything that can stop a FEL operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FelError {
@@ -113,12 +131,12 @@ pub enum FelError {
     /// A FEL-callable image is empty.
     EmptyImage {
         /// Which image was rejected.
-        what: &'static str,
+        kind: ImageKind,
     },
     /// A FEL-callable image carries an eGON header.
     UnexpectedEgon {
         /// Which image was rejected.
-        what: &'static str,
+        kind: ImageKind,
     },
     /// The DDR-init stub is larger than its FEL SRAM window.
     StubTooLarge {
@@ -196,10 +214,10 @@ impl fmt::Display for FelError {
             Self::OutOfMemory { length } => {
                 write!(f, "cannot allocate a {length}-byte read buffer")
             }
-            Self::EmptyImage { what } => write!(f, "{what} is empty"),
-            Self::UnexpectedEgon { what } => write!(
+            Self::EmptyImage { kind } => write!(f, "{kind} is empty"),
+            Self::UnexpectedEgon { kind } => write!(
                 f,
-                "{what} starts with an eGON header; a FEL-callable image must not"
+                "{kind} starts with an eGON header; a FEL-callable image must not"
             ),
             Self::StubTooLarge { size, max } => write!(
                 f,
@@ -260,5 +278,30 @@ impl From<ProtocolError> for FelError {
 impl From<FlashContractError> for FelError {
     fn from(error: FlashContractError) -> Self {
         Self::FlashContract(error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_kind_names_appear_in_their_errors() {
+        assert_eq!(ImageKind::DdrStub.to_string(), "DDR-init stub");
+        assert_eq!(ImageKind::Flasher.to_string(), "flasher");
+        assert_eq!(
+            FelError::EmptyImage {
+                kind: ImageKind::DdrStub
+            }
+            .to_string(),
+            "DDR-init stub is empty"
+        );
+        assert_eq!(
+            FelError::UnexpectedEgon {
+                kind: ImageKind::Flasher
+            }
+            .to_string(),
+            "flasher starts with an eGON header; a FEL-callable image must not"
+        );
     }
 }
