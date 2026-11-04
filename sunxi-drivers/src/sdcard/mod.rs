@@ -10,7 +10,7 @@ use crate::console::info;
 
 use core::cmp::min;
 
-use sunxi_pl::cpu::udelay;
+use sunxi_pl::cpu::{time_ms, udelay};
 
 use crate::sdhci::{
     MMC_BUS_WIDTH_1, MMC_BUS_WIDTH_4, MMC_CLK_25M, MMC_CLK_50M, MMC_CLK_50M_DDR, MMC_CLK_400K,
@@ -495,31 +495,37 @@ fn mmc_send_op_cond(hci: &mut Sdhci, card: &mut Sdcard) -> bool {
     true
 }
 
+/// How long to wait for the card to leave its programming state.
+///
+/// A single-block write can keep `READY_FOR_DATA` clear for milliseconds; a
+/// read returns it immediately. Polling for only a few hundred microseconds
+/// turns a successful write into a reported failure and makes the next command
+/// race the card while it is still programming.
+const MMC_STATUS_TIMEOUT_MS: u32 = 1000;
+const MMC_STATUS_POLL_US: u64 = 100;
+
 fn sdmmc_status_response(hci: &mut Sdhci, card: &Sdcard) -> Option<u32> {
     let mut cmd = SdhciCmd::default();
-    let mut retries = 100i32;
+    let start = time_ms();
 
     cmd.idx = MMC_SEND_STATUS;
     cmd.resptype = MMC_RSP_R1;
     cmd.arg = card.rca << 16;
     loop {
-        if sdhci_transfer(hci, &mut cmd, None) {
-            if (cmd.response[0] & (1 << 8)) != 0 {
-                break;
-            }
-            udelay(1);
+        // A failed CMD13 means the card stopped answering; waiting will not
+        // help and would flood the log with one timeout per poll.
+        if !sdhci_transfer(hci, &mut cmd, None) {
+            info!("SMHC: status error\r\n");
+            return None;
         }
-        let retries_left = retries > 0;
-        retries -= 1;
-        if !retries_left {
-            break;
+        if (cmd.response[0] & (1 << 8)) != 0 {
+            return Some(cmd.response[0]);
         }
-    }
-    if retries > 0 {
-        Some(cmd.response[0])
-    } else {
-        info!("SMHC: status error\r\n");
-        None
+        if time_ms().wrapping_sub(start) > MMC_STATUS_TIMEOUT_MS {
+            info!("SMHC: status error\r\n");
+            return None;
+        }
+        udelay(MMC_STATUS_POLL_US);
     }
 }
 
