@@ -13,10 +13,20 @@ Cargo workspace:
 - `sunxi-pl` — the shared platform layer (MMIO, GPIO, timer) used by loader, runtime and payload
 - `sunxi-drivers` — the shared drivers above `sunxi-pl` (clock, DRAM, UART, SDHCI, SD/MMC, FAT)
 - `payload` — the blink test payload image the loader boots
-- `rawboot-image` — host-testable payload/eGON image, SD boot prefix and flash job/status tooling
-  (`build`, `parse`, `seal`, `verify_sealed`, `build_sd_image`, `FlashJob`, `FlashStatus`)
-- `rawboot-fel` — host-side FEL USB transport and CLI (`version`, `read`, `write`, `exec`, `bringup`)
-- `rawboot-flasher` — the FEL-callable DDR-init stub and DRAM-linked flasher
-- `xtask` — host build tooling (`image`, `payload`, `flasher`, `sd-image`)
+- `rawboot-image` — host-testable payload/eGON image, SD boot prefix and flash contract
+  (`build`, `parse`, `seal`, `verify_sealed`, `build_sd_image`, `FlashJob`, `FlashStatus`,
+  `FlashPlan`, `check_sd_layout`)
+- `rawboot-fel` — host-side FEL USB transport and CLI (`version`, `read`, `write`, `exec`,
+  `bringup`), plus `flash_sd_card` for the in-board update path
+- `rawboot-flasher` — the FEL-callable DDR-init stub and DRAM-linked flasher; it writes the
+  payload files and SD loader over FEL
+- `xtask` — host build tooling (`image`, `payload`, `flasher`, `sd-image`, `fel-flash`)
+
+To update a card left in the board, put the board into FEL and run
+`cargo xtask fel-flash --yes`; it builds or reuses the images, writes `payload.bin` and the
+loader, leaves the MBR and FAT partition in place and reads everything back.
+`cargo xtask fel-flash --dry-run` validates and prints the plan without opening FEL. See
+`docs/agents/hil.md` for the safety checks, the UART log and the cold-boot check; in-board HIL
+uses `scripts/hil-flash.sh`.
 
 See `GLOSSARY.md` for terminology and `docs/adr/` for architecture decisions.
