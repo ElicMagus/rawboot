@@ -1,0 +1,4 @@
+/target
+/embed/
+/rawboot/rawboot.bin
+__pycache__/

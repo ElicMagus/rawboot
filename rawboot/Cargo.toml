@@ -1,0 +1,25 @@
+[package]
+name = "rawboot"
+version = "0.1.0"
+edition = "2024"
+license = "CC-BY-4.0"
+
+[features]
+# Link at the SD/SPI boot origin (0x00020000) instead of the FEL origin.
+# `cargo xtask image` builds both variants; the FEL image is the default.
+boot-sd = []
+
+[dependencies]
+rawboot-image = { path = "../rawboot-image", default-features = false }
+rawboot-rt = { path = "../rawboot-rt" }
+# The Allwinner drivers above the platform layer: clocks, DRAM, UART, SDHCI and
+# the FAT adapter (ADR-0012).
+sunxi-drivers = { path = "../sunxi-drivers", default-features = false }
+# The shared platform layer: GPIO, MMIO and the timer (ADR-0010).
+sunxi-pl = { path = "../sunxi-pl" }
+
+[[bin]]
+name = "rawboot"
+path = "src/main.rs"
+test = false
+doctest = false

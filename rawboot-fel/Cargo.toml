@@ -1,0 +1,16 @@
+[package]
+name = "rawboot-fel"
+version = "0.1.0"
+edition = "2024"
+license = "CC-BY-4.0"
+publish = false
+
+[dependencies]
+# Pure-Rust USB access over usbfs/IOKit/WinUSB; no system libusb.
+nusb = "0.2"
+# The job/status contract and fixed DRAM addresses shared with the flasher.
+rawboot-image = { path = "../rawboot-image", default-features = false }
+
+[dev-dependencies]
+# The tests build a real sealed loader with the host sealing tool.
+rawboot-image = { path = "../rawboot-image" }

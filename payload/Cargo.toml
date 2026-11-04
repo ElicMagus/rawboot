@@ -1,0 +1,17 @@
+[package]
+name = "payload"
+version = "0.1.0"
+edition = "2024"
+license = "CC-BY-4.0"
+publish = false
+
+[dependencies]
+# The shared platform layer: GPIO and the timer, the same code the loader uses
+# (ADR-0010).
+sunxi-pl = { path = "../sunxi-pl" }
+
+[[bin]]
+name = "payload"
+path = "src/main.rs"
+test = false
+doctest = false

@@ -1,0 +1,5 @@
+[toolchain]
+channel = "stable"
+targets = ["armv7a-none-eabi"]
+# `rust-objcopy` from `llvm-tools` converts the loader ELF to a flat binary.
+components = ["llvm-tools"]
