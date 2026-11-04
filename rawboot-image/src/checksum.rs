@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: CC-BY-4.0
 
 //! Little-endian 32-bit word summing for the payload and eGON checksums.
 

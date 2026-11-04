@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: CC-BY-4.0
 
 //! The DDR-init stub, callable through FEL `exec`.
 //!

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: CC-BY-4.0
 
 //! `sunxi-drivers` — the Allwinner T113-S3 drivers shared by the loader and by
 //! any future image that links them.

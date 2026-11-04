@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: CC-BY-4.0
 
 //! Errors from USB transport, FEL framing, device identification and the
 //! in-DRAM flasher bring-up.

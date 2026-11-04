@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: Unlicense
+# SPDX-License-Identifier: CC-BY-4.0
 #
 # Build the SD boot prefix and write it to a card. The prefix only replaces the
 # MBR and sector 16; the existing FAT partition is left intact. With --format
@@ -185,7 +185,9 @@ choose_device() {
     choice=${choice:-1}
     is_uint "$choice" || die "invalid selection: $choice"
     index=$((choice - 1))
-    [ "$index" -ge 0 ] && [ "$index" -lt "${#CANDIDATES[@]}" ] || die "invalid selection: $choice"
+    if [ "$index" -lt 0 ] || [ "$index" -ge "${#CANDIDATES[@]}" ]; then
+        die "invalid selection: $choice"
+    fi
     IFS=$'\t' read -r name size tran rm model <<< "${CANDIDATES[$index]}"
     SD_DEV=/dev/$name
 }

@@ -2,7 +2,7 @@
 name = "sunxi-pl"
 version = "0.1.0"
 edition = "2024"
-license = "Unlicense"
+license = "CC-BY-4.0"
 publish = false
 
 # The platform layer is shared by the loader, the runtime and the payload: no

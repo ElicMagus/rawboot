@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: CC-BY-4.0
 
 //! PD22 blink loop for the end-to-end test payload.
 //!

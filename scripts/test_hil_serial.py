@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Unlicense
+# SPDX-License-Identifier: CC-BY-4.0
 """Host tests for the HIL log parser in hil_serial.py."""
 
 import os

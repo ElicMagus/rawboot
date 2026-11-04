@@ -1,9 +1,10 @@
-# SPDX-License-Identifier: Unlicense
+# SPDX-License-Identifier: CC-BY-4.0
 
 [package]
 name = "core_io"
 version = "0.1.20210325"
 edition = "2024"
+license = "CC-BY-4.0"
 description = "Minimal no_std std::io subset used by the fatfs crate"
 
 [lib]

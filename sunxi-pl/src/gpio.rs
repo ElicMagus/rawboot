@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: CC-BY-4.0
 
 //! GPIO controller access, transcribed from upstream
 //! `arch/arm32/mach-t113s3/sunxi_gpio.c:24-139` — the port bases at `:24`, the

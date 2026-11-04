@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: Unlicense
+# SPDX-License-Identifier: CC-BY-4.0
 #
 # Guard the loader's read-only dependency graph. `rawboot-flasher` enables
 # sunxi-drivers/write, so building it as a default member would unify that

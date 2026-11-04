@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: CC-BY-4.0
 
 //! `nusb`-backed transport: find the FEL device and move raw bulk frames.
 //!

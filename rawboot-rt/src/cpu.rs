@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: CC-BY-4.0
 
 //! The runtime's arch control and the loader-image-specific CPU helpers.
 //!

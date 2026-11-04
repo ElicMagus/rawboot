@@ -2,7 +2,7 @@
 name = "rawboot-flasher"
 version = "0.1.0"
 edition = "2024"
-license = "Unlicense"
+license = "CC-BY-4.0"
 publish = false
 
 # Two FEL-callable images that share the loader's drivers and the job/status

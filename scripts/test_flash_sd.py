@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Unlicense
+# SPDX-License-Identifier: CC-BY-4.0
 """Host-side tests for scripts/flash-sd.sh; never touches a block device."""
 
 import os

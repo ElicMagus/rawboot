@@ -1,8 +1,8 @@
-> Status: draft. To be published as a Gitea issue and labelled `ready-for-agent`.
+> Status: draft.
 
 ## Problem Statement
 
-The T113-S3 bootloader (the user's `rawboot-internal`) is a partial Rust port of the C `szemzoa/awboot`.
+The T113-S3 bootloader `rawboot` is a partial Rust port of the C `szemzoa/awboot`.
 It already initialises clocks, UART, GPIO and DRAM, but: its SD/SDHCI path does not work; it is
 shaped around Linux (zImage/FDT/initrd) even though the payload will be the user's own firmware; it
 still carries un-named magic numbers; and its only build path is Windows `.bat` scripts wrapping
@@ -70,14 +70,14 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
     that another Allwinner SoC could be added later without a rewrite.
 26. As a firmware developer, I want FDT and PSCI deliberately left out, so that the loader stays
     small and payload-agnostic.
-27. As a firmware developer, I want the loader released as public domain, so that it can be reused
-    freely.
+27. As a firmware developer, I want the loader released under CC-BY-4.0, so that it can be reused
+    with attribution.
 28. As a firmware developer, I want the soft-float target, so that no VFP dependency creeps into the
     loader.
 
 ## Implementation Decisions
 
-- **Workspace shape.** The `rawboot-internal` repository is a single Cargo workspace with members
+- **Workspace shape.** The `rawboot` repository is a single Cargo workspace with members
   `rawboot` (the loader), `rawboot-rt` (the runtime), `sunxi-pl` (the shared hardware layer),
   `sunxi-drivers` (the shared drivers above it: clock/CCU, DRAM, UART, SDHCI, SD/MMC and the FAT
   adapter, read-only in the loader and writable by the flasher and host tests), `payload` (the
@@ -141,7 +141,7 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
   `scripts/hil-check.sh`.
 - **Toolchain.** Target `armv7a-none-eabi` (soft-float; measured as smaller than the hard-float
   variant for this code), Rust edition 2024, pinned by `rust-toolchain.toml`.
-- **Licence.** Public domain via `Unlicense`, with SPDX headers in files. Only facts (addresses,
+- **Licence.** `CC-BY-4.0`, with SPDX headers in files. Only facts (addresses,
   offsets, constant names) are transcribed from awboot; GPL-2.0+/unlicensed awboot sources are not
   copied.
 - **Debugging.** A best-effort `openocd` + `gdb` path over the USB-JTAG adapter; FEL is the primary

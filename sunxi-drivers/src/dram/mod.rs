@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: CC-BY-4.0
 
 #![allow(dead_code, unused_assignments)]
 use crate::console::info;

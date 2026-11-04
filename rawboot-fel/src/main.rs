@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: CC-BY-4.0
 
 //! `rawboot-fel` — manual FEL bring-up without an external `xfel`.
 //!

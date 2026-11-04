@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: Unlicense
+# SPDX-License-Identifier: CC-BY-4.0
 #
 # Retry the card-init step when the SD slot is flaky (#43). This runs
 # hil-check.sh with SD, handoff and payload assertions; only a run that fails
