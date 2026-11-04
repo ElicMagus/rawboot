@@ -14,9 +14,9 @@ doctest = false
 
 [features]
 # Block and FAT writes. The loader keeps it off: the write-cache code does not
-# fit its 64 KiB SRAM budget (ADR-0005). The host tests use the default; the
-# #41 flasher skeleton does not write yet, so it also asks for no default
-# features. The #42 SD job will turn writes on for the flasher.
+# fit its 64 KiB SRAM budget (ADR-0005), so it depends on this crate with
+# `default-features = false`. The flasher enables `write` explicitly, and the
+# host tests use the default (ADR-0015).
 default = ["write"]
 write = []
 

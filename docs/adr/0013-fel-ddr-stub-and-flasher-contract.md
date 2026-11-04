@@ -99,3 +99,4 @@ DRAM, кладёт NOOP-job и прошивальщик, выполняет ег
 > Обновление #42: SD-команда добавлена без смены раскладки job/status, но с отдельным
 > `FlashPlan` и staging-областями в DRAM; `rawboot-flasher` больше не входит в
 > `default-members`, чтобы `sunxi-drivers/write` не унифицировался в лоадер. См. ADR-0014.
+> Состав `default-members`, фича `write` и место host-тестов драйверов уточнены в ADR-0015.

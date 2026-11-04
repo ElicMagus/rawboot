@@ -80,8 +80,8 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
 - **Workspace shape.** The `rawboot-internal` repository is a single Cargo workspace with members
   `rawboot` (the loader), `rawboot-rt` (the runtime), `sunxi-pl` (the shared hardware layer),
   `sunxi-drivers` (the shared drivers above it: clock/CCU, DRAM, UART, SDHCI, SD/MMC and the FAT
-  adapter, read-only in the loader and writable by the flasher), `payload` (the blink test
-  payload), `rawboot-image` (host-testable
+  adapter, read-only in the loader and writable by the flasher and host tests), `payload` (the
+  blink test payload), `rawboot-image` (host-testable
   payload, eGON, SD boot prefix and flash job/status tooling), `rawboot-fel` (host-side FEL USB
   transport and CLI), `rawboot-flasher` (the FEL-callable DDR-init stub and DRAM-linked flasher)
   and `xtask` (host build tooling). Driver modules live in `sunxi-drivers`; `rawboot` keeps the
@@ -151,8 +151,10 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
 
 - A good test exercises **external behaviour, not implementation details** — for this project that
   means byte-in/byte-out on the image tooling, and observable LED behaviour on hardware. There are
-  no models of the SoC or board: the only mock is the scripted USB bulk transport behind the FEL
-  transport trait (issue #40), which checks wire frames rather than emulating hardware.
+  no models of the SoC or board. Mocks sit only at the byte and block seams: the scripted USB bulk
+  transport behind the FEL transport trait (issue #40) checks wire frames, and the in-memory block
+  disk in `sunxi-drivers` replaces sector reads, writes and injected failures without emulating
+  SDHCI, card timing or electrical behaviour.
 - **Unit seam (host, `cargo test`):** the image tooling. `seal()` must produce a BROM-valid header
   (checksum over the padded image with the `0x5F0A6C39` seed, correct 512/8192 padding, correct
   2 KB→N KB page scattering); `parse()` must accept a well-formed header and reject bad magic, bad
@@ -162,6 +164,11 @@ proves the whole chain (SD → FAT → DRAM → handoff) on real hardware.
   `FlashPlan` round-trips and rejects bad lengths/checksums, `check_sd_layout` rejects a partition
   at or inside sector 16, a loader that reaches into the partition and a partition past the card,
   and `fat::file_matches` compares a written file byte by byte.
+- **Driver seam (host, `cargo test`):** `sunxi-drivers` tests the block adapter and FAT writes
+  over an in-memory `MockDisk` that implements the block `BlockIo` trait. The mock substitutes
+  sector I/O and injectable read/write failures; it does not model SDHCI registers, card timing or
+  the card itself. The tests cover `create_or_replace_file`/`file_matches` and partition parsing
+  without a board.
 - **FEL transport seam (host, `cargo test`):** `rawboot-fel` frames the BROM's `AWUC`/FEL
   requests and validates its replies over a `Transport` trait. Scripted bulk frames cover
   version/read/write/exec, 64 KiB chunking, short transfers and transport failures, the order in
