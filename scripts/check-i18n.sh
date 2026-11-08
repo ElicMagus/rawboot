@@ -25,4 +25,5 @@ if [ "$missing" -ne 0 ]; then
     exit 1
 fi
 
+python3 scripts/check_i18n_links.py
 echo "i18n: every public document has ru and zh-CN mirrors"

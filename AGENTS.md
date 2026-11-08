@@ -45,13 +45,15 @@ Standard commands:
   the `core_io` shim is linted with
   `cargo clippy --manifest-path vendor/core_io/Cargo.toml --target-dir target/core_io-shim -- -D warnings`)
 - Format: `cargo fmt` (CI runs `cargo fmt --all -- --check`)
+- Check translations: `scripts/check-i18n.sh` (every public Markdown file has RU and
+  zh-CN mirrors under `i18n/`, and their relative links resolve)
 - Disassemble: `scripts/objdump.sh -d target/armv7a-none-eabi/release/rawboot` (wraps
   `llvm-objdump` from the `llvm-tools` component; there is no `cargo objdump`)
 - Fetch pinned upstream: `scripts/fetch-upstream.sh` (writes the C tree used by the parity
   research notes to `target/upstream/awboot-<sha>/`)
 - Check everything: `scripts/check.sh` (fmt, the early `scripts/check-features.sh` feature-graph
   guard, build, the bare-metal, flasher, driver and host clippy passes, host tests, SPDX headers,
-  branch-docs rule, the loader no-write symbol guard, `cargo xtask image`/`payload`/`flasher`
+  branch-docs rule, i18n mirrors, the loader no-write symbol guard, `cargo xtask image`/`payload`/`flasher`
   smoke builds, `cargo xtask fel-flash --dry-run`, and `cargo xtask sd-image`)
 - Seal an image: `cargo xtask image` (builds the loader twice and writes the sealed
   `target/rawboot-fel.bin` for FEL at `0x00028000` and `target/rawboot-boot-sd.bin` for

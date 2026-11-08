@@ -27,6 +27,9 @@ fi
 echo "==> branch docs rule"
 bash scripts/check-branch-docs.sh
 
+echo "==> i18n mirrors"
+bash scripts/check-i18n.sh
+
 echo "==> no crate-level allow(warnings)"
 blanket=$(
   git ls-files --cached --others --exclude-standard '*.rs' |
