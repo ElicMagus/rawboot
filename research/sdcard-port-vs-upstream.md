@@ -170,4 +170,4 @@ PASS: UART assertions
 5. Upstream `Makefile` at the same SHA (`VARIANT=sdmmc` enables SD and MMC).
 6. `research/sdhci-port-vs-upstream.md` and issue #19.
 7. ADR-0007, `docs/adr/0007-align-behaviour-to-upstream.md`.
-8. Issue #20 "Parity SD/MMC-карты: sdcard" and parent issue #14.
+8. Issue #20 "Parity SD/MMC-карты: sdcard" (SD/MMC card parity: sdcard) and parent issue #14.

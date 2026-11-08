@@ -1,15 +1,17 @@
-# sunxi-pl: общий аппаратный слой для лоадера, runtime и payload
+# sunxi-pl: a shared hardware layer for the loader, runtime and payload
 
-Аппаратный код, нужный и лоадеру, и payload (MMIO, GPIO, таймер), выносится в общий no_std-крейт
-`sunxi-pl` — CMSIS-подобный слой платформы без старта (`_start`, eGON-заголовок, паника). Лоадер и
-`rawboot-rt` берут его напрямую (лоадер — через фасады-реэкспорты), payload перестаёт копировать
-GPIO-константы и чтение таймера. Крейт задуман как фундамент для payload-приложения (ядра), поэтому
-API пока сырой, паритетный; типизированный HAL — отдельная будущая работа.
+The hardware code needed by both the loader and the payload (MMIO, GPIO, timer) is moved into a
+shared no_std crate `sunxi-pl` — a CMSIS-like platform layer without startup (`_start`, eGON
+header, panic). The loader and `rawboot-rt` take it directly (the loader through facade
+re-exports), and the payload stops copying GPIO constants and timer reads. The crate is intended as
+the foundation for the payload application (kernel), so its API is still raw and parity-oriented; a
+typed HAL is separate future work.
 
 ## Considered Options
 
-- **Общий крейт** (принято): один источник аппаратного кода для трёх потребителей, повторяет
-  уже принятый паттерн `rawboot-image` (`no_std`, `default-features = false`).
-- **Feature в `rawboot-rt`**, отключающий `_start` и eGON-заголовок (отвергнуто): смешивает
-  аппаратный слой со слоем старта и всё равно требует переноса `gpio`/`io` из лоадера в runtime.
-- **Оставить копию в payload** (отвергнуто): копия мала, но дрейфует от источника.
+- **A shared crate** (accepted): a single source of hardware code for three consumers, following
+  the already accepted pattern of `rawboot-image` (`no_std`, `default-features = false`).
+- **A feature in `rawboot-rt`** that disables `_start` and the eGON header (rejected): it mixes the
+  hardware layer with the startup layer and still requires moving `gpio`/`io` from the loader into
+  the runtime.
+- **Keep a copy in the payload** (rejected): the copy is small but drifts from the source.

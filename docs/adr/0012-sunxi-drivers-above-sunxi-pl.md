@@ -1,50 +1,51 @@
-# sunxi-drivers: общие драйверы над sunxi-pl
+# sunxi-drivers: shared drivers above sunxi-pl
 
-Драйверы лоадера (`ccu`/`clk`, `dram`, `uart`, `sdhci`, `sdcard`, `fat`) жили внутри
-bin-крейта `rawboot`. Второй образ (например, прошивальщик из #34) не мог их переиспользовать,
-не копируя код; копия неизбежно дрейфует от лоадера. Нижний слой — MMIO, GPIO и таймер — уже
-вынесен в `sunxi-pl` (ADR-0010), но драйверы над ним оставались в загрузчике.
+The loader's drivers (`ccu`/`clk`, `dram`, `uart`, `sdhci`, `sdcard`, `fat`) lived inside the bin
+crate `rawboot`. A second image (for example, the flasher from #34) could not reuse them without
+copying code; a copy inevitably drifts from the loader. The lower layer — MMIO, GPIO and the
+timer — had already been moved into `sunxi-pl` (ADR-0010), but the drivers above it remained in the
+bootloader.
 
-Решение: появился `no_std`-крейт `sunxi-drivers` над `sunxi-pl`. Он содержит `ccu`, `clk`,
-`dram`, `uart`, `sdhci`, `sdcard` и `fat` и не несёт стартового кода, eGON-заголовка,
-линкерных скриптов и глобального аллокатора. `rawboot` зависит от него и оставляет себе
-оркестрацию загрузки (`boot`), `BootInfo` и свой `print!`. Публичные границы крейта:
-`Sdhci`, `Sdcard`, `DramPara` (параметры с публичными полями), `fat::mount` с блочным
-адаптером `fat::block::BlockDevice`/`fat::partition::Partition`; `fat::read_boot_files`
-остаётся удобной обёрткой лоадера над ними.
+Decision: a `no_std` crate `sunxi-drivers` above `sunxi-pl` was introduced. It contains `ccu`,
+`clk`, `dram`, `uart`, `sdhci`, `sdcard` and `fat` and carries no startup code, eGON header, linker
+scripts or global allocator. `rawboot` depends on it and keeps for itself the boot orchestration
+(`boot`), `BootInfo` and its own `print!`. The crate's public boundaries are: `Sdhci`, `Sdcard`,
+`DramPara` (parameters with public fields), `fat::mount` with the block adapter
+`fat::block::BlockDevice`/`fat::partition::Partition`; `fat::read_boot_files` remains the loader's
+convenience wrapper over them.
 
-Вывод драйверов идёт через узкий трейт `console::Console`, а не через `print!` лоадера:
-бинарь устанавливает свой сток (лоадер направляет его в USART0), а без стока драйверы
-работают молча. Это сохраняет `rawboot::print!` для boot-логов и не тянет в крейт
-конкретный UART.
+Driver output goes through the narrow trait `console::Console`, not through the loader's `print!`:
+the binary installs its sink (the loader directs it to USART0), and without a sink the drivers run
+silently. This preserves `rawboot::print!` for boot logs and does not pull a specific UART into the
+crate.
 
 ## Considered Options
 
-- **Общий крейт драйверов** (принято): один источник драйверов для лоадера и будущих образов,
-  повторяет уже принятый паттерн `sunxi-pl` (ADR-0010) и `rawboot-image`. Крейт можно
-  подключить, не притягивая `_start` и eGON.
-- **Оставить драйверы в `rawboot` и добавить lib-таргет** (отвергнуто): bin-крейт смешивал бы
-  политику загрузки (пути `payload.bin`/`boot.cfg`, `BootInfo`, handoff) с драйверами, а
-  граница «что можно переиспользовать» осталась бы неявной.
-- **Копия драйверов во втором образе** (отвергнуто): код дрейфует от лоадера; исправления
-  пришлось бы вносить дважды.
-- **Фасад `log` вместо своего трейта** (отвергнуто): сообщения драйверов подключали
-  `log`-инфраструктуру и вывели образ за бюджет 64 КиБ SRAM. Трейт `Console` с одним
-  `#[inline(never)]`-путём форматирования дешевле и не требует глобального логгера.
+- **A shared driver crate** (accepted): a single source of drivers for the loader and future
+  images, following the already accepted pattern of `sunxi-pl` (ADR-0010) and `rawboot-image`. The
+  crate can be included without pulling in `_start` and eGON.
+- **Keep the drivers in `rawboot` and add a lib target** (rejected): the bin crate would mix boot
+  policy (the `payload.bin`/`boot.cfg` paths, `BootInfo`, handoff) with the drivers, and the
+  boundary of "what can be reused" would remain implicit.
+- **A copy of the drivers in the second image** (rejected): the code drifts from the loader; fixes
+  would have to be made twice.
+- **The `log` facade instead of a custom trait** (rejected): driver messages pulled in `log`
+  infrastructure and pushed the image past the 64 KiB SRAM budget. A `Console` trait with a single
+  `#[inline(never)]` formatting path is cheaper and requires no global logger.
 
 ## Consequences
 
-- `rawboot` больше не содержит модулей драйверов: в `rawboot/src` остаются `main.rs`,
-  `boot.rs` и `print.rs`. На момент решения `sunxi-drivers` входил в bare-metal
-  `default-members`, а host-тесты жили в `rawboot-image`, `rawboot-fel` и `xtask`.
-- `fatfs` и `core_io` переехали в зависимости `sunxi-drivers`; `log` с `max_level_off`
-  остаётся только чтобы скомпилировать trace/debug-вызовы `fatfs` в ничто.
-- Бюджет 64 КиБ SRAM (ADR-0005) соблюдён: sealed-образ вырос примерно на 0.2 КиБ; линкер
-  продолжает проверять и размер образа, и минимальный стек.
-- HIL FEL и HIL SD должны подтвердить прежний лог и handoff; до прогона это не заявляется.
-- В `GLOSSARY.md` появляется термин «sunxi-drivers», чтобы не путать драйверный крейт с
-  платформенным слоем `sunxi-pl`.
+- `rawboot` no longer contains driver modules: `rawboot/src` keeps `main.rs`, `boot.rs` and
+  `print.rs`. At the time of the decision `sunxi-drivers` was part of the bare-metal
+  `default-members`, and host tests lived in `rawboot-image`, `rawboot-fel` and `xtask`.
+- `fatfs` and `core_io` moved into `sunxi-drivers`' dependencies; `log` with `max_level_off`
+  remains only to compile `fatfs`'s trace/debug calls into nothing.
+- The 64 KiB SRAM budget (ADR-0005) is met: the sealed image grew by about 0.2 KiB; the linker
+  keeps checking both the image size and the minimum stack.
+- HIL FEL and HIL SD must confirm the previous log and handoff; this is not claimed before the run.
+- `GLOSSARY.md` gains the term "sunxi-drivers" so the driver crate is not confused with the
+  platform layer `sunxi-pl`.
 
-> Обновление #39/#45: FAT-адаптер умеет писать за фичей `write`; `sunxi-drivers` не входит
-> в `default-members`, а host-тесты драйверов живут в самом крейте на мок-блочном диске.
-> См. ADR-0015.
+> Update #39/#45: the FAT adapter can write behind the `write` feature; `sunxi-drivers` is no
+> longer part of `default-members`, and the driver host tests live in the crate itself on a mock
+> block disk. See ADR-0015.

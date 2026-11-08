@@ -100,47 +100,48 @@ pushing.
 
 ## Working agreements
 
-- **Язык git-истории — русский, публичный трекер двуязычный.** Заголовки, тела issue,
-  комментарии и сообщения коммитов веди на русском. При публикации в GitHub-архив английский
-  перевод идёт сверху, русский оригинал — в `<details>`. Общение с владельцем проекта (в том
-  числе вопросы, уточнения и комментарии в трекере) — на русском.
-- **Публичный GitHub — зеркало с настоящей историей (ADR-0016).** Gitea остаётся каноническим
-  трекером и источником истины; на GitHub публикуются история `master` с тегами, а также весь
-  код, окружение и решения. Внутренними остаются `.gitea/`, `scripts/export-public.sh`,
-  `scripts/issue-view.sh`, `target/` и `embed/`. Незамерженные ветки не публикуются: сначала
-  мерж, потом отдельный ручной заход.
-- **Документация: английский — первоисточник.** Английские файлы лежат на текущих путях;
-  переводы зеркалят дерево в `i18n/ru/` и `i18n/zh-CN/` с теми же относительными путями. Агент
-  читает и правит только английские файлы, переводы не читает; при расхождении прав английский.
-  Имена API, регистров и термины глоссария не переводятся; черновики переводов агент делает сам,
-  без отдельного ревью.
-- **Ветку с решением issue — пушь, PR — не создавай.** Решив задачу, создай ветку
-  (`feat/<N>-<slug>` / `fix/<N>-<slug>`), закоммить и запушь её в `origin`. Pull request открывает
-  только владелец проекта. Инструментальные правки без issue, включая ретро, веди прямо в
-  `master`; отдельная ветка нужна только для issue или когда запрошен PR.
-- **Доки коммить прямо, без ветки.** ADR, `GLOSSARY.md`, `research/` и `docs/` коммить в текущую
-  ветку (обычно `master`); ветка (`feat/`/`fix/`) — для кода. Исключение: доки, без которых merge
-  меняет контракт (spec/GLOSSARY/ADR о границе модуля, публичном API или `default-members`), веди
-  в code branch. Перед коммитом сверь новые доки со старыми ADR, глоссарием и кодом; нашёл
-  противоречие — сначала грилинг (`grill-with-docs`), потом коммит.
-- **Перед пушем прогони ревью — skill `code-review` (Standards + Spec).**
-- **Порядок HIL и доков.** Инструкции по проверке (runbook, команды) можно коммитить до HIL;
-  заявления о результате (PASS, подтверждённый LED) — только после подтверждения HIL.
-- **Ручные HIL-шаги веди диалогом.** Если тест требует действий человека (power-cycle, вставка
-  карты, FEL/BOOT, подтверждение LED), задавай один вопрос через инструмент `question` перед
-  каждым шагом или циклом и жди ответа. Не запускай следующий цикл и не переходи к следующему
-  шагу без подтверждения; не объединяй несколько циклов в один вопрос. В вопросе давай точную
-  физическую процедуру и ожидаемый результат, после прогона — PASS/FAIL, ключевые строки лога и
-  следующий шаг. В одном вызове `question` задай два вопроса-вкладки: сам шаг и контрольный
-  «Уверен?» с вариантами «Да» и «Нет». Выполняй действие только если шаг подтверждён и на
-  «Уверен?» выбрано «Да»; иначе вернись к вопросу о шаге. Это защита от случайного нажатия.
-- **После пуша выдавай инструкцию по проверке** — шаги сборки, загрузки через FEL и/или SD и
-  наблюдения за LED payload'а.
-- **Перед merge перечисли acceptance issue.** Невыполненный пункт либо оставляет issue открытым,
-  либо переносится в follow-up issue с native blocking link и явной пометкой. PASS одной части
-  (например, чтения) не заменяет PASS другой (записи).
-- **После подтверждения — влей ветку в `master`, закрой issue, удали ветку.**
-- **Найденные недостатки оформляй отдельным issue** с меткой `needs-triage`.
+- **Git history is Russian; the public tracker is bilingual.** Write issue titles, bodies,
+  comments and commit messages in Russian. When publishing to the GitHub archive, put the English
+  translation on top and the Russian original in `<details>`. Address the project owner (including
+  questions, clarifications and tracker comments) in Russian.
+- **The public GitHub repository mirrors the real history (ADR-0016).** Gitea remains the
+  canonical tracker and source of truth; GitHub receives the `master` history with tags, plus all
+  code, environment and decisions. `.gitea/`, `scripts/export-public.sh`, `scripts/issue-view.sh`,
+  `target/` and `embed/` stay internal. Unmerged branches are not published: merge first, then
+  publish them in a separate manual pass.
+- **Documentation: English is the primary source.** English files live at their current paths;
+  translations mirror the tree under `i18n/ru/` and `i18n/zh-CN/` with the same relative paths. The
+  agent reads and edits only English files, never reads translations, and English wins any
+  disagreement. API and register names and glossary terms are not translated; the agent drafts
+  translations on its own, without a separate review.
+- **Push the branch that solves an issue; do not open a pull request.** Once the task is solved,
+  create a branch (`feat/<N>-<slug>` / `fix/<N>-<slug>`), commit and push it to `origin`. Only the
+  project owner opens pull requests. Commit tooling changes that have no issue, including retros,
+  straight to `master`; a separate branch is needed only for an issue or when a PR is requested.
+- **Commit docs directly, without a branch.** Commit ADRs, `GLOSSARY.md`, `research/` and `docs/` to
+  the current branch (usually `master`); a branch (`feat/`/`fix/`) is for code. Exception: docs
+  without which a merge would change the contract (spec/GLOSSARY/ADR about a module boundary, a
+  public API or `default-members`) go on the code branch. Before committing, check new docs against
+  earlier ADRs, the glossary and the code; if you find a contradiction, run the grilling
+  (`grill-with-docs`) first, then commit.
+- **Review before pushing — the `code-review` skill (Standards + Spec).**
+- **HIL and docs order.** Verification instructions (runbook, commands) may be committed before
+  HIL; claims about results (PASS, confirmed LED) only after HIL confirmation.
+- **Drive manual HIL steps as a dialogue.** If a test needs a human action (power-cycle, insert the
+  card, FEL/BOOT, confirm the LED), ask one question through the `question` tool before each step or
+  cycle and wait for the answer. Do not start the next cycle or move to the next step without
+  confirmation; do not merge several cycles into one question. In the question give the exact
+  physical procedure and the expected result; after the run, give PASS/FAIL, the key log lines and
+  the next step. In one `question` call ask two tab questions: the step itself and a control
+  "Sure?" with the options "Yes" and "No". Perform the action only if the step is confirmed and
+  "Sure?" is "Yes"; otherwise return to the step question. This guards against an accidental click.
+- **After a push, give the verification instructions** — build steps, FEL and/or SD boot, and what
+  to observe on the payload LED.
+- **List the issue's acceptance criteria before merging.** An unmet item either keeps the issue open
+  or moves to a follow-up issue with a native blocking link and an explicit note. A PASS of one part
+  (for example reading) does not replace a PASS of another (writing).
+- **After confirmation, merge the branch into `master`, close the issue and delete the branch.**
+- **File discovered defects as a separate issue** labelled `needs-triage`.
 
 ## Agent skills
 

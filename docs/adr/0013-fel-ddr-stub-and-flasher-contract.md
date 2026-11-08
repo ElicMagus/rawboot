@@ -1,115 +1,120 @@
-# FEL-прошивальщик: возвращающийся DDR-init stub и контракт job/status в DRAM
+# FEL flasher: a returning DDR-init stub and a job/status contract in DRAM
 
-FEL-окно SRAM (примерно 44 КиБ под образ) меньше sealed-лоадера, а данные прошивальщика в SRAM
-не помещаются. Инициализировать DRAM снаружи через `xfel ddr` нельзя: после него лоадер
-инициализирует DRAM повторно и вешает его на PLL_DDR (#23); это утверждение про `xfel ddr`, а не
-про возвращающийся stub. Поэтому хост должен получить DRAM сам, загрузив маленький
-stub, который инициализирует DRAM и **возвращается в BROM**, оставляя FEL живым. После этого хост
-кладёт в DRAM job и прошивальщик, выполняет его и читает статус; SD в этой задаче (#41) ещё не
-трогается.
+The FEL SRAM window (roughly 44 KiB for the image) is smaller than the sealed loader, and the
+flasher's data does not fit in SRAM. DRAM cannot be initialized externally via `xfel ddr`: after it
+the loader re-initializes DRAM and hangs it on PLL_DDR (#23); this statement is about `xfel ddr`, not
+about the returning stub. So the host must obtain DRAM itself by loading a small stub that
+initializes DRAM and **returns to BROM**, leaving FEL alive. After that the host places a job and
+the flasher into DRAM, executes it and reads the status; SD is not touched yet in this task (#41).
 
-Решение: два отдельных образа без eGON-заголовка, общий контракт в `rawboot-image` и хост-API в
-`rawboot-fel`.
+Decision: two separate images without an eGON header, a shared contract in `rawboot-image` and a
+host API in `rawboot-fel`.
 
-## Адреса и окна
+## Addresses and windows
 
-| Что | Адрес | Размер |
+| What | Address | Size |
 | --- | --- | --- |
-| DDR-init stub в SRAM | `0x00028000` | `0x5000` (20 КиБ) |
-| Результат stub'а (magic + MiB) | `0x0002d000` | 8 байт |
-| `FlashJob` в DRAM | `0x40000000` | 36 байт |
-| `FlashStatus` в DRAM | `0x40000100` | 28 байт |
-| Проверка DRAM паттерном | `0x40002000` | 4 КиБ |
-| Прошивальщик в DRAM | `0x40010000` | до `0x3c000` (240 КиБ) |
-| Стек прошивальщика | `0x4004c000..0x40050000` | 16 КиБ, растёт вниз |
+| DDR-init stub in SRAM | `0x00028000` | `0x5000` (20 KiB) |
+| Stub result (magic + MiB) | `0x0002d000` | 8 bytes |
+| `FlashJob` in DRAM | `0x40000000` | 36 bytes |
+| `FlashStatus` in DRAM | `0x40000100` | 28 bytes |
+| DRAM pattern check | `0x40002000` | 4 KiB |
+| Flasher in DRAM | `0x40010000` | up to `0x3c000` (240 KiB) |
+| Flasher stack | `0x4004c000..0x40050000` | 16 KiB, grows downward |
 
-Окно stub'а кончается ровно там, где начинается результат; фактический образ сейчас около 9 КиБ. Окно прошивальщика — 256 КиБ, но хост принимает образ не больше 240 КиБ: верхние 16 КиБ зарезервированы под стек, и линкер проверяет, что `.bss` не заходит в него.
-Адрес результата выбран внутри диапазона, который занимает DDR-payload внешнего `xfel`
-(`0x28000..0x2de54`) и в котором BROM уже доказанно оставляет свой стек целым: stub возвращается,
-а следующий FEL-запрос отвечает. Прошивальщик получает собственный стек в DRAM и сохраняет
-`sp`/`lr` BROM на входе, поэтому его объём не ограничен стеком BROM.
+The stub window ends exactly where the result begins; the actual image is currently about 9 KiB.
+The flasher window is 256 KiB, but the host accepts an image of no more than 240 KiB: the top
+16 KiB are reserved for the stack, and the linker checks that `.bss` does not run into it. The
+result address is chosen inside the range occupied by the external `xfel`'s DDR payload
+(`0x28000..0x2de54`), in which BROM has been proven to leave its stack intact: the stub returns and
+the next FEL request is answered. The flasher gets its own stack in DRAM and saves BROM's `sp`/`lr`
+on entry, so its size is not limited by the BROM stack.
 
-## Контракт job/status
+## The job/status contract
 
-`FlashJob` и `FlashStatus` — `#[repr(C)]`-структуры из одних `u32`, но контрактом является
-байтовая раскладка little-endian, а не Rust-структура. У обоих блоков есть:
+`FlashJob` and `FlashStatus` are `#[repr(C)]` structures made of `u32` fields only, but the
+contract is the little-endian byte layout, not the Rust structure. Both blocks have:
 
-- `magic` (`RBFJ` / `RBFS`), `version` (`1`) и `size` (36 / 28);
-- `checksum` — сумма little-endian 32-битных слов всего блока, в которой поле контрольной суммы
-  обнулено;
-- `sequence` — сквозной номер задания, чтобы хост не принял чужой/устаревший статус.
+- `magic` (`RBFJ` / `RBFS`), `version` (`1`) and `size` (36 / 28);
+- `checksum` — the sum of the little-endian 32-bit words of the whole block with the checksum field
+  zeroed out;
+- `sequence` — a monotonic task number so the host does not accept a foreign/stale status.
 
-У job дальше идут `command`, `arg0..arg2`; у status — `step` и `result`. В #41 реализована
-команда `NOOP`, статус `DONE`/`OK` (или `BAD_JOB`/`UNKNOWN_COMMAND`); команды записи SD появятся
-в #42 без смены раскладки. `rawboot-image::flash` проверяется host-тестами: round-trip, каждая
-битая часть (magic, version, size, checksum, усечение) и отсутствие пересечений адресов
-(`const`-assert'ы).
+The job further has `command`, `arg0..arg2`; the status has `step` and `result`. In #41 the `NOOP`
+command is implemented, with status `DONE`/`OK` (or `BAD_JOB`/`UNKNOWN_COMMAND`); SD write commands
+will appear in #42 without changing the layout. `rawboot-image::flash` is checked by host tests:
+round-trip, every corrupted part (magic, version, size, checksum, truncation) and the absence of
+address overlaps (`const` asserts).
 
-## Образы
+## Images
 
-`rawboot-flasher` — отдельный bare-metal пакет с двумя `[[bin]]`:
+`rawboot-flasher` is a separate bare-metal package with two `[[bin]]` targets:
 
-- `rawboot-ddr-init` линкуется в SRAM по `0x28000`, вызывает общий `sunxi_drivers::dram` и
-  возвращается в BROM; результат (magic `RBDD`, размер в MiB) остаётся в SRAM. BSS образа
-  обнуляется до вызова драйвера; стек — BROM, как у DDR-payload внешнего `xfel`.
-- `rawboot-flasher` линкуется в DRAM по `0x40010000`, имеет NOLOAD-секции `.bss` и `.stack`,
-  переключается на DRAM-стек, читает job, пишет status и возвращается в BROM, восстановив стек.
+- `rawboot-ddr-init` links into SRAM at `0x28000`, calls the shared `sunxi_drivers::dram` and
+  returns to BROM; the result (magic `RBDD`, size in MiB) remains in SRAM. The image's BSS is
+  zeroed before the driver call; the stack is BROM's, as with the external `xfel`'s DDR payload.
+- `rawboot-flasher` links into DRAM at `0x40010000`, has NOLOAD sections `.bss` and `.stack`,
+  switches to the DRAM stack, reads the job, writes the status and returns to BROM after restoring
+  the stack.
 
-Ни один образ не несёт eGON-заголовок и не является вторым stage. `cargo xtask flasher` собирает
-оба, проверяет VMA `.text` по контрактным адресам, отсутствие `eGON` в начале flat-бинарника и
-размер окна. Сборка входит в `scripts/check.sh`.
+Neither image carries an eGON header or is a second stage. `cargo xtask flasher` builds both,
+checks the VMA of `.text` against the contract addresses, the absence of `eGON` at the start of the
+flat binary and the window size. The build is part of `scripts/check.sh`.
 
-## Невозврат и паника
+## Non-return and panic
 
-Оба образа возвращаются в BROM только при штатном завершении. При панике `#[panic_handler]`
-паркуется: управление не возвращается в BROM, FEL-соединение перестаёт отвечать, и следующий
-запрос хоста упирается в таймаут транспорта. Это и есть наблюдаемый сигнал неисправности.
-Писать `FlashStatus` из panic handler'а бессмысленно: хост читает статус только после возврата
-из `exec`, а запаркованный образ уже не отдаёт управление BROM. Хост не пытается отличить
-панику от другого невозврата; реакция одна — холодный старт и повтор.
+Both images return to BROM only on normal completion. On panic the `#[panic_handler]` parks:
+control does not return to BROM, the FEL connection stops responding, and the next host request
+hits a transport timeout. This is the observable fault signal. Writing `FlashStatus` from the panic
+handler is pointless: the host reads the status only after returning from `exec`, and a parked
+image no longer hands control back to BROM. The host does not try to distinguish a panic from
+another non-return; the reaction is the same — a cold start and retry.
 
-## Хост
+## Host
 
-`rawboot-fel` получает `FelDevice::{run_ddr_stub, verify_dram, run_flash_job, bringup}`; CLI:
+`rawboot-fel` gains `FelDevice::{run_ddr_stub, verify_dram, run_flash_job, bringup}`; CLI:
 
 ```sh
 cargo xtask flasher
 cargo fel bringup target/rawboot-ddr.bin target/rawboot-flasher.bin
 ```
 
-`bringup` подтверждает T113, выполняет stub, читает его результат, пишет и перечитывает паттерн в
-DRAM, кладёт NOOP-job и прошивальщик, выполняет его и проверяет magic/version/size/checksum и
-`sequence` статуса. Если stub не вернулся, следующий FEL-read упирается в таймаут транспорта:
-это и есть go/no-go сигнал, а не тихий откат.
+`bringup` identifies the T113, runs the stub, reads its result, writes and re-reads a pattern in
+DRAM, places a NOOP job and the flasher, executes it and checks the status's
+magic/version/size/checksum and `sequence`. If the stub did not return, the next FEL read hits a
+transport timeout: this is the go/no-go signal, not a silent fallback.
 
 ## Considered Options
 
-- **Возвращающийся stub + DRAM job/status** (принято): FEL остаётся доступным, данные не
-  ограничены 44 КиБ, host-API переиспользуется в #42, а контракт тестируется без платы.
-- **`xfel ddr`** (отвергнуто): внешний инструмент, после него лоадер повторно инициализирует
-  DRAM и виснет на PLL_DDR (#23), и это не наша архитектура. К повторному запуску
-  возвращающегося stub это не относится; его условия описаны в ADR-0014 и runbook.
-- **Один невозвращающийся прошивальщик** (отвергнуто): статус пришлось бы отдавать устройство-side
-  USB/FEL-сервером, что вне задачи.
-- **Job в SRAM** (отвергнуто): после stub'а хост всё равно имеет DRAM; SRAM-окно нужно беречь для
-  stub'а и совместимости с FEL-путём лоадера.
-- **Писать SD уже сейчас** (отвергнуто): сначала go/no-go спайк; SD/FAT — #42.
+- **A returning stub + DRAM job/status** (accepted): FEL stays available, the data is not limited
+  to 44 KiB, the host API is reused in #42, and the contract is tested without a board.
+- **`xfel ddr`** (rejected): an external tool; after it the loader re-initializes DRAM and hangs on
+  PLL_DDR (#23), and this is not our architecture. This does not apply to re-running the returning
+  stub; its conditions are described in ADR-0014 and the runbook.
+- **A single non-returning flasher** (rejected): the status would have to be served by a
+  device-side USB/FEL server, which is outside the task.
+- **The job in SRAM** (rejected): after the stub the host has DRAM anyway; the SRAM window must be
+  preserved for the stub and for compatibility with the loader's FEL path.
+- **Writing SD already now** (rejected): a go/no-go spike first; SD/FAT is #42.
 
 ## Consequences
 
-- Новый bare-metal пакет `rawboot-flasher` на момент решения входил в `default-members`,
-  поэтому `cargo build --release`, `cargo clippy` и `cargo xtask flasher` проверяли оба
-  образа в обычном наборе; позже он выведен оттуда (ADR-0014), и `cargo xtask flasher`
-  собирает его отдельной cargo-инвокацией.
-- `rawboot-image` публикует адреса и `FlashJob`/`FlashStatus`; `rawboot-fel` от них зависит.
-- `rawboot-fel` получает команду `bringup` и ошибки stub'а, DRAM-паттерна, контракта и sequence.
-- Лоадер, его FEL-mailbox и SD-путь не изменены.
-- HIL: stub должен вернуться, DRAM-паттерн совпасть, а `bringup` — напечатать размер DRAM и
-  `result 0 (ok)`. Если stub не возвращается, факт фиксируется в #41, и задача возвращается в
-  triage; откат на `xfel ddr` не считается решением.
-- В `GLOSSARY.md` появляются «DDR-init stub», «flasher» и «flash job/status».
+- The new bare-metal package `rawboot-flasher` was part of `default-members` at the time of the
+  decision, so `cargo build --release`, `cargo clippy` and `cargo xtask flasher` checked both
+  images in the normal set; later it was moved out of there (ADR-0014), and `cargo xtask flasher`
+  builds it with a separate cargo invocation.
+- `rawboot-image` publishes the addresses and `FlashJob`/`FlashStatus`; `rawboot-fel` depends on
+  them.
+- `rawboot-fel` gains the `bringup` command and errors for the stub, the DRAM pattern, the contract
+  and the sequence.
+- The loader, its FEL mailbox and the SD path are unchanged.
+- HIL: the stub must return, the DRAM pattern must match, and `bringup` must print the DRAM size and
+  `result 0 (ok)`. If the stub does not return, the fact is recorded in #41, and the task returns to
+  triage; falling back to `xfel ddr` is not considered a solution.
+- `GLOSSARY.md` gains "DDR-init stub", "flasher" and "flash job/status".
 
-> Обновление #42: SD-команда добавлена без смены раскладки job/status, но с отдельным
-> `FlashPlan` и staging-областями в DRAM; `rawboot-flasher` больше не входит в
-> `default-members`, чтобы `sunxi-drivers/write` не унифицировался в лоадер. См. ADR-0014.
-> Состав `default-members`, фича `write` и место host-тестов драйверов уточнены в ADR-0015.
+> Update #42: the SD command was added without changing the job/status layout, but with a separate
+> `FlashPlan` and staging areas in DRAM; `rawboot-flasher` is no longer part of
+> `default-members`, so that `sunxi-drivers/write` is not unified into the loader. See ADR-0014.
+> The composition of `default-members`, the `write` feature and the place of the driver host tests
+> are clarified in ADR-0015.

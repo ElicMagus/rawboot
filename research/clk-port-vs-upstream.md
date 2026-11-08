@@ -73,4 +73,4 @@ No `CLK: init timeout` line; UART and DRAM come up and the LED loop runs.
 2. `rawboot/src/clk/mod.rs` (this repo).
 3. `rawboot/src/ccu/mod.rs` (this repo).
 4. ADR-0007, `docs/adr/0007-align-behaviour-to-upstream.md`.
-5. Issue #16, "Parity тактов: ccu + clk".
+5. Issue #16, "Parity тактов: ccu + clk" (clock parity: ccu + clk).

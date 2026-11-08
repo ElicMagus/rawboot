@@ -380,4 +380,5 @@ compensation, simple read/write test, and the default `dram_para_t` values (792 
     https://api.github.com/repos/szemzoa/awboot/commits/main
 13. Prior research note (style reference) — <workspace>/rust/awboot/research/awboot-rust-migration.md
 14. Issue #18 "Parity DRAM: dram" and parent issue #14 "Выравнивание лоадера rawboot на upstream
-    awboot: parity поведения".
+    awboot: parity поведения" (aligning the rawboot loader with upstream awboot for
+    behaviour parity).

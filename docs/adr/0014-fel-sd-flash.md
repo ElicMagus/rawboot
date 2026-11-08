@@ -1,137 +1,140 @@
-# FEL-прошивальщик: одна команда обновляет карту в плате
+# FEL flasher: one command updates the card in the board
 
-После #41 на шине появились возвращающийся DDR-init stub и DRAM-прошивальщик с контрактом
-job/status, но SD он ещё не трогал. Карту обновляли с хоста: `cargo xtask image`, `dd` префикса,
-копирование `payload.bin` в FAT вручную. Чтобы обновить карту в устройстве, её приходилось
-вынимать. Нужен пользовательский путь, который по FEL пишет `payload.bin` (и, если задан,
-`boot.cfg`) в существующий FAT-корень и SD-лоадер в сектор 16, сохраняя MBR и раздел, а затем
-перечитывает записанное и называет сбойный шаг.
+After #41 the bus had a returning DDR-init stub and a DRAM flasher with a job/status contract, but
+it did not touch SD yet. The card was updated from the host: `cargo xtask image`, `dd` of the
+prefix, copying `payload.bin` into FAT by hand. To update the card in the device it had to be
+removed. A user-facing path is needed that writes `payload.bin` (and, if given, `boot.cfg`) into
+the existing FAT root and the SD loader into sector 16 over FEL, preserving the MBR and the
+partition, and then re-reads what was written and names the failing step.
 
-Решение: `cargo xtask fel-flash` собирает или переиспользует образы, проверяет их и вызывает
-`FelDevice::flash_sd_card`. Хост раскладывает в DRAM план и три области, прошивальщик выполняет
-команду `FLASH_COMMAND_FLASH_SD`, пишет файлы через общий FAT-адаптер и лоадер напрямую в
-сектор 16, после чего сравнивает прочитанное с исходным. Контракт job/status из ADR-0013 не
-меняет раскладку: новая команда использует те же `FlashJob`/`FlashStatus`, а план вынесен в
-отдельный блок.
+Decision: `cargo xtask fel-flash` builds or reuses the images, checks them and calls
+`FelDevice::flash_sd_card`. The host lays out a plan and three areas in DRAM, the flasher executes
+the `FLASH_COMMAND_FLASH_SD` command, writes the files through the shared FAT adapter and the
+loader directly into sector 16, and then compares what was read back with the original. The
+job/status contract from ADR-0013 does not change the layout: the new command uses the same
+`FlashJob`/`FlashStatus`, and the plan is moved into a separate block.
 
-## План и области в DRAM
+## Plan and areas in DRAM
 
-| Что | Адрес | Размер |
+| What | Address | Size |
 | --- | --- | --- |
-| `FlashPlan` (`RBFP`) | `0x40000200` | 40 байт |
-| `payload.bin` | `0x40100000` | до 8 МиБ |
-| `boot.cfg` | `0x40900000` | до 4095 байт |
-| sealed SD-лоадер | `0x40901000` | до 64 КиБ |
-| конец окна | `0x40911000` | — |
+| `FlashPlan` (`RBFP`) | `0x40000200` | 40 bytes |
+| `payload.bin` | `0x40100000` | up to 8 MiB |
+| `boot.cfg` | `0x40900000` | up to 4095 bytes |
+| sealed SD loader | `0x40901000` | up to 64 KiB |
+| end of window | `0x40911000` | — |
 
-`FlashPlan` хранит длину и checksum каждой из трёх областей. Хост строит план до обращения к
-устройству, поэтому слишком большой payload, `boot.cfg` или лоадер отвергаются локально.
-Прошивальщик проверяет magic/version/size/checksum плана, длины и checksums областей, а также
-`verify_sealed` для лоадера. Это защищает от битой FEL-передачи между `write` и `exec`.
+`FlashPlan` stores the length and checksum of each of the three areas. The host builds the plan
+before contacting the device, so an oversized payload, `boot.cfg` or loader is rejected locally.
+The flasher checks the plan's magic/version/size/checksum, the lengths and checksums of the areas,
+and `verify_sealed` for the loader. This protects against a corrupted FEL transfer between `write`
+and `exec`.
 
-Новые шаги статуса (`plan`, `SD init`, `layout`, `read MBR`, `write payload`, `write boot.cfg`,
-`verify FAT files`, `write loader`, `verify loader`, `raw write`, `raw verify`) и результаты
+New status steps (`plan`, `SD init`, `layout`, `read MBR`, `write payload`, `write boot.cfg`,
+`verify FAT files`, `write loader`, `verify loader`, `raw write`, `raw verify`) and results
 (`bad plan`, `SD card offline`,
 `no MBR`, `no FAT partition`, `unsafe card layout`, `card too small`, `read failed`,
 `write failed`, `create file failed`, `truncate failed`, `file write failed`, `file flush
-failed`, `read-back mismatch`, `MBR changed`) позволяют хосту напечатать шаг и причину сбоя.
-Успешный статус по-прежнему `done`/`ok`.
+failed`, `read-back mismatch`, `MBR changed`) let the host print the step and the cause of the
+failure. A successful status is still `done`/`ok`.
 
-## Диагностика записи
+## Write diagnostics
 
-`FLASH_COMMAND_RAW_WRITE_TEST` и `cargo xtask raw-write-test` проверяют сам блочный путь
-записи, не требуя MBR, FAT и staged-образов: прошивальщик пишет известный блок в LBA 16,
-читает его обратно и сравнивает. Сектор 0 не трогается; сектор 16 перезаписывается, поэтому
-на подготовленной карте после теста нужно снова записать лоадер. Шаги `raw write` и
-`raw verify` отделяют отказ CMD24 от ошибки чтения, а `write failed`/`read failed`/
-`read-back mismatch` называют причину.
+`FLASH_COMMAND_RAW_WRITE_TEST` and `cargo xtask raw-write-test` test the block write path itself
+without requiring an MBR, FAT and staged images: the flasher writes a known block to LBA 16, reads
+it back and compares. Sector 0 is not touched; sector 16 is overwritten, so on a prepared card the
+loader must be written again after the test. The `raw write` and `raw verify` steps separate a
+CMD24 failure from a read error, and `write failed`/`read failed`/`read-back mismatch` name the
+cause.
 
-В отличие от `fel-flash`, диагностика не читает MBR и не делает layout-проверку: она
-предназначена для пустой или уже проверенной карты, где сектор 16 не занят разделом.
-Поэтому запись требует явного `--yes`, печатает предупреждение о перезаписи сектора 16 и не
-является безопасным путём обновления подготовленной карты.
+Unlike `fel-flash`, the diagnostics do not read the MBR and do not perform a layout check: they
+are intended for an empty or already verified card where sector 16 is not occupied by the
+partition. Therefore the write requires an explicit `--yes`, prints a warning about overwriting
+sector 16 and is not a safe way to update a prepared card.
 
-## Порядок и safety
+## Order and safety
 
-1. `cargo xtask fel-flash` (без `--skip-build`) вызывает `image`, `payload` и `flasher`, затем
-   читает `target/rawboot-boot-sd.bin`, `target/rawboot-payload.img`, `target/rawboot-ddr.bin` и
-   `target/rawboot-flasher.bin`. `--dry-run` делает всю эту проверку и печатает план, не открывая
-   FEL; фактическая запись требует `--yes`.
-2. Лоадер обязан быть sealed eGON. FEL-вариант отвергается по имени файла, по `variant=fel` в
-   `.build`-штампе и по совпадению байтов с `target/rawboot-fel.bin`. Payload обязан
-   разбираться `rawboot_image::parse`, `boot.cfg` — не длиннее 4095 байт.
-3. `flash_sd_card` проверяет план, выполняет DDR-init stub, проверяет DRAM паттерном и только
-   потом пишет план и области.
-4. Прошивальщик инициализирует SD, требует сигнатуру MBR `55 AA` и FAT-раздел в таблице.
-   Раздел ищется тем же `partition::candidates`, что и у лоадера; bare FAT без MBR отвергается.
-5. `check_sd_layout` требует старт раздела > сектора 16, конец лоадера не позже начала раздела
-   и конец раздела в пределах карты.
-6. Сначала пишутся `payload.bin` и (если задан) `boot.cfg` в FAT-корень и читаются обратно.
-   Только потом sealed-лоадер пишется в сектор 16 и читается обратно. Сектор 0 не пишется
-   никогда; в конце прошивальщик перечитывает MBR и сообщает `MBR changed`, если он изменился.
-7. Любой сбой до записи лоадера оставляет старый загрузочный образ; сбой после — сообщает шаг,
-   но MBR и раздел не переформатируются.
+1. `cargo xtask fel-flash` (without `--skip-build`) invokes `image`, `payload` and `flasher`, then
+   reads `target/rawboot-boot-sd.bin`, `target/rawboot-payload.img`, `target/rawboot-ddr.bin` and
+   `target/rawboot-flasher.bin`. `--dry-run` performs all this checking and prints the plan without
+   opening FEL; the actual write requires `--yes`.
+2. The loader must be a sealed eGON. The FEL variant is rejected by file name, by `variant=fel` in
+   the `.build` stamp and by matching bytes with `target/rawboot-fel.bin`. The payload must parse
+   with `rawboot_image::parse`, and `boot.cfg` must be no longer than 4095 bytes.
+3. `flash_sd_card` checks the plan, runs the DDR-init stub, checks DRAM with a pattern and only
+   then writes the plan and the areas.
+4. The flasher initializes SD, requires the MBR signature `55 AA` and a FAT partition in the table.
+   The partition is found with the same `partition::candidates` as the loader; a bare FAT without an
+   MBR is rejected.
+5. `check_sd_layout` requires the partition start to be beyond sector 16, the end of the loader to
+   be no later than the partition start and the end of the partition to be within the card.
+6. First `payload.bin` and (if given) `boot.cfg` are written into the FAT root and read back. Only
+   then is the sealed loader written into sector 16 and read back. Sector 0 is never written; at
+   the end the flasher re-reads the MBR and reports `MBR changed` if it has changed.
+7. Any failure before the loader is written leaves the old boot image; a failure after it reports
+   the step, but the MBR and partition are not reformatted.
 
-## Сборка и feature-границы
+## Build and feature boundaries
 
-Прошивальщику нужен `sunxi-drivers/write`, а лоадеру — нет (ADR-0005). Если оба пакета собирать
-в одном `cargo build`, Cargo объединит feature и втащит запись в лоадер, превысив 64 КиБ SRAM.
-Поэтому `rawboot-flasher` убран из `default-members`: `cargo build --release` и `cargo clippy`
-по умолчанию проверяют лоадер, а `scripts/check.sh` линтует прошивальщик отдельным вызовом.
-`cargo xtask flasher` собирает оба образа в собственной cargo-инвокации.
+The flasher needs `sunxi-drivers/write`, and the loader does not (ADR-0005). If both packages are
+built in one `cargo build`, Cargo will unify the feature and pull writing into the loader, exceeding
+the 64 KiB SRAM. Therefore `rawboot-flasher` was removed from `default-members`: `cargo build
+--release` and `cargo clippy` check the loader by default, and `scripts/check.sh` lints the flasher
+with a separate invocation. `cargo xtask flasher` builds both images in its own cargo invocation.
 
 ## Considered Options
 
-- **Одна FEL-команда с планом в DRAM** (принято): карта остаётся в плате, данные не ограничены
-  SRAM, план версионируется и проверяется на обеих сторонах, а план, MBR/FAT-разбор, layout и
-  порядок FEL-передач тестируются на хосте; фактическая запись SD остаётся за HIL.
-- **Обновлять карту с кардридера** (отвергнуто): это текущий ручной путь, он требует вынимать
-  карту и не проверяет, что записалось именно то, что собрано.
-- **Передавать адреса областей в `arg0..arg2`** (отвергнуто): три аргумента не покрывают
-  payload, `boot.cfg`, лоадер и их checksums; фиксированные адреса с планом проще проверять.
-- **Писать лоадер первым** (отвергнуто): при сбое на payload карта осталась бы с новым
-  загрузчиком и старым payload. Payload первым, лоадер последним сохраняет рабочий старый
-  загрузчик до последнего шага.
-- **Оставить `rawboot-flasher` в default-members** (отвергнуто): feature unification включает
-  `sunxi-drivers/write` в лоадер и ломает линковку по бюджету SRAM.
-- **Определять FEL-вариант только по имени** (отвергнуто): копия `rawboot-fel.bin` под другим
-  именем прошла бы; проверяются байты и build-штамп.
+- **A single FEL command with a plan in DRAM** (accepted): the card stays in the board, the data is
+  not limited by SRAM, the plan is versioned and checked on both sides, and the plan, MBR/FAT
+  parsing, layout and order of FEL transfers are tested on the host; the actual SD write remains
+  with HIL.
+- **Update the card from a card reader** (rejected): this is the current manual path, it requires
+  removing the card and does not verify that what was written is exactly what was built.
+- **Pass the area addresses in `arg0..arg2`** (rejected): three arguments do not cover the payload,
+  `boot.cfg`, the loader and their checksums; fixed addresses with a plan are easier to check.
+- **Write the loader first** (rejected): on a payload failure the card would be left with a new
+  bootloader and an old payload. Payload first and loader last preserves the working old
+  bootloader until the final step.
+- **Leave `rawboot-flasher` in default-members** (rejected): feature unification enables
+  `sunxi-drivers/write` in the loader and breaks linking against the SRAM budget.
+- **Detect the FEL variant by name only** (rejected): a copy of `rawboot-fel.bin` under a different
+  name would pass; the bytes and the build stamp are checked.
 
 ## Consequences
 
-- `rawboot-image` публикует `FlashPlan`, команду `FLASH_COMMAND_FLASH_SD`, адреса областей,
-  шаги/результаты и `check_sd_layout`; всё проверяется host-тестами.
-- `rawboot-fel` получает `flash_sd_card` и ошибку `LoaderNotSealed`; хост-тесты проверяют
-  порядок FEL-передач, отказ от слишком большого `boot.cfg` и нехватку DRAM под окно.
-- `rawboot-flasher` включает `sunxi-drivers/write`, пишет FAT и сектор 16, перечитывает файлы,
-  лоадер и MBR. `rawboot-flasher` больше не входит в `default-members`; `scripts/check.sh`
-  получил отдельный clippy-проход.
-- `xtask` получает `fel-flash` с `--payload`, `--boot-cfg`, `--loader`, `--flasher`,
-  `--ddr-stub`, `--sequence`, `--skip-build`, `--dry-run` и `--yes`; без `--yes` команда не
-  открывает FEL, а `--dry-run` проверяет образы и печатает план. `scripts/check.sh` гоняет
-  dry-run после сборки образов.
-- `rawboot-flasher` поднимает USART0 и ставит драйверный `Console`, поэтому ошибки SDHCI/FAT
-  видны в UART-логе HIL; `scripts/hil-flash.sh` запускает `fel-flash --yes`, снимает UART и
-  требует статус `done`/`ok`.
-- `sunxi-drivers` получает `fat::file_matches` для host-тестируемого read-back; отдельный
-  `scripts/check-features.sh` до сборки проверяет, что `sunxi-drivers/write` не попал в
+- `rawboot-image` publishes `FlashPlan`, the `FLASH_COMMAND_FLASH_SD` command, the area addresses,
+  the steps/results and `check_sd_layout`; everything is checked by host tests.
+- `rawboot-fel` gains `flash_sd_card` and the `LoaderNotSealed` error; host tests check the order
+  of FEL transfers, rejection of an oversized `boot.cfg` and insufficient DRAM for the window.
+- `rawboot-flasher` enables `sunxi-drivers/write`, writes FAT and sector 16, re-reads the files,
+  the loader and the MBR. `rawboot-flasher` is no longer part of `default-members`;
+  `scripts/check.sh` gained a separate clippy pass.
+- `xtask` gains `fel-flash` with `--payload`, `--boot-cfg`, `--loader`, `--flasher`, `--ddr-stub`,
+  `--sequence`, `--skip-build`, `--dry-run` and `--yes`; without `--yes` the command does not open
+  FEL, and `--dry-run` checks the images and prints the plan. `scripts/check.sh` runs the dry-run
+  after building the images.
+- `rawboot-flasher` brings up USART0 and installs the driver `Console`, so SDHCI/FAT errors are
+  visible in the HIL UART log; `scripts/hil-flash.sh` runs `fel-flash --yes`, captures UART and
+  requires the status `done`/`ok`.
+- `sunxi-drivers` gains `fat::file_matches` for a host-testable read-back; a separate
+  `scripts/check-features.sh` checks before the build that `sunxi-drivers/write` did not get into
   `rawboot`.
-- HIL: после успешного `fel-flash` холодная загрузка с карты должна дойти до handoff, а PD22 —
-  мигать payload'у. До прогона это не заявляется.
-- HIL #42 сначала упёрся в блокер записи: на стендовой SDSC-карте (`hc=0`, 25 МГц, CSD
-  write-protect выключен) карта не отвечала на CMD24, и `fel-flash` останавливался на `write
-  payload` (`truncate`/`file write`/`file flush failed`) при нетронутом MBR. Дефект вынесен в
-  #47 и исправлен (PR #49); блокер относился только к пути записи SD и не объясняет поведение
-  DDR-init. Результаты HIL #42 фиксируются в трекере, а не в этом ADR.
-- Повторный DDR-init stub на одном включении не идемпотентен: stub заново выполняет
-  `DramPara::init_dram()` без проверки состояния DRAM и ждёт lock PLL_DDR, поэтому отказ того
-  же класса, что #23, возможен. HIL #52 один раз провёл три `bringup` подряд, повтор
-  `fel-flash` после успешного и повтор после ошибки SD — все вернулись в BROM. Затем повторный
-  stub завис: после успешного `raw-write-test` следующий `fel-flash` получил USB-таймаут,
-  плата осталась на шине, но `cargo fel version` не отвечал; понадобился холодный старт.
-  Поэтому правило — один stub на холодный старт, а не рекомендация.
-- Четыре холодных старта с подключённым USB-UART и невалидным сектором 16 (после
-  `raw-write-test`) дали DDR-init 4/4 PASS; карта при этом чередовалась строго: нечётные старты
-  `SD card offline`, чётные — `done`/`ok`. Это стендовое поведение #43 (питание карты через
-  backfeed UART), не DDR-отказ. С загрузочной картой часть стартов BROM уводит в загрузку с SD
-  вместо FEL; матрица условий — в runbook.
+- HIL: after a successful `fel-flash` a cold boot from the card must reach handoff, and PD22 must
+  blink the payload. This is not claimed before the run.
+- HIL #42 first hit the write blocker: on the bench SDSC card (`hc=0`, 25 MHz, CSD write-protect
+  off) the card did not respond to CMD24, and `fel-flash` stopped at `write payload`
+  (`truncate`/`file write`/`file flush failed`) with the MBR untouched. The defect was moved to #47
+  and fixed (PR #49); the blocker concerned only the SD write path and does not explain the
+  DDR-init behavior. The HIL #42 results are recorded in the tracker, not in this ADR.
+- A repeated DDR-init stub within a single power-on is not idempotent: the stub runs
+  `DramPara::init_dram()` again without checking the DRAM state and waits for the PLL_DDR lock, so a
+  failure of the same class as #23 is possible. HIL #52 once ran three `bringup`s in a row, a repeat
+  of `fel-flash` after a successful one and a repeat after an SD error — all returned to BROM. Then
+  a repeated stub hung: after a successful `raw-write-test` the next `fel-flash` got a USB timeout,
+  the board stayed on the bus, but `cargo fel version` did not respond; a cold start was needed.
+  Therefore the rule is one stub per cold start, not a recommendation.
+- Four cold starts with USB-UART connected and an invalid sector 16 (after `raw-write-test`) gave
+  DDR-init 4/4 PASS; the card alternated strictly: odd starts `SD card offline`, even ones
+  `done`/`ok`. This is the bench behavior of #43 (card power via UART backfeed), not a DDR failure.
+  With a bootable card some starts send BROM into SD boot instead of FEL; the condition matrix is in
+  the runbook.

@@ -246,6 +246,6 @@ PASS: UART assertions
 9. GitHub API, commit history for `arch/arm32/mach-t113s3/sunxi_sdhci.c` —
    <https://api.github.com/repos/szemzoa/awboot/commits?path=arch/arm32/mach-t113s3/sunxi_sdhci.c&per_page=20>
 10. ADR-0007, `docs/adr/0007-align-behaviour-to-upstream.md`.
-11. Issue #19 "Parity SD-хоста: sdhci (IDMAC)" and parent issue #14.
+11. Issue #19 "Parity SD-хоста: sdhci (IDMAC)" (SD host parity: sdhci (IDMAC)) and parent issue #14.
 12. Prior research notes with the same format: `research/gpio-io-uart-port-vs-upstream.md`,
     `research/dram-port-vs-upstream.md`.
