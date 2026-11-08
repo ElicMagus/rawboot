@@ -14,6 +14,7 @@ import common
 import diff_manifests
 import gitea_manifest
 import github_manifest
+import render_tracker
 import scan_secrets
 
 LABEL = {"name": "bugfix", "color": "d73a4a", "description": ""}
@@ -253,6 +254,109 @@ class ScanTests(unittest.TestCase):
             path.write_text(json.dumps(manifest), encoding="utf-8")
             findings = scan_secrets.scan_manifest(path, self.patterns, self.allow)
         self.assertTrue(any(finding[2] == "github-token" for finding in findings))
+
+
+class RenderTrackerTests(unittest.TestCase):
+    class Args:
+        replacements = None
+        commit_map = None
+        import_date = "2026-11-08"
+        allow_missing = False
+        repo = None
+        public_repo = None
+
+    def _manifest(self):
+        return make_manifest(
+            [
+                make_item(
+                    1,
+                    title="Заголовок",
+                    body="Тело `rawboot-internal`",
+                    comments=[
+                        {"author": "owner", "created_at": "", "body": "Комментарий"}
+                    ],
+                ),
+                make_item(
+                    2,
+                    kind="pull",
+                    title="PR",
+                    body="PR body",
+                    pull={
+                        "head": "feat/2",
+                        "base": "master",
+                        "head_sha": "h" * 40,
+                        "base_sha": None,
+                        "merged_at": "2026-01-02T00:00:00Z",
+                        "merge_commit_sha": "m" * 40,
+                    },
+                ),
+            ],
+            milestones=[],
+        )
+
+    def _translations(self):
+        return {
+            "milestones": {},
+            "items": {
+                "1": {
+                    "title_en": "Title",
+                    "body_en": "Body `rawboot-internal`",
+                    "comments_en": ["Comment"],
+                },
+                "2": {
+                    "title_en": "PR",
+                    "body_en": "PR body",
+                    "comments_en": [],
+                },
+            },
+        }
+
+    def test_bilingual_layout(self):
+        rendered = render_tracker.render(
+            self._manifest(), self._translations(), self.Args()
+        )
+        issue = rendered["items"][0]
+        self.assertEqual(issue["title"], "Title")
+        self.assertTrue(issue["body"].startswith("> Historical issue imported"))
+        self.assertIn("Body `rawboot-internal`", issue["body"])
+        self.assertIn("<details>", issue["body"])
+        self.assertIn("**Оригинальный заголовок:** Заголовок", issue["body"])
+        self.assertIn("Тело `rawboot-internal`", issue["body"])
+        self.assertIn("Comment", issue["comments"][0]["body"])
+        self.assertIn("Комментарий", issue["comments"][0]["body"])
+
+    def test_applies_replacements(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "replacements.txt"
+            path.write_text("literal:rawboot-internal==>rawboot-internal\n", encoding="utf-8")
+            args = self.Args()
+            args.replacements = str(path)
+            rendered = render_tracker.render(
+                self._manifest(), self._translations(), args
+            )
+        body = rendered["items"][0]["body"]
+        self.assertNotIn("rawboot-internal", body)
+        self.assertEqual(body.count("rawboot-internal"), 2)
+
+    def test_maps_merge_commit_and_links_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "commit-map"
+            path.write_text(f"{'m' * 40} {'n' * 40}\n", encoding="utf-8")
+            args = self.Args()
+            args.commit_map = str(path)
+            args.public_repo = "owner/repo"
+            rendered = render_tracker.render(
+                self._manifest(), self._translations(), args
+            )
+        pull = rendered["items"][1]
+        self.assertEqual(pull["pull"]["merge_commit_sha"], "n" * 40)
+        self.assertIn("https://github.com/owner/repo/commit/" + "n" * 40, pull["body"])
+
+    def test_missing_translation_fails(self):
+        translations = self._translations()
+        del translations["items"]["2"]
+        with self.assertRaises(SystemExit):
+            render_tracker.render(self._manifest(), translations, self.Args())
 
 
 class CompareBodyTests(unittest.TestCase):

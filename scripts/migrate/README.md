@@ -69,6 +69,24 @@ preserved. It never pushes.
 `replacements.example.txt` shows the `git-filter-repo --replace-text` format;
 copy it outside the repository and fill in the real values.
 
+## Render the archive texts
+
+```sh
+scripts/migrate/render_tracker.py \
+    --manifest target/migrate/gitea.json \
+    --translations target/migrate/translations.json \
+    --output target/migrate/expected.json \
+    --replacements ~/private/replacements.txt \
+    --commit-map /tmp/public-clone/.git/filter-repo/commit-map \
+    --repo /tmp/public-clone \
+    --public-repo <owner>/<repo> \
+    --import-date 2026-11-08
+```
+
+English goes on top, the Russian original in `<details>`, plus a provenance
+note with the original dates and, for pull requests, a link to the rewritten
+merge commit. The same private replacement rules are applied to both languages.
+
 ## Import the tracker
 
 ```sh
