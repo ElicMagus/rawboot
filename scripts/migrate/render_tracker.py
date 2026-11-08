@@ -74,6 +74,16 @@ def git_sha(repo, revision):
     return result.stdout.strip()
 
 
+def git_parents(repo, sha):
+    result = subprocess.run(
+        ["git", "-C", repo, "rev-list", "--parents", "-n", "1", sha],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.split()[1:]
+
+
 def _day(value):
     return value[:10] if value else "unknown"
 
@@ -140,9 +150,14 @@ def _rewrite_pull(pull, commit_map, repo, public_repo):
     if new_head:
         updated["head_sha"] = new_head
     if repo and new_merge:
-        updated["base_sha"] = git_sha(repo, f"{new_merge}^1")
+        parents = git_parents(repo, new_merge)
+        if not parents:
+            raise SystemExit(f"error: merge commit {new_merge} has no parent")
+        updated["base_sha"] = parents[0]
         if not new_head:
-            updated["head_sha"] = git_sha(repo, f"{new_merge}^2")
+            # A squash or fast-forward merge keeps one parent; the merge commit
+            # itself carries the merged change, so use it as the archived head.
+            updated["head_sha"] = parents[1] if len(parents) > 1 else new_merge
     merge_url = None
     if public_repo and new_merge:
         merge_url = f"https://github.com/{public_repo}/commit/{new_merge}"

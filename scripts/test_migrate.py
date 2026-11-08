@@ -3,6 +3,7 @@
 """Host-side tests for the public-migration tooling."""
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -357,6 +358,38 @@ class RenderTrackerTests(unittest.TestCase):
         del translations["items"]["2"]
         with self.assertRaises(SystemExit):
             render_tracker.render(self._manifest(), translations, self.Args())
+
+
+class PullRewriteTests(unittest.TestCase):
+    def test_squash_merge_uses_merge_commit_as_head(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            def run(*args):
+                subprocess.run(
+                    ["git", "-C", str(repo), *args],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            run("init", "-q")
+            run("config", "user.name", "Test")
+            run("config", "user.email", "test@example.com")
+            (repo / "a.txt").write_text("a", encoding="utf-8")
+            run("add", ".")
+            run("commit", "-q", "-m", "base")
+            base = run("rev-parse", "HEAD").stdout.strip()
+            (repo / "b.txt").write_text("b", encoding="utf-8")
+            run("add", ".")
+            run("commit", "-q", "-m", "squash")
+            squash = run("rev-parse", "HEAD").stdout.strip()
+
+            pull = {"merge_commit_sha": "old", "head_sha": "old-head"}
+            updated, url = render_tracker._rewrite_pull(
+                pull, {"old": squash}, str(repo), "owner/repo"
+            )
+        self.assertEqual(updated["base_sha"], base)
+        self.assertEqual(updated["head_sha"], squash)
+        self.assertIn(squash, url)
 
 
 class CompareBodyTests(unittest.TestCase):
