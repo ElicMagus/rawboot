@@ -1,73 +1,78 @@
-# Exporting the public repository
+# Publishing the public repository
 
-The internal repository (`rawboot-internal`) carries agent instructions, research
-notes and tracker tooling. The public GitHub repository
-(`https://github.com/ElicMagus/rawboot`) is a clean export: only code,
-documentation and the build tooling, squashed into a single commit.
+The internal Gitea repository is canonical. The public GitHub repository
+(`https://github.com/ElicMagus/rawboot`) is a mirror with rewritten history
+(ADR-0016). The old single-squashed-commit export is retired.
 
-`scripts/export-public.sh` builds that tree. It never performs network
-operations; the push is the owner's step.
+## What is published
 
-## What the export contains
+- `master` through the `v0.1.0` tag (207 commits) and the annotated tag itself.
+- Every tracked file except `.gitea/`, `scripts/export-public.sh`,
+  `scripts/issue-view.sh`, `target/` and `embed/`.
+- Code, environment and decisions, including `AGENTS.md`,
+  `CODING_STANDARDS.md`, `docs/agents/` and `research/`.
+- Commits made after the tag (this runbook, the migration tooling, the `i18n/`
+  tree and later fixes) land on top as normal public commits.
+- Unmerged internal branches are not published; merge first, then run a manual
+  publish.
 
-The script copies every tracked file except this denylist:
+## Rewriting
 
-- `AGENTS.md`
-- `CODING_STANDARDS.md`
-- `docs/agents/`
-- `research/`
-- `.gitea/`
-- `scripts/issue-view.sh`
-- `scripts/export-public.sh`
-- `rawboot/123.txt` and `rawboot/build.bat` (scratch and a pre-port Windows helper)
+The history is rewritten with `git-filter-repo`:
 
-It then fails if the tree contains any internal or personal string, or if a
-`.rs`/`.sh` file lacks the `CC-BY-4.0` SPDX header. On success it creates one
-commit authored and committed by
-`ElicMagus <60005217+ElicMagus@users.noreply.github.com>`, runs the exported
-tree's `scripts/check.sh`, and prints the push command without running it.
+- strip the internal paths listed above from every revision;
+- preserve author and committer dates and the real name and e-mail addresses;
+- replace secrets and passwords, the external token-file path, home paths of the
+  form `/home/<user>` and links to the internal Gitea with neutral text;
+- keep commit subjects and bodies in Russian.
 
-## Runbook
+The tag message, tagger and date survive; only the tag target changes.
 
-1. Ensure the working tree is clean and the licence/README work is committed.
-   The script copies only tracked files.
-2. Build and verify the export:
+## Verification gates
 
-   ```sh
-   scripts/export-public.sh
-   ```
+All four are blocking; run them on a clean clone before any push.
 
-   The default output is `target/public-repo`; use `--output <dir>` for another
-   location. A second run rebuilds the same tree from scratch, so the result is
-   idempotent.
-3. Check the single commit and the clean history:
+1. **Manifest diff.** `scripts/migrate/` exports a manifest from Gitea and from
+   GitHub, then diffs numbers, kinds, states, bodies, labels, milestone, comment
+   count and bodies, and blocked-by edges. Zero differences required.
+2. **Secret scan.** Grep every historical blob
+   (`git rev-list --objects --all`) and every tracker text for token and password
+   patterns, the token-file path, `/home/<user>` and internal Gitea links.
+3. **Build.** `scripts/check.sh` passes in the rewritten clone.
+4. **Spot check.** Ten issues compared by hand against Gitea.
 
-   ```sh
-   git -C target/public-repo log --format='%H %an <%ae> %cn <%ce> %s'
-   git -C target/public-repo rev-list --count HEAD  # must print 1
-   ```
+## One-time migration
 
-4. Run the full public check from that tree:
+1. Freeze Gitea numbering: create no issue or pull request until step 5 ends, or
+   GitHub numbers will shift permanently.
+2. Take bundles: an internal `git bundle` of `master` plus tags and a bundle of
+   the current public `main`.
+3. Dry-run in a temporary directory: rewrite, run all gates, count commits,
+   confirm the tag target.
+4. Rehearse the tracker in a throwaway repository: create all 56 objects in
+   ascending order and diff the manifest.
+5. Push the rewritten `main` with `--force` and push the `v0.1.0` tag.
+6. Create the labels and the milestone, then create objects #1–56 in ascending
+   order. Pull requests are archived as closed records with a temporary base
+   branch and a body that links the real merge commit. Import the 72 comments,
+   the blocked-by edges and the bilingual EN/RU text (English on top, the Russian
+   original in `<details>`).
+7. Delete the temporary base branches and rerun the gates.
 
-   ```sh
-   (cd target/public-repo && ./scripts/check.sh)
-   ```
+## Publishing a later fix
 
-5. Owner step: create an empty `ElicMagus/rawboot` repository on GitHub (no
-   README, no `.gitignore`), then add a Deploy Key with write access (or use an
-   existing credential). Do not commit a token.
-6. Push from the exported tree:
+1. Merge the fix into internal `master` and tag it if it is a release.
+2. Rewrite a fresh clone with the same filters and run the gates.
+3. Push the rewritten `main` and any new tag. New commits appear after `v0.1.0`.
 
-   ```sh
-   cd target/public-repo
-   git remote add origin https://github.com/ElicMagus/rawboot.git
-   git push -u origin main
-   ```
+## Tracker
 
-7. Confirm that GitHub shows exactly one commit, the three README files and the
-   CC-BY-4.0 `LICENSE`, and that the CI workflow passes. The public
-   `.github/workflows/ci.yml` mirrors the internal `.gitea/workflows/ci.yml`;
-   update both together.
+GitHub issues and pull requests are a read-only archive; do not create new ones
+there. Gitea remains the only live tracker.
 
-Do not export the internal history and do not force-push over the public
-repository from the internal checkout.
+## Caveats
+
+- The force-push is irreversible: the bundles from step 2 are the only way back.
+- GitHub sets issue, comment and pull-request timestamps to the migration date;
+  each body records the original date.
+- The internal mail domain stays visible in commit metadata by owner decision.

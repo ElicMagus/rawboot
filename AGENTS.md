@@ -56,10 +56,9 @@ Standard commands:
 - Seal an image: `cargo xtask image` (builds the loader twice and writes the sealed
   `target/rawboot-fel.bin` for FEL at `0x00028000` and `target/rawboot-boot-sd.bin` for
   SD/SPI boot at `0x00020000`; the `xtask` alias pins the host triple in `.cargo/config.toml`)
-- Export the public tree: `scripts/export-public.sh [--output <dir>]` (squashes tracked files into
-  `target/public-repo`, drops internal docs/tooling, checks forbidden strings and `CC-BY-4.0`
-  headers, commits once as `ElicMagus`, runs the build and host tests, and prints the push
-  command without pushing; owner runbook `docs/agents/export-public.md`)
+- Publish the public repository: rewritten `master` history through `v0.1.0` plus the tag goes to
+  GitHub (ADR-0016); the old single-commit `scripts/export-public.sh` is retired. The one-time
+  migration and the manual fix-publish procedure live in `docs/agents/export-public.md`
 - Build the payload image: `cargo xtask payload` (builds the `payload` crate and writes
   `target/rawboot-payload.img`, its flat binary wrapped in the payload image header)
 - Build the FEL flasher images: `cargo xtask flasher` (writes `target/rawboot-ddr.bin`, the
@@ -99,9 +98,20 @@ pushing.
 
 ## Working agreements
 
-- **Язык трекера и git-истории — русский.** Веди на русском языке заголовки и тела issue,
-  комментарии в трекере и сообщения коммитов. Общение с владельцем проекта (в том числе вопросы,
-  уточнения и комментарии в трекере) — тоже на русском.
+- **Язык git-истории — русский, публичный трекер двуязычный.** Заголовки, тела issue,
+  комментарии и сообщения коммитов веди на русском. При публикации в GitHub-архив английский
+  перевод идёт сверху, русский оригинал — в `<details>`. Общение с владельцем проекта (в том
+  числе вопросы, уточнения и комментарии в трекере) — на русском.
+- **Публичный GitHub — зеркало с настоящей историей (ADR-0016).** Gitea остаётся каноническим
+  трекером и источником истины; на GitHub публикуются история `master` с тегами, а также весь
+  код, окружение и решения. Внутренними остаются `.gitea/`, `scripts/export-public.sh`,
+  `scripts/issue-view.sh`, `target/` и `embed/`. Незамерженные ветки не публикуются: сначала
+  мерж, потом отдельный ручной заход.
+- **Документация: английский — первоисточник.** Английские файлы лежат на текущих путях;
+  переводы зеркалят дерево в `i18n/ru/` и `i18n/zh-CN/` с теми же относительными путями. Агент
+  читает и правит только английские файлы, переводы не читает; при расхождении прав английский.
+  Имена API, регистров и термины глоссария не переводятся; черновики переводов агент делает сам,
+  без отдельного ревью.
 - **Ветку с решением issue — пушь, PR — не создавай.** Решив задачу, создай ветку
   (`feat/<N>-<slug>` / `fix/<N>-<slug>`), закоммить и запушь её в `origin`. Pull request открывает
   только владелец проекта. Инструментальные правки без issue, включая ретро, веди прямо в
