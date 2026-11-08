@@ -69,6 +69,32 @@ preserved. It never pushes.
 `replacements.example.txt` shows the `git-filter-repo --replace-text` format;
 copy it outside the repository and fill in the real values.
 
+## Import the tracker
+
+```sh
+scripts/migrate/import_tracker.py \
+    --repo <owner>/<repo> \
+    --manifest target/migrate/expected.json \
+    --token-file ~/private/github-token
+```
+
+Items are created strictly in ascending number order. The script aborts if
+GitHub's next number does not match the manifest, so a stray object cannot
+silently shift the archive. `--mode synthetic` boots an empty repository and
+opens throwaway pull requests (rehearsal); `--mode refs` uses the rewritten
+`head_sha`/`base_sha` from the manifest and needs the history already pushed.
+Archived pull requests are closed after creation and their temporary branches
+are deleted. Use `--dry-run` to print the plan.
+
+Rehearsal flow for an empty sandbox repository:
+
+```sh
+scripts/migrate/import_tracker.py --repo <owner>/sandbox --manifest gitea.json \
+    --token-file ~/private/github-token --mode synthetic
+scripts/migrate/github_manifest.py --repo <owner>/sandbox --output github.json --token-file ~/private/github-token
+scripts/migrate/diff_manifests.py --expected gitea.json --actual github.json
+```
+
 ## Gate order
 
 1. `rewrite_history.sh`

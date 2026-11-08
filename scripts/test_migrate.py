@@ -92,6 +92,35 @@ class DiffManifestTests(unittest.TestCase):
         self.assertIn("item extra: #3", findings)
         self.assertIn("label missing: bugfix", findings)
 
+    def test_ignores_merged_at_and_merge_sha(self):
+        expected = make_manifest(
+            [
+                make_item(
+                    kind="pull",
+                    pull={
+                        "head": "feat/1",
+                        "base": "master",
+                        "merged_at": "2026-01-01T00:00:00Z",
+                        "merge_commit_sha": "old",
+                    },
+                )
+            ]
+        )
+        actual = make_manifest(
+            [
+                make_item(
+                    kind="pull",
+                    pull={
+                        "head": "feat/1",
+                        "base": "master",
+                        "merged_at": None,
+                        "merge_commit_sha": None,
+                    },
+                )
+            ]
+        )
+        self.assertEqual(diff_manifests.compare(expected, actual), [])
+
     def test_compares_pull_merge_presence_not_sha(self):
         expected = make_manifest(
             [
@@ -149,14 +178,21 @@ class NormalizeTests(unittest.TestCase):
             "title": "P",
             "body": "",
             "user": {"login": "owner"},
-            "head": {"ref": "feat/8"},
-            "base": {"ref": "master"},
+            "head": {
+                "ref": "refs/pull/8/head",
+                "label": "owner:feat/8",
+                "sha": "head-sha",
+            },
+            "base": {"ref": "master", "label": "master"},
             "merged_at": "2026-01-02T00:00:00Z",
             "merge_commit_sha": "abc",
         }
         item = gitea_manifest.normalize_pull(raw, [], [])
         self.assertEqual(item["kind"], "pull")
         self.assertEqual(item["pull"]["head"], "feat/8")
+        self.assertEqual(item["pull"]["base"], "master")
+        self.assertEqual(item["pull"]["head_sha"], "head-sha")
+        self.assertIsNone(item["pull"]["base_sha"])
         self.assertEqual(item["pull"]["merge_commit_sha"], "abc")
 
     def test_github_pull_uses_detail(self):

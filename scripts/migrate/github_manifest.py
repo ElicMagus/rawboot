@@ -50,6 +50,8 @@ def normalize_pull(raw, pull_detail, comments, blocked_by):
     item["pull"] = {
         "head": (pull_detail.get("head") or {}).get("ref"),
         "base": (pull_detail.get("base") or {}).get("ref"),
+        "head_sha": (pull_detail.get("head") or {}).get("sha"),
+        "base_sha": (pull_detail.get("base") or {}).get("sha"),
         "merged_at": pull_detail.get("merged_at"),
         "merge_commit_sha": pull_detail.get("merge_commit_sha"),
     }

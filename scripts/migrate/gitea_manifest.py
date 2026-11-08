@@ -42,12 +42,29 @@ def normalize_issue(raw, comments, blocked_by):
     return item
 
 
+def _branch_name(side, number):
+    label = (side.get("label") or "").strip()
+    if ":" in label:
+        label = label.split(":", 1)[1]
+    if label and not label.startswith("refs/"):
+        return label
+    ref = (side.get("ref") or "").strip()
+    if ref and not ref.startswith("refs/"):
+        return ref
+    return f"migration/pr-{number}-{side.get('ref', 'head')}"
+
+
 def normalize_pull(raw, comments, blocked_by):
     item = _normalize_common(raw, comments, blocked_by)
+    number = int(raw["number"])
+    head = raw.get("head") or {}
+    base = raw.get("base") or {}
     item["kind"] = "pull"
     item["pull"] = {
-        "head": (raw.get("head") or {}).get("ref"),
-        "base": (raw.get("base") or {}).get("ref"),
+        "head": _branch_name(head, number),
+        "base": _branch_name(base, number),
+        "head_sha": head.get("sha"),
+        "base_sha": None,
         "merged_at": raw.get("merged_at"),
         "merge_commit_sha": raw.get("merge_commit_sha"),
     }

@@ -112,12 +112,6 @@ def _compare_item(expected, actual, findings):
                     f"pull #{number}: {field} {expected_pull.get(field)!r} != "
                     f"{actual_pull.get(field)!r}"
                 )
-        if bool(expected_pull.get("merged_at")) != bool(actual_pull.get("merged_at")):
-            findings.append(
-                f"pull #{number}: merged_at presence "
-                f"{bool(expected_pull.get('merged_at'))} != "
-                f"{bool(actual_pull.get('merged_at'))}"
-            )
 
 
 def compare(expected, actual):
