@@ -1,4 +1,4 @@
-[English](README.md) | [简体中文](README.zh-CN.md) | [Русский](README.ru.md)
+[English](../../README.md) | [简体中文](../zh-CN/README.md) | [Русский](README.md)
 
 # rawboot
 
@@ -66,7 +66,7 @@ cargo xtask image
 
 Проект распространяется под
 [Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/)
-(SPDX: `CC-BY-4.0`). Полный юридический текст — в [`LICENSE`](LICENSE).
+(SPDX: `CC-BY-4.0`). Полный юридический текст — в [`LICENSE`](../../LICENSE).
 Повторное использование и изменение разрешены при указании авторства.
 
 ## Атрибуция

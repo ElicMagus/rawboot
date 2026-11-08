@@ -1,4 +1,4 @@
-[English](README.md) | [简体中文](README.zh-CN.md) | [Русский](README.ru.md)
+[English](../../README.md) | [简体中文](README.md) | [Русский](../ru/README.md)
 
 # rawboot
 
@@ -63,7 +63,7 @@ lint、构建、主机测试和镜像冒烟构建。
 
 本项目采用
 [知识共享署名 4.0 国际许可协议](https://creativecommons.org/licenses/by/4.0/)
-（SPDX：`CC-BY-4.0`）发布。完整法律文本见 [`LICENSE`](LICENSE)。允许在署名
+（SPDX：`CC-BY-4.0`）发布。完整法律文本见 [`LICENSE`](../../LICENSE)。允许在署名
 的前提下复用和修改。
 
 ## 致谢
