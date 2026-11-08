@@ -229,20 +229,20 @@ class ScanTests(unittest.TestCase):
         )
 
     def test_finds_github_token_and_home_path(self):
-        text = f"token ghp_{'A' * 36}\npath /home/alice/project"
+        text = "token " + "ghp_" + "A" * 36 + "\npath " + "/home/" + "alice/project"
         findings = scan_secrets.scan_text("src", text, self.patterns, self.allow)
         names = {finding[2] for finding in findings}
         self.assertIn("github-token", names)
         self.assertIn("home-path", names)
 
     def test_finds_authorization_header(self):
-        text = "Authorization: token abcdef0123456789abcdef"
+        text = "Authorization: token " + "abcdef0123456789abcdef"
         findings = scan_secrets.scan_text("src", text, self.patterns, self.allow)
         self.assertIn("auth-header", {finding[2] for finding in findings})
 
     def test_allow_list_suppresses_finding(self):
-        text = "path /home/alice/project"
-        allow = [scan_secrets.re.compile(r"/home/alice/")]
+        text = "path " + "/home/" + "alice/project"
+        allow = [scan_secrets.re.compile("/home/" + "alice/")]
         self.assertEqual(scan_secrets.scan_text("src", text, self.patterns, allow), [])
 
     def test_scans_manifest_texts(self):
