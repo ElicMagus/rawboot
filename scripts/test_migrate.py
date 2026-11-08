@@ -327,17 +327,31 @@ class RenderTrackerTests(unittest.TestCase):
         self.assertIn("Комментарий", issue["comments"][0]["body"])
 
     def test_applies_replacements(self):
+        manifest = make_manifest(
+            [make_item(1, title="Заголовок", body="Тело `internal-slug`")],
+            milestones=[],
+        )
+        translations = {
+            "milestones": {},
+            "items": {
+                "1": {
+                    "title_en": "Title",
+                    "body_en": "Body `internal-slug`",
+                    "comments_en": [],
+                }
+            },
+        }
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "replacements.txt"
-            path.write_text("literal:rawboot-internal==>rawboot-internal\n", encoding="utf-8")
+            path.write_text(
+                "literal:internal-slug==>public-slug\n", encoding="utf-8"
+            )
             args = self.Args()
             args.replacements = str(path)
-            rendered = render_tracker.render(
-                self._manifest(), self._translations(), args
-            )
+            rendered = render_tracker.render(manifest, translations, args)
         body = rendered["items"][0]["body"]
-        self.assertNotIn("rawboot-internal", body)
-        self.assertEqual(body.count("rawboot-internal"), 2)
+        self.assertNotIn("internal-slug", body)
+        self.assertEqual(body.count("public-slug"), 2)
 
     def test_maps_merge_commit_and_links_it(self):
         with tempfile.TemporaryDirectory() as directory:
