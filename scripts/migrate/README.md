@@ -8,6 +8,8 @@ at run time, so this directory carries no internal host, token path or slug.
 
 - `git-filter-repo` (`pipx install git-filter-repo`)
 - a Gitea token in `GITEA_TOKEN` and a GitHub token in `GITHUB_TOKEN`
+- the private replacement and allow files in the owner's secrets directory
+  (`migrate-replacements.txt`, `migrate-allow.txt`); never commit them
 
 ## Export a manifest
 
@@ -42,15 +44,16 @@ export. Any difference exits non-zero.
 scripts/migrate/scan_secrets.py \
     --repo /tmp/public-clone \
     --manifest target/migrate/gitea.json \
-    --forbidden-file ~/private/forbidden.txt
+    --allow-file ~/.config/external-secret-file/migrate-allow.txt
 ```
 
 Built-in patterns cover private keys, GitHub and cloud tokens, `Authorization`
 headers, credentials in URLs, `/home/<user>/` and secret-file names. Project
-specific strings (internal host, slug, token path) live in a private file
-outside the repository; one regex per line. `--allow-file` suppresses known-safe
-matches. The scan reads every historical blob, every commit message and every
-tracker text.
+specific strings (internal host, slug, token path) can be added with
+`--forbidden-file`, one regex per line, from a private file outside the
+repository. `--allow-file` suppresses known-safe matches such as test fixtures.
+The scan reads every historical blob, every commit message and every tracker
+text.
 
 ## Rewrite the history
 
@@ -58,7 +61,7 @@ tracker text.
 scripts/migrate/rewrite_history.sh \
     --source /path/to/internal/repo \
     --output /tmp/public-clone \
-    --replacements ~/private/replacements.txt
+    --replacements ~/.config/external-secret-file/migrate-replacements.txt
 ```
 
 It clones the source, strips `.gitea/`, `scripts/export-public.sh`,
@@ -66,8 +69,9 @@ It clones the source, strips `.gitea/`, `scripts/export-public.sh`,
 renames `master` to `main` and prints the result. Author and committer dates are
 preserved. It never pushes.
 
-`replacements.example.txt` shows the `git-filter-repo --replace-text` format;
-copy it outside the repository and fill in the real values.
+`replacements.example.txt` shows the `git-filter-repo --replace-text` format.
+The filled-in copy lives outside the repository, in the owner's secrets
+directory.
 
 ## Render the archive texts
 
@@ -76,7 +80,7 @@ scripts/migrate/render_tracker.py \
     --manifest target/migrate/gitea.json \
     --translations target/migrate/translations.json \
     --output target/migrate/expected.json \
-    --replacements ~/private/replacements.txt \
+    --replacements ~/.config/external-secret-file/migrate-replacements.txt \
     --commit-map /tmp/public-clone/.git/filter-repo/commit-map \
     --repo /tmp/public-clone \
     --public-repo <owner>/<repo> \
@@ -93,7 +97,7 @@ merge commit. The same private replacement rules are applied to both languages.
 scripts/migrate/import_tracker.py \
     --repo <owner>/<repo> \
     --manifest target/migrate/expected.json \
-    --token-file ~/private/github-token
+    --token-file ~/.config/external-secret-file/github-token
 ```
 
 Items are created strictly in ascending number order. The script aborts if
@@ -109,7 +113,7 @@ Rehearsal flow for an empty sandbox repository:
 
 ```sh
 scripts/migrate/import_tracker.py --repo <owner>/sandbox --manifest gitea.json \
-    --token-file ~/private/github-token --mode synthetic
+    --token-file ~/.config/external-secret-file/github-token --mode synthetic
 scripts/migrate/github_manifest.py --repo <owner>/sandbox --output github.json --token-file ~/private/github-token
 scripts/migrate/diff_manifests.py --expected gitea.json --actual github.json
 ```

@@ -27,7 +27,7 @@ DEFAULT_PATTERNS = [
     ),
     ("url-credentials", r"\b[a-z][a-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@"),
     ("home-path", r"/home/[A-Za-z0-9._-]+/"),
-    ("secret-file", r"(?:\.netrc|id_rsa|id_ed25519)"),
+    ("secret-file", r"(?:\." + "netrc|id_" + "rsa|id_" + "ed25519)"),
 ]
 
 

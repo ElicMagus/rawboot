@@ -28,6 +28,26 @@ The history is rewritten with `git-filter-repo`:
 
 The tag message, tagger and date survive; only the tag target changes.
 
+## Credentials
+
+Publishing needs a GitHub token with **Contents**, **Issues** and **Pull
+requests** read/write on the target repository. A read of a public repository
+proves nothing: probe write access with a throwaway label (`POST` then `DELETE
+/labels`) and a temporary branch push before starting. Keep the token in the
+owner's secrets directory, never in the repository.
+
+## Private inputs
+
+Two files are kept outside the repository, in the owner's secrets directory:
+
+- `migrate-replacements.txt` — the `git-filter-repo --replace-text` rules with
+  the internal host, slug, token-file path and home paths;
+- `migrate-allow.txt` — allow-listed regexes for the fake fixtures in the
+  migration tests and for historical blobs that predate the fixture cleanup.
+
+The migration and fix-publish commands take their paths explicitly. Never commit
+them.
+
 ## Verification gates
 
 All four are blocking; run them on a clean clone before any push.
@@ -46,7 +66,7 @@ All four are blocking; run them on a clean clone before any push.
 1. Freeze Gitea numbering: create no issue or pull request until step 5 ends, or
    GitHub numbers will shift permanently.
 2. Take bundles: an internal `git bundle` of `master` plus tags and a bundle of
-   the current public `main`.
+   the current public `main`. Keep both until the final verification passes.
 3. Dry-run in a temporary directory: rewrite, run all gates, count commits,
    confirm the tag target.
 4. Rehearse the tracker in a throwaway repository: create all 56 objects in

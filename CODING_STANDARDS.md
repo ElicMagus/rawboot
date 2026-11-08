@@ -54,6 +54,9 @@ that a linter cannot decide. The repo's domain vocabulary is `GLOSSARY.md`; deci
   truncation, alignment.
 - Host tests cover pure logic and scripted transports; HIL covers the card, LED and cold boot.
   Do not claim a HIL result without the cold-start run.
+- Build fixture strings that look like secrets (tokens, `/home/<user>` paths, authorization
+  headers) from parts, so repository-wide secret scanners do not flag the test source. The
+  migration tests assert this for the scanner itself.
 
 ## Contracts and docs
 

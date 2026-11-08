@@ -20,7 +20,7 @@ minimal stable-compatible shim. Target `armv7a-none-eabi` (soft-float), Rust edi
 pinned C upstream is fetched by `scripts/fetch-upstream.sh` into `target/upstream/`.
 Explore the workspace crates, not those trees.
 
-Search: use the agent's Grep/Glob tools; `rg` is not installed on this host.
+Search: use `rg` (ripgrep) for content and file search; the Grep/Glob tools are fine for point queries.
 
 Standard commands:
 
@@ -45,15 +45,17 @@ Standard commands:
   the `core_io` shim is linted with
   `cargo clippy --manifest-path vendor/core_io/Cargo.toml --target-dir target/core_io-shim -- -D warnings`)
 - Format: `cargo fmt` (CI runs `cargo fmt --all -- --check`)
-- Check translations: `scripts/check-i18n.sh` (every public Markdown file has RU and
-  zh-CN mirrors under `i18n/`, and their relative links resolve)
+- Check translations: `scripts/check-i18n.sh` (primary docs are English, every public Markdown
+  file has RU and zh-CN mirrors under `i18n/`, and every relative link resolves)
+- Check docs only: `scripts/check-docs.sh` (branch-docs rule plus the documentation checks; use it
+  for documentation-only changes instead of the full build)
 - Disassemble: `scripts/objdump.sh -d target/armv7a-none-eabi/release/rawboot` (wraps
   `llvm-objdump` from the `llvm-tools` component; there is no `cargo objdump`)
 - Fetch pinned upstream: `scripts/fetch-upstream.sh` (writes the C tree used by the parity
   research notes to `target/upstream/awboot-<sha>/`)
 - Check everything: `scripts/check.sh` (fmt, the early `scripts/check-features.sh` feature-graph
   guard, build, the bare-metal, flasher, driver and host clippy passes, host tests, SPDX headers,
-  branch-docs rule, i18n mirrors, the loader no-write symbol guard, `cargo xtask image`/`payload`/`flasher`
+  branch-docs rule, the primary-language, Markdown-link and i18n-mirror checks, the loader no-write symbol guard, `cargo xtask image`/`payload`/`flasher`
   smoke builds, `cargo xtask fel-flash --dry-run`, and `cargo xtask sd-image`)
 - Seal an image: `cargo xtask image` (builds the loader twice and writes the sealed
   `target/rawboot-fel.bin` for FEL at `0x00028000` and `target/rawboot-boot-sd.bin` for
@@ -127,14 +129,6 @@ pushing.
 - **Review before pushing — the `code-review` skill (Standards + Spec).**
 - **HIL and docs order.** Verification instructions (runbook, commands) may be committed before
   HIL; claims about results (PASS, confirmed LED) only after HIL confirmation.
-- **Drive manual HIL steps as a dialogue.** If a test needs a human action (power-cycle, insert the
-  card, FEL/BOOT, confirm the LED), ask one question through the `question` tool before each step or
-  cycle and wait for the answer. Do not start the next cycle or move to the next step without
-  confirmation; do not merge several cycles into one question. In the question give the exact
-  physical procedure and the expected result; after the run, give PASS/FAIL, the key log lines and
-  the next step. In one `question` call ask two tab questions: the step itself and a control
-  "Sure?" with the options "Yes" and "No". Perform the action only if the step is confirmed and
-  "Sure?" is "Yes"; otherwise return to the step question. This guards against an accidental click.
 - **After a push, give the verification instructions** — build steps, FEL and/or SD boot, and what
   to observe on the payload LED.
 - **List the issue's acceptance criteria before merging.** An unmet item either keeps the issue open

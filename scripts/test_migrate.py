@@ -257,6 +257,19 @@ class ScanTests(unittest.TestCase):
         self.assertTrue(any(finding[2] == "github-token" for finding in findings))
 
 
+class ScannerSelfTests(unittest.TestCase):
+    def test_scanner_does_not_flag_its_own_sources(self):
+        patterns = scan_secrets.load_patterns([])
+        root = Path(__file__).resolve().parent.parent
+        for name in (
+            "scripts/migrate/scan_secrets.py",
+            "scripts/test_migrate.py",
+        ):
+            text = (root / name).read_text(encoding="utf-8")
+            findings = scan_secrets.scan_text(name, text, patterns, [])
+            self.assertEqual(findings, [], name)
+
+
 class RenderTrackerTests(unittest.TestCase):
     class Args:
         replacements = None

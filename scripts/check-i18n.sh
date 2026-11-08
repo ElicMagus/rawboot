@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: CC-BY-4.0
 #
-# Every public Markdown document must have RU and zh-CN mirrors under i18n/.
-# The English file is the primary source; see AGENTS.md.
+# Documentation guardrails: primary docs are English, every public Markdown file
+# has RU and zh-CN mirrors under i18n/, and every relative link resolves.
+# See AGENTS.md.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+echo "==> primary docs are English"
+python3 scripts/check_primary_language.py
+
+echo "==> markdown links"
+python3 scripts/check_md_links.py
+
+echo "==> i18n mirrors"
 missing=0
 while IFS= read -r file; do
     case "$file" in
@@ -25,5 +33,4 @@ if [ "$missing" -ne 0 ]; then
     exit 1
 fi
 
-python3 scripts/check_i18n_links.py
 echo "i18n: every public document has ru and zh-CN mirrors"
