@@ -8,6 +8,7 @@ temporary branches used to open them are deleted afterwards.
 """
 
 import argparse
+import base64
 import json
 import sys
 import time
@@ -77,18 +78,16 @@ def _bootstrap_main(client):
     except ApiError as error:
         if error.code not in (404, 409):
             raise
-        tree = client.call("POST", "/git/trees", {"tree": []})
-        commit = client.call(
-            "POST",
-            "/git/commits",
+        client.call(
+            "PUT",
+            "/contents/README.md",
             {
                 "message": "migration: initial commit",
-                "tree": tree["sha"],
-                "parents": [],
+                "branch": "main",
+                "content": base64.b64encode(
+                    b"# Migration sandbox\n\nRehearsal target for the archive import.\n"
+                ).decode("ascii"),
             },
-        )
-        client.call(
-            "POST", "/git/refs", {"ref": "refs/heads/main", "sha": commit["sha"]}
         )
         reference = client.get("/git/ref/heads/main")
     return reference["object"]["sha"]
@@ -170,13 +169,6 @@ def _ensure_milestones(client, milestones):
     return numbers
 
 
-def _next_number(client):
-    issues = client.get(
-        "/issues?state=all&sort=created&direction=desc&per_page=1"
-    )
-    return issues[0]["number"] + 1 if issues else 1
-
-
 def _create_issue(client, item, milestone_number):
     body = {
         "title": item["title"],
@@ -253,6 +245,15 @@ def run(args, manifest, client):
 
     for label in labels:
         _ensure_label(client, label)
+    if args.prune_labels:
+        wanted = {label["name"] for label in labels}
+        for existing_label in client.all("/labels?per_page=100"):
+            if existing_label["name"] not in wanted:
+                client.call(
+                    "DELETE",
+                    f"/labels/{urllib.parse.quote(existing_label['name'])}",
+                    allow=(404,),
+                )
     milestone_numbers = _ensure_milestones(client, milestones)
     for item in items:
         item["_milestone_number"] = milestone_numbers.get(item.get("milestone"))
@@ -262,13 +263,13 @@ def run(args, manifest, client):
     id_map = {entry["number"]: entry["id"] for entry in existing}
     max_number = max(id_map, default=0)
     temp_refs = set()
+    expected = max_number + 1
 
     for item in items:
         number = item["number"]
         if number <= max_number:
             print(f"skip #{number}: already present")
             continue
-        expected = _next_number(client)
         if expected != number:
             raise SystemExit(
                 f"error: next GitHub number is #{expected}, manifest expects "
@@ -282,6 +283,7 @@ def run(args, manifest, client):
             item_id, created = _create_pull(
                 client, item, args.mode, main_sha, temp_refs
             )
+        expected = created + 1
         id_map[created] = item_id
         for index, comment in enumerate(item.get("comments") or [], start=1):
             client.call(
@@ -326,6 +328,11 @@ def main():
         help="synthetic creates throwaway PR branches; refs uses rewritten SHAs",
     )
     parser.add_argument("--delay", type=float, default=0.2, help="seconds between writes")
+    parser.add_argument(
+        "--prune-labels",
+        action="store_true",
+        help="delete target labels that are absent from the manifest",
+    )
     parser.add_argument("--dry-run", action="store_true", help="print the plan only")
     args = parser.parse_args()
 

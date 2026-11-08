@@ -84,7 +84,8 @@ silently shift the archive. `--mode synthetic` boots an empty repository and
 opens throwaway pull requests (rehearsal); `--mode refs` uses the rewritten
 `head_sha`/`base_sha` from the manifest and needs the history already pushed.
 Archived pull requests are closed after creation and their temporary branches
-are deleted. Use `--dry-run` to print the plan.
+are deleted. `--prune-labels` removes target labels that are not in the manifest
+(for example GitHub's default set). Use `--dry-run` to print the plan.
 
 Rehearsal flow for an empty sandbox repository:
 
