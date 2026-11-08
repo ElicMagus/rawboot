@@ -365,7 +365,7 @@ class PullRewriteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
             def run(*args):
-                subprocess.run(
+                return subprocess.run(
                     ["git", "-C", str(repo), *args],
                     check=True,
                     capture_output=True,
