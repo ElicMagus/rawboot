@@ -1,0 +1,11 @@
+# git-filter-repo --replace-text example.
+#
+# Copy this file outside the repository and replace the placeholders with the
+# real internal values. Keep the filled-in copy out of the repository.
+#
+# Format: literal:<text>==><replacement>, one rule per line.
+
+literal:<internal-gitea-url>==>https://github.com/<owner>/<repo>
+literal:<internal-repo-slug>==>rawboot-internal
+literal:<token-file-path>==><external-secret-file>
+literal:/home/<user>==><workspace>
